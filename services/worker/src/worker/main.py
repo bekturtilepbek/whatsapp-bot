@@ -1,9 +1,8 @@
 """Точка входа worker.
 
-Блок 1: /health для healthcheck compose + временный echo-консюмер wa:in
-(services/worker/src/worker/echo.py) — доказывает контур gateway<->Redis
-<->worker целиком. Реальный пайплайн (дедуп, фильтры, батчинг, LLM) —
-Блок 2 STAGE1_CORE.
+/health для healthcheck compose + пайплайн диалога
+(services/worker/src/worker/pipeline/consumer.py) — дедуп, фильтры,
+батчинг, история, LLM, ответ. Заменяет временный echo Блока 1.
 """
 
 from __future__ import annotations
@@ -14,9 +13,10 @@ import signal
 
 import structlog
 from aiohttp import web
+from db.engine import make_engine, make_session_factory
 
 from .bus import make_redis
-from .echo import run_echo_consumer
+from .pipeline.consumer import run_pipeline_consumer
 
 logger = structlog.get_logger("worker")
 
@@ -40,8 +40,12 @@ async def run_health_server() -> web.AppRunner:
 async def main() -> None:
     health_runner = await run_health_server()
     redis = make_redis()
+    engine = make_engine()
+    session_factory = make_session_factory(engine)
     consumer_name = f"worker-{os.getpid()}"
-    echo_task = asyncio.create_task(run_echo_consumer(redis, consumer_name))
+    pipeline_task = asyncio.create_task(
+        run_pipeline_consumer(redis, session_factory, consumer_name)
+    )
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -55,12 +59,13 @@ async def main() -> None:
 
     await stop.wait()
     logger.info("shutting down")
-    echo_task.cancel()
+    pipeline_task.cancel()
     try:
-        await echo_task
+        await pipeline_task
     except asyncio.CancelledError:
         pass
     await redis.aclose()
+    await engine.dispose()
     await health_runner.cleanup()
 
 

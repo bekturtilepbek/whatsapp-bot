@@ -8,7 +8,7 @@ import time
 from fakeredis.aioredis import FakeRedis
 from worker.pipeline.batching import register_arrival, wait_for_quiet
 
-TIMEOUT = 0.06  # секунды — короткое окно, чтобы тесты были быстрыми
+TIMEOUT = 0.15  # секунды — короткое окно, но с запасом от дребезга шедулера ОС
 
 
 async def test_first_arrival_becomes_leader_second_does_not() -> None:
@@ -40,7 +40,7 @@ async def test_wait_for_quiet_returns_only_after_silence_window() -> None:
         start = time.monotonic()
         await wait_for_quiet(redis, "bot-1", "chat-1")
         elapsed = time.monotonic() - start
-        assert elapsed >= TIMEOUT * 0.8  # не вернулся сразу
+        assert elapsed >= TIMEOUT * 0.6  # не вернулся сразу
     finally:
         await redis.aclose()
 

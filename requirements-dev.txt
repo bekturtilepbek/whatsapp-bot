@@ -1,4 +1,6 @@
-# Инструменты качества и тестов; ставятся поверх editable-пакетов libs/* и services/worker
+# Dev tooling: quality checks and tests, on top of the editable libs/* and
+# services/worker packages. Kept ASCII-only: pip on Windows reads this file
+# via the console locale (cp1251 here), which mis-decodes non-ASCII comments.
 ruff>=0.6
 mypy>=1.11
 pytest>=8.3

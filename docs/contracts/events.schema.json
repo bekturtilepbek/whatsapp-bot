@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://platform.local/contracts/events.schema.json",
+  "title": "Platform events v1",
+  "description": "Контракт событий шины Redis Streams (wa:in / wa:out). Единственный источник истины; из него сверяются Pydantic- и zod-модели.",
+  "version": 1,
+  "definitions": {
+    "inboundText": {
+      "type": "object",
+      "description": "Входящее сообщение из wa:in.",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "inbound.text" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "wa_msg_id": { "type": "string", "minLength": 1 },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "sender_wa_id": { "type": "string", "minLength": 1 },
+        "sender_lid": { "type": ["string", "null"] },
+        "from_me": { "type": "boolean" },
+        "text": { "type": "string" },
+        "quoted_text": { "type": ["string", "null"] },
+        "media_type": { "type": ["string", "null"] },
+        "ts": { "type": "integer", "description": "unix ms" }
+      },
+      "required": [
+        "type", "bot_id", "wa_msg_id", "chat_id", "sender_wa_id",
+        "from_me", "text", "ts"
+      ]
+    },
+    "outboundText": {
+      "type": "object",
+      "description": "Исходящее текстовое сообщение в wa:out.",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.text" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "text", "client_msg_id"]
+    },
+    "outboundTyping": {
+      "type": "object",
+      "description": "Индикатор \"печатает\" в wa:out.",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.typing" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "client_msg_id"]
+    },
+    "sessionStatus": {
+      "type": "object",
+      "description": "Статус сессии Baileys (публикуется gateway в wa:in).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "session.status" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "status": {
+          "type": "string",
+          "enum": ["connecting", "qr", "open", "reconnecting", "logged_out"]
+        },
+        "ts": { "type": "integer", "description": "unix ms" }
+      },
+      "required": ["type", "bot_id", "status", "ts"]
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/inboundText" },
+    { "$ref": "#/definitions/outboundText" },
+    { "$ref": "#/definitions/outboundTyping" },
+    { "$ref": "#/definitions/sessionStatus" }
+  ]
+}

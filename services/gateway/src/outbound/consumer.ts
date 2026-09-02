@@ -116,7 +116,7 @@ export class OutboundConsumer {
     try {
       if (event.type === "outbound.text") {
         await withTimeout(
-          this.sessions.sendText(event.bot_id, event.chat_id, event.text),
+          this.sessions.sendText(event.bot_id, event.chat_id, event.text, event.client_msg_id),
           SEND_TIMEOUT_MS,
           "sendText",
         );

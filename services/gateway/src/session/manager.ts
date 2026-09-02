@@ -105,8 +105,15 @@ export class SessionManager {
     return session.sock;
   }
 
-  async sendText(botId: string, chatId: string, text: string): Promise<void> {
-    await this.activeSocket(botId).sendMessage(chatId, { text });
+  /**
+   * messageId = clientMsgId — не просто трассировка: Блок 3 (handoff)
+   * различает наш echo от ручного ответа менеджера именно по тому, что
+   * wa_msg_id пришедшего from_me-сообщения совпадает с client_msg_id,
+   * который мы сами выдали при отправке (см. wa:sent:{client_msg_id} —
+   * тот же ключ идемпотентности снизу).
+   */
+  async sendText(botId: string, chatId: string, text: string, clientMsgId: string): Promise<void> {
+    await this.activeSocket(botId).sendMessage(chatId, { text }, { messageId: clientMsgId });
   }
 
   async sendTyping(botId: string, chatId: string): Promise<void> {

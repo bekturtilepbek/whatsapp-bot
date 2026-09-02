@@ -55,7 +55,12 @@ describe("OutboundConsumer idempotency and routing", () => {
     await (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
       .processEntry("1-0", payloadFields(event));
 
-    expect(sessions.sendText).toHaveBeenCalledWith(BOT_ID, "996700000000@s.whatsapp.net", "Здравствуйте");
+    expect(sessions.sendText).toHaveBeenCalledWith(
+      BOT_ID,
+      "996700000000@s.whatsapp.net",
+      "Здравствуйте",
+      "msg-1",
+    );
     expect(redis.set).toHaveBeenCalledWith("wa:sent:msg-1", "1", "EX", 3600, "NX");
     expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
   });

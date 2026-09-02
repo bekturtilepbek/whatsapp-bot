@@ -32,8 +32,16 @@ app.get<{ Params: { botId: string } }>("/qr/:botId", async (request, reply) => {
   }
 });
 
-// POST /bots/{id}/logout — HTTP-ручка api (STAGE1_CORE Блок 3), сюда придёт
-// вызов из api-сервиса; SessionManager.logout() уже реализован и ждёт маршрута.
+// Внутренний маршрут: вызывается api-сервисом (STAGE1_CORE Блок 3),
+// наружу в проде не смотрит — только api слушает публично (localhost+SSH-туннель).
+app.post<{ Params: { botId: string } }>("/bots/:botId/logout", async (request, reply) => {
+  const { botId } = request.params;
+  if (!(await botExists(pool, botId))) {
+    return reply.code(404).send({ error: "bot not found" });
+  }
+  await sessions.logout(botId);
+  return reply.send({ status: "logged_out" });
+});
 
 async function start(): Promise<void> {
   const linkedBotIds = await listLinkedBotIds(pool);

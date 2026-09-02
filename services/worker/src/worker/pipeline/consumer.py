@@ -137,12 +137,16 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
     """typing + text — РАЗНЫЕ client_msg_id: идемпотентность gateway (Блок 1)
     ключуется по client_msg_id для обоих типов событий одинаково — общий id
     заставил бы её принять отправку текста за дубль отправки typing.
+
+    .hex (32 hex-символа без дефисов), не str(uuid4()) с дефисами: gateway
+    (Блок 3) отправляет outbound.text с messageId=client_msg_id — это
+    становится РЕАЛЬНЫМ WhatsApp message ID, а не просто внутренней меткой.
     """
     typing_event = OutboundTyping(
-        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=str(uuid.uuid4())
+        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
     )
     text_event = OutboundText(
-        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=str(uuid.uuid4())
+        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=uuid.uuid4().hex
     )
     await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))

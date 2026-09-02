@@ -8,7 +8,9 @@ export default [
     languageOptions: {
       parser: tsparser,
       parserOptions: {
-        project: "./tsconfig.json",
+        // Отдельный tsconfig для линта: включает *.test.ts (прод-tsconfig.json
+        // их исключает — тесты компилируются только vitest'ом, не tsc).
+        project: "./tsconfig.eslint.json",
       },
     },
     plugins: {

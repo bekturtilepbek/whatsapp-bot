@@ -9,11 +9,13 @@ from __future__ import annotations
 import uuid
 
 import httpx
+from core.redis_keys import handoff_key
 from db.bots import get_bot, update_bot
 from fastapi import APIRouter, HTTPException, Response
 
 from ..db import SessionDep
 from ..gateway_client import GatewayClientDep
+from ..redis_client import RedisDep
 from ..schemas.bots import BotOut, BotPatch
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -67,3 +69,13 @@ async def get_qr(bot_id: uuid.UUID, gateway: GatewayClientDep) -> Response:
 @router.post("/{bot_id}/logout")
 async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep) -> Response:
     return await _proxy_to_gateway(gateway, "POST", f"/bots/{bot_id}/logout")
+
+
+@router.post("/{bot_id}/chats/{chat_id}/release")
+async def release_chat(bot_id: uuid.UUID, chat_id: str, redis: RedisDep) -> dict[str, str]:
+    """Ручной возврат чата боту — DELETE того же ключа, что снимается по
+    TTL (worker/pipeline/handoff.py). На несуществующий ключ — no-op,
+    идемпотентно: повторный вызов не ошибка.
+    """
+    await redis.delete(handoff_key(str(bot_id), chat_id))
+    return {"status": "released"}

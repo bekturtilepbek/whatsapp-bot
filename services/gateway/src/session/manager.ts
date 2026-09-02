@@ -6,6 +6,8 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   jidDecode,
   makeCacheableSignalKeyStore,
+  type MessageUpsertType,
+  type WAMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import type { Redis } from "ioredis";
@@ -17,6 +19,7 @@ import { usePostgresAuthState } from "../auth/postgres-auth-state.js";
 import { publishEvent } from "../bus/publish.js";
 import type { SessionStatus } from "../contracts/events.js";
 import { clearSession, markLinked } from "../db/bots.js";
+import { normalizeInboundMessage } from "../normalize/inbound.js";
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
@@ -138,6 +141,10 @@ export class SessionManager {
       session.lastActivity = Date.now();
       void this.onConnectionUpdate(botId, session, update);
     });
+    sock.ev.on("messages.upsert", (upsert) => {
+      session.lastActivity = Date.now();
+      void this.onMessagesUpsert(botId, upsert);
+    });
 
     await this.publishStatus(botId, "connecting");
   }
@@ -195,6 +202,25 @@ export class SessionManager {
       setTimeout(() => {
         void this.connect(botId, attempt);
       }, delay);
+    }
+  }
+
+  private async onMessagesUpsert(
+    botId: string,
+    upsert: { messages: WAMessage[]; type: MessageUpsertType },
+  ): Promise<void> {
+    // "append" — доливка истории при синке/реконнекте, а не живое сообщение;
+    // в Блок 1 не публикуем, иначе на каждый реконнект в wa:in льётся история.
+    if (upsert.type !== "notify") return;
+
+    for (const msg of upsert.messages) {
+      const event = normalizeInboundMessage(botId, msg);
+      if (!event) continue;
+      try {
+        await publishEvent(this.redis, IN_STREAM, event);
+      } catch (err) {
+        this.logger.error({ err, botId, waMsgId: event.wa_msg_id }, "failed to publish inbound.text");
+      }
     }
   }
 

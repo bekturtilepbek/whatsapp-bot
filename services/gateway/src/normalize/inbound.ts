@@ -1,0 +1,84 @@
+// Нормализация proto.IWebMessageInfo (Baileys) -> inbound.text по контракту.
+// Ноль бизнес-логики (ADR-002): фильтры групп/чёрного списка/графика — дело
+// worker'а (Блок 2). Здесь только форма события; from_me тоже нормализуется —
+// нужен worker'у для детекта ответа менеджера (handoff, Блок 3).
+import { getContentType, jidDecode, toNumber, type WAMessage } from "@whiskeysockets/baileys";
+
+import type { InboundText } from "../contracts/events.js";
+
+// Соответствие FEATURES.md 2.6 (SUPPORTED_MEDIA_TYPES): image/video/audio/document/sticker.
+const MEDIA_TYPE_BY_CONTENT_KEY: Partial<Record<string, string>> = {
+  imageMessage: "image",
+  videoMessage: "video",
+  audioMessage: "audio",
+  documentMessage: "document",
+  stickerMessage: "sticker",
+};
+
+function extractText(contentType: string | undefined, content: Record<string, unknown> | undefined): string {
+  if (!contentType || !content) return "";
+  switch (contentType) {
+    case "conversation":
+      return typeof content.conversation === "string" ? content.conversation : "";
+    case "extendedTextMessage":
+      return typeof content.extendedTextMessage === "object" && content.extendedTextMessage
+        ? ((content.extendedTextMessage as { text?: string }).text ?? "")
+        : "";
+    default: {
+      // Медиа-сообщения могут нести подпись (caption) — считаем это текстом.
+      const body = content[contentType] as { caption?: string } | undefined;
+      return body?.caption ?? "";
+    }
+  }
+}
+
+function extractQuotedText(
+  contentType: string | undefined,
+  content: Record<string, unknown> | undefined,
+): string | null {
+  if (!contentType || !content) return null;
+  const body = content[contentType] as { contextInfo?: { quotedMessage?: WAMessage["message"] } } | undefined;
+  const quoted = body?.contextInfo?.quotedMessage;
+  if (!quoted) return null;
+  const quotedType = getContentType(quoted);
+  const text = extractText(quotedType, quoted as Record<string, unknown>);
+  return text || null;
+}
+
+/**
+ * @returns null, если сообщение не текстовое и не из поддерживаемых медиатипов
+ * (реакции, опросы, служебные протокольные сообщения и т.п. — вне скоупа Блока 1).
+ */
+export function normalizeInboundMessage(botId: string, msg: WAMessage): InboundText | null {
+  const chatId = msg.key.remoteJid;
+  const waMsgId = msg.key.id;
+  if (!chatId || !waMsgId || !msg.message) return null;
+
+  const contentType = getContentType(msg.message);
+  const content = msg.message as unknown as Record<string, unknown>;
+  const text = extractText(contentType, content);
+  const mediaType = contentType ? (MEDIA_TYPE_BY_CONTENT_KEY[contentType] ?? null) : null;
+
+  if (!text && !mediaType) return null; // реакции/опросы/протокольные апдейты — пропускаем
+
+  const senderJid = msg.key.participant ?? chatId;
+  const decoded = jidDecode(senderJid);
+  // LID-контакты: Baileys этой версии не отдаёt сопоставление с телефонным JID
+  // на уровне сообщения (см. FEATURES.md 9.2) — пишем то, что реально пришло,
+  // sender_lid не заполняем здесь; матчинг wa_id<->lid — задача Block 2.
+  const senderWaId = decoded?.user ?? senderJid;
+
+  return {
+    type: "inbound.text",
+    bot_id: botId,
+    wa_msg_id: waMsgId,
+    chat_id: chatId,
+    sender_wa_id: senderWaId,
+    sender_lid: null,
+    from_me: msg.key.fromMe ?? false,
+    text,
+    quoted_text: extractQuotedText(contentType, content),
+    media_type: mediaType,
+    ts: toNumber(msg.messageTimestamp) * 1000,
+  };
+}

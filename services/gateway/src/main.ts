@@ -1,17 +1,19 @@
-// Точка входа gateway: сессии Baileys, auth-state в Postgres, QR-подключение.
-// Мост в Redis Streams (inbound/outbound) — шаги 4b/4c.
+// Точка входа gateway: сессии Baileys, auth-state в Postgres, QR-подключение,
+// мост в Redis Streams (inbound XADD, outbound consumer group).
 import Fastify from "fastify";
 import QRCode from "qrcode";
 
 import { closeRedis, getRedis } from "./bus/redis.js";
 import { botExists, listLinkedBotIds } from "./db/bots.js";
 import { closePool, getPool } from "./db/pool.js";
+import { OutboundConsumer } from "./outbound/consumer.js";
 import { SessionManager } from "./session/manager.js";
 
 const app = Fastify({ logger: { name: "gateway" } });
 const pool = getPool();
 const redis = getRedis();
 const sessions = new SessionManager(pool, redis, app.log);
+const outbound = new OutboundConsumer(redis, sessions, app.log);
 
 app.get("/health", async () => ({ status: "ok" }));
 
@@ -37,6 +39,7 @@ async function start(): Promise<void> {
   const linkedBotIds = await listLinkedBotIds(pool);
   app.log.info({ count: linkedBotIds.length }, "starting sessions for linked bots");
   await sessions.startAllLinked(linkedBotIds);
+  await outbound.start();
 
   const port = Number(process.env.GATEWAY_PORT ?? 8080);
   await app.listen({ port, host: "0.0.0.0" });
@@ -45,6 +48,7 @@ async function start(): Promise<void> {
 
 async function shutdown(): Promise<void> {
   app.log.info("shutting down");
+  await outbound.stop();
   await sessions.stopAll();
   await app.close();
   await closeRedis();

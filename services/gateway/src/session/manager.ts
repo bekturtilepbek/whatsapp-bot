@@ -98,6 +98,21 @@ export class SessionManager {
     await clearSession(this.pool, botId);
   }
 
+  /** Активный ли сокет у бота прямо сейчас (не reconnecting-плейсхолдер). */
+  private activeSocket(botId: string): WASocket {
+    const session = this.sessions.get(botId);
+    if (!session) throw new Error(`no session running for bot ${botId}`);
+    return session.sock;
+  }
+
+  async sendText(botId: string, chatId: string, text: string): Promise<void> {
+    await this.activeSocket(botId).sendMessage(chatId, { text });
+  }
+
+  async sendTyping(botId: string, chatId: string): Promise<void> {
+    await this.activeSocket(botId).sendPresenceUpdate("composing", chatId);
+  }
+
   async stopAll(): Promise<void> {
     for (const [botId, session] of this.sessions) {
       session.stopping = true;

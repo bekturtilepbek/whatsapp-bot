@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
@@ -46,7 +47,7 @@ def database_url() -> AsyncIterator[str]:
         subprocess.run(
             [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
             check=True,
-            env={"DATABASE_URL": url},
+            env={**os.environ, "DATABASE_URL": url},
         )
         yield url
 
@@ -108,12 +109,27 @@ async def test_media_message_gets_fallback_reply_without_llm(
         assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
 
         async with session_factory() as session:
-            messages = (await session.execute(select(Message))).scalars().all()
+            # БД (testcontainers) общая на весь модуль — фильтруем по своему
+            # bot_id и сортируем по ts явно (порядок SELECT без ORDER BY не
+            # гарантирован SQL-семантикой).
+            messages = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                    )
+                )
+                .scalars()
+                .all()
+            )
             assert [m.role for m in messages] == ["user", "assistant"]
             assert messages[0].content == "[фото]"  # плейсхолдер, не пустая строка
             assert messages[1].content == DEFAULT_MEDIA_FALLBACK_TEXT
 
-            usage = (await session.execute(select(UsageEvent))).scalars().all()
+            usage = (
+                (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
+                .scalars()
+                .all()
+            )
             assert usage == []  # LLM не вызывался — нечего учитывать
     finally:
         await redis.aclose()

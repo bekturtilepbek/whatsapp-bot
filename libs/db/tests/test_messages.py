@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
@@ -46,7 +47,7 @@ def database_url() -> AsyncIterator[str]:
         subprocess.run(
             [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
             check=True,
-            env={"DATABASE_URL": url},
+            env={**os.environ, "DATABASE_URL": url},
         )
         yield url
 

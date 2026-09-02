@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
@@ -46,7 +47,7 @@ def database_url() -> AsyncIterator[str]:
         subprocess.run(
             [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
             check=True,
-            env={"DATABASE_URL": url},
+            env={**os.environ, "DATABASE_URL": url},
         )
         yield url
 
@@ -83,9 +84,13 @@ def _inbound_payload(bot_id: uuid.UUID, **overrides: object) -> dict[str, object
     return payload
 
 
-async def _count_messages(session_factory: async_sessionmaker[AsyncSession]) -> int:
+async def _count_messages(
+    session_factory: async_sessionmaker[AsyncSession], bot_id: uuid.UUID
+) -> int:
+    # БД (testcontainers) на весь модуль — считаем строго по своему bot_id,
+    # иначе тесты видят строки, оставленные предыдущими тестами того же файла.
     async with session_factory() as session:
-        result = await session.execute(select(Message))
+        result = await session.execute(select(Message).where(Message.bot_id == bot_id))
         return len(result.scalars().all())
 
 
@@ -99,7 +104,7 @@ async def test_enabled_bot_writes_incoming_message(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 1
+    assert await _count_messages(session_factory, bot_id) == 1
 
 
 async def test_disabled_bot_still_writes_history(
@@ -113,7 +118,7 @@ async def test_disabled_bot_still_writes_history(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 1
+    assert await _count_messages(session_factory, bot_id) == 1
 
 
 async def test_duplicate_wa_msg_id_is_not_written_twice(
@@ -127,7 +132,7 @@ async def test_duplicate_wa_msg_id_is_not_written_twice(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 1
+    assert await _count_messages(session_factory, bot_id) == 1
 
 
 async def test_from_me_event_is_not_written(
@@ -140,7 +145,7 @@ async def test_from_me_event_is_not_written(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 0
+    assert await _count_messages(session_factory, bot_id) == 0
 
 
 async def test_group_chat_event_is_not_written(
@@ -155,7 +160,7 @@ async def test_group_chat_event_is_not_written(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 0
+    assert await _count_messages(session_factory, bot_id) == 0
 
 
 async def test_session_status_event_is_ignored(
@@ -169,4 +174,4 @@ async def test_session_status_event_is_ignored(
     finally:
         await redis.aclose()
 
-    assert await _count_messages(session_factory) == 0
+    assert await _count_messages(session_factory, bot_id) == 0

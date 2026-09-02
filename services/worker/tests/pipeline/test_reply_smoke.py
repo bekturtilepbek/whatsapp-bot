@@ -10,6 +10,7 @@ fakeredis (тот же выбор, что и для dedup/batching/lock-тест
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
@@ -54,7 +55,7 @@ def database_url() -> AsyncIterator[str]:
         subprocess.run(
             [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
             check=True,
-            env={"DATABASE_URL": url},
+            env={**os.environ, "DATABASE_URL": url},
         )
         yield url
 
@@ -115,11 +116,26 @@ async def test_inbound_text_produces_reply_history_and_usage(
         assert "Да, доставка есть." in out_entries[1][1]["payload"]
 
         async with session_factory() as session:
-            messages = (await session.execute(select(Message))).scalars().all()
+            # БД (testcontainers) общая на весь модуль — фильтруем по своему
+            # bot_id, иначе видны строки соседних тестов этого файла; сортируем
+            # по ts явно (порядок SELECT без ORDER BY не гарантирован).
+            messages = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                    )
+                )
+                .scalars()
+                .all()
+            )
             assert [m.role for m in messages] == ["user", "assistant"]
             assert messages[1].content == "Да, доставка есть."
 
-            usage = (await session.execute(select(UsageEvent))).scalars().all()
+            usage = (
+                (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
+                .scalars()
+                .all()
+            )
             assert len(usage) == 1
             assert usage[0].tokens_in == 42
             assert usage[0].tokens_out == 7
@@ -148,9 +164,17 @@ async def test_llm_failure_does_not_crash_and_releases_lock(
         assert await redis.get(_lock_key(str(bot_id), "996700000000@s.whatsapp.net")) is None
 
         async with session_factory() as session:
-            messages = (await session.execute(select(Message))).scalars().all()
+            messages = (
+                (await session.execute(select(Message).where(Message.bot_id == bot_id)))
+                .scalars()
+                .all()
+            )
             assert [m.role for m in messages] == ["user"]  # ответа нет
-            usage = (await session.execute(select(UsageEvent))).scalars().all()
+            usage = (
+                (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
+                .scalars()
+                .all()
+            )
             assert usage == []
     finally:
         await redis.aclose()

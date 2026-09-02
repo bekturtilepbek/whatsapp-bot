@@ -58,6 +58,9 @@ services:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
       WORKER_HEALTH_PORT: "8081"
+      # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
     volumes:
       - ../services/worker/src:/app/services/worker/src
       - ../libs:/app/libs

@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "core",
     "db",
+    "llm",
     "redis>=5.0",
     "structlog>=24.4",
     "aiohttp>=3.10",

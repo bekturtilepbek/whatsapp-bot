@@ -1,9 +1,9 @@
 """Реальный пайплайн диалога — заменяет временный echo (Блок 1).
 
-Порядок (STAGE1_CORE Блок 2, шаг 2): дедуп → фильтры → contact → запись
-входящего → enabled → батчинг (debounce) → лок диалога → история → LLM →
-typing → ответ → запись ответа → usage_events. Медиа-заглушка — Шаг 6,
-подключается отдельной веткой перед вызовом LLM.
+Порядок (STAGE1_CORE Блок 2): дедуп → фильтры → contact → запись входящего →
+enabled → батчинг (debounce) → лок диалога → медиа? заглушка без LLM :
+история → LLM → typing → ответ → запись ответа → usage_events (только для
+LLM-ветки — медиа-заглушка usage_events не пишет, вызова LLM не было).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
 снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE).
@@ -42,6 +42,7 @@ logger = structlog.get_logger("worker.pipeline")
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
+DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -118,7 +119,10 @@ async def _process_entry(
         return
 
     try:
-        await _reply(event, bot, contact.id, redis, session_factory)
+        if event.media_type is not None:
+            await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
+        else:
+            await _reply(event, bot, contact.id, redis, session_factory)
     except Exception:
         # "Любой внешний вызов — с таймаутом" не спасает от сбоя самого
         # вызова (LLM/Redis/БД) — здесь лог и тихий отказ, без ретрая
@@ -126,6 +130,21 @@ async def _process_entry(
         logger.exception("reply pipeline failed", bot_id=bot_id_str, chat_id=event.chat_id)
     finally:
         await lock.release(redis, bot_id_str, event.chat_id)
+
+
+async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
+    """typing + text — РАЗНЫЕ client_msg_id: идемпотентность gateway (Блок 1)
+    ключуется по client_msg_id для обоих типов событий одинаково — общий id
+    заставил бы её принять отправку текста за дубль отправки typing.
+    """
+    typing_event = OutboundTyping(
+        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=str(uuid.uuid4())
+    )
+    text_event = OutboundText(
+        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=str(uuid.uuid4())
+    )
+    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
+    await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
 async def _reply(
@@ -146,17 +165,7 @@ async def _reply(
         logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
         return
 
-    typing_event = OutboundTyping(
-        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=str(uuid.uuid4())
-    )
-    text_event = OutboundText(
-        bot_id=event.bot_id,
-        chat_id=event.chat_id,
-        text=result.text,
-        client_msg_id=str(uuid.uuid4()),
-    )
-    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
-    await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+    await _send_reply(event, redis, result.text)
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     async with session_factory() as session:
@@ -164,6 +173,24 @@ async def _reply(
         await record_usage(
             session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
         )
+        await session.commit()
+
+
+async def _reply_with_media_fallback(
+    event: InboundText,
+    bot: Bot,
+    contact_id: uuid.UUID,
+    redis: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """FEATURES.md 2.6: медиа вне текстового пайплайна — фиксированный ответ,
+    без LLM и без usage_events (вызова LLM не было — нечего учитывать).
+    """
+    text = bot.settings.get("media_fallback_text", DEFAULT_MEDIA_FALLBACK_TEXT)
+    await _send_reply(event, redis, text)
+
+    async with session_factory() as session:
+        await insert_outgoing(session, event.bot_id, contact_id, text)
         await session.commit()
 
 

@@ -1,9 +1,9 @@
 """Реальный пайплайн диалога — заменяет временный echo (Блок 1).
 
-Порядок (STAGE1_CORE Блок 2): дедуп → фильтры → contact → запись входящего →
-enabled → батчинг (debounce) → лок диалога → медиа? заглушка без LLM :
-история → LLM → typing → ответ → запись ответа → usage_events (только для
-LLM-ветки — медиа-заглушка usage_events не пишет, вызова LLM не было).
+Порядок (STAGE1_CORE Блок 2+3): дедуп → фильтры → from_me? handoff-ветка :
+contact → запись входящего → enabled → handoff активен? молчим : батчинг
+(debounce) → лок диалога → медиа? заглушка без LLM : история → LLM →
+typing → ответ → запись ответа → usage_events (только для LLM-ветки).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
 снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE).
@@ -31,7 +31,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
-from . import batching, lock
+from . import batching, handoff, lock
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
@@ -44,6 +44,7 @@ _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
 DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
+DEFAULT_AUTO_RELEASE_MINUTES = 12
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -56,6 +57,15 @@ def _batch_timeout_seconds(bot: Bot) -> float:
         return float(value)
     except (TypeError, ValueError):
         return DEFAULT_BATCH_TIMEOUT_SECONDS
+
+
+def _handoff_ttl_seconds(bot: Bot) -> int:
+    value = bot.settings.get("auto_release_minutes", DEFAULT_AUTO_RELEASE_MINUTES)
+    try:
+        minutes = float(value)
+    except (TypeError, ValueError):
+        minutes = DEFAULT_AUTO_RELEASE_MINUTES
+    return int(minutes * 60)
 
 
 async def _process_entry(
@@ -72,16 +82,15 @@ async def _process_entry(
     if event.type != "inbound.text":
         return  # session.status и т.п. — не пайплайн диалога
 
-    if event.from_me:
-        # Публикуется gateway'ем для будущего handoff (Блок 3, детект ответа
-        # менеджера). Пока не обрабатываем — иначе бот отвечал бы сам себе.
-        return
-
     if await is_duplicate(redis, str(event.bot_id), event.wa_msg_id):
         logger.info("duplicate wa_msg_id, skipping", wa_msg_id=event.wa_msg_id)
         return
 
     if is_ignored_chat(event.chat_id):
+        return
+
+    if event.from_me:
+        await _handle_manager_message(event, redis, session_factory)
         return
 
     async with session_factory() as session:
@@ -107,6 +116,9 @@ async def _process_entry(
         return  # молчим, но история уже записана выше
 
     bot_id_str = str(event.bot_id)
+    if await handoff.is_active(redis, bot_id_str, event.chat_id):
+        return  # менеджер ведёт чат вручную — история уже записана выше
+
     became_leader = await batching.register_arrival(
         redis, bot_id_str, event.chat_id, _batch_timeout_seconds(bot)
     )
@@ -131,6 +143,36 @@ async def _process_entry(
         logger.exception("reply pipeline failed", bot_id=bot_id_str, chat_id=event.chat_id)
     finally:
         await lock.release(redis, bot_id_str, event.chat_id)
+
+
+async def _handle_manager_message(
+    event: InboundText,
+    redis: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """from_me=true: либо наш собственный echo (мы это отправили), либо
+    менеджер ответил вручную с телефона — тогда включаем handoff и пишем
+    его сообщение в историю ролью assistant с префиксом (STAGE1_CORE Блок 3).
+    """
+    if await handoff.is_own_echo(redis, event.wa_msg_id):
+        return  # это отправил сам бот — не наш случай, ничего не делаем
+
+    bot_id_str = str(event.bot_id)
+    content = handoff.MANAGER_REPLY_PREFIX + incoming_content(event.text, event.media_type)
+
+    async with session_factory() as session:
+        contact = await match_or_create_contact(
+            session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
+        )
+        await insert_outgoing(session, event.bot_id, contact.id, content)
+        bot = await get_bot(session, event.bot_id)
+        await session.commit()
+
+    if bot is None:
+        logger.error("bot not found for manager message", bot_id=bot_id_str)
+        return
+
+    await handoff.mark_manager_reply(redis, bot_id_str, event.chat_id, _handoff_ttl_seconds(bot))
 
 
 async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:

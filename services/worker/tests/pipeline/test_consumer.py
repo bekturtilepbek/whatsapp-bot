@@ -135,19 +135,6 @@ async def test_duplicate_wa_msg_id_is_not_written_twice(
     assert await _count_messages(session_factory, bot_id) == 1
 
 
-async def test_from_me_event_is_not_written(
-    session_factory: async_sessionmaker[AsyncSession],
-) -> None:
-    bot_id = await _make_bot(session_factory, enabled=True)
-    redis = FakeRedis()
-    try:
-        await _process_entry(_inbound_payload(bot_id, from_me=True), redis, session_factory)
-    finally:
-        await redis.aclose()
-
-    assert await _count_messages(session_factory, bot_id) == 0
-
-
 async def test_group_chat_event_is_not_written(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

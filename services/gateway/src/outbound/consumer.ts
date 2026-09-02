@@ -106,6 +106,8 @@ export class OutboundConsumer {
   private async handleOutbound(
     event: Extract<Event, { type: "outbound.text" | "outbound.typing" }>,
   ): Promise<void> {
+    // Формат ключа задокументирован и переиспользуется в libs/core/src/core/redis_keys.py
+    // (worker, api) — Блок 3 detect'ит по нему свой echo для handoff. Меняешь тут — меняй и там.
     const dedupeKey = `wa:sent:${event.client_msg_id}`;
     const reserved = await this.redis.set(dedupeKey, "1", "EX", IDEMPOTENCY_TTL_SECONDS, "NX");
     if (reserved !== "OK") {

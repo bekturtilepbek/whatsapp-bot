@@ -11,6 +11,7 @@ LLM-ветки — медиа-заглушка usage_events не пишет, в�
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -199,12 +200,24 @@ async def run_pipeline_consumer(
     session_factory: async_sessionmaker[AsyncSession],
     consumer_name: str,
 ) -> None:
-    """Останавливается через отмену задачи (asyncio.CancelledError) — как echo.py."""
+    """Останавливается через отмену задачи (asyncio.CancelledError) — как echo.py.
+
+    XREADGROUP сам по себе не защищён try/except внутри read_group — если
+    соединение тихо потеряно сетью (redis-py упадёт TimeoutError/ConnectionError
+    по socket_timeout из bus.make_redis), исключение вылетит прямо из
+    async for. Без перехвата здесь оно пробросилось бы наружу и убило бы
+    всю задачу консюмера навсегда (никто её больше не await'ит и не
+    перезапускает) — а не просто одно сообщение.
+    """
     await ensure_group(redis, IN_STREAM, GROUP)
     while True:
-        async for entry in read_group(redis, IN_STREAM, GROUP, consumer_name):
-            try:
-                if entry.payload is not None:
-                    await _process_entry(entry.payload, redis, session_factory)
-            finally:
-                await redis.xack(IN_STREAM, GROUP, entry.entry_id)
+        try:
+            async for entry in read_group(redis, IN_STREAM, GROUP, consumer_name):
+                try:
+                    if entry.payload is not None:
+                        await _process_entry(entry.payload, redis, session_factory)
+                finally:
+                    await redis.xack(IN_STREAM, GROUP, entry.entry_id)
+        except Exception:
+            logger.exception("wa:in read loop failed, retrying")
+            await asyncio.sleep(1)

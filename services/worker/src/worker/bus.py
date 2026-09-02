@@ -20,7 +20,14 @@ OUT_STREAM = "wa:out"
 
 def make_redis() -> Redis:
     url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    return Redis.from_url(url, decode_responses=True)
+    # socket_keepalive снижает риск, но не гарантирует: тихо потерянное сетью
+    # (напр. Docker Desktop/WSL2 NAT) TCP-соединение может всё равно оставить
+    # XREADGROUP BLOCK висеть без ответа. socket_timeout — вторая линия
+    # защиты: клиент сам обрывает такой read и позволяет вызывающему коду
+    # заметить и переподключиться, вместо вечного зависания консюмера.
+    return Redis.from_url(
+        url, decode_responses=True, socket_keepalive=True, socket_timeout=15
+    )
 
 
 async def ensure_group(redis: Redis, stream: str, group: str) -> None:

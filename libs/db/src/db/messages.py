@@ -45,8 +45,23 @@ async def insert_outgoing(
     contact_id: uuid.UUID,
     content: str,
 ) -> None:
-    """Ответ ассистента — wa_msg_id нет, UNIQUE(bot_id, wa_msg_id) на NULL не срабатывает."""
-    session.add(Message(bot_id=bot_id, contact_id=contact_id, role="assistant", content=content))
+    """Ответ ассистента — wa_msg_id нет, UNIQUE(bot_id, wa_msg_id) на NULL не срабатывает.
+
+    ts выставляем на Python-стороне (как и insert_incoming), а не полагаемся
+    на server_default=func.now(): внутри одной транзакции now() в Postgres
+    заморожен на момент её начала, поэтому ts ответа мог оказаться РАНЬШЕ
+    ts входящего сообщения той же транзакции — история сортировалась не по
+    реальному порядку записи.
+    """
+    session.add(
+        Message(
+            bot_id=bot_id,
+            contact_id=contact_id,
+            role="assistant",
+            content=content,
+            ts=datetime.now(UTC),
+        )
+    )
     await session.flush()
 
 

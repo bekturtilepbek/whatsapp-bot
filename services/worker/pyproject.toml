@@ -1,0 +1,18 @@
+[project]
+name = "worker"
+version = "0.1.0"
+description = "Async-консюмер wa:in: пайплайн, LLM, тулзы, handoff"
+requires-python = ">=3.12"
+dependencies = [
+    "core",
+    "redis>=5.0",
+    "structlog>=24.4",
+    "aiohttp>=3.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

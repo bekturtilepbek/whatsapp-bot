@@ -1,0 +1,21 @@
+# Корневой конфиг инструментов качества. Пакеты живут в libs/* и services/*.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [".venv", "services/gateway", "services/admin-web"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "libs/core/src:libs/db/src:services/worker/src"
+namespace_packages = true
+explicit_package_bases = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["libs", "services/worker"]
+norecursedirs = [".venv", "node_modules"]

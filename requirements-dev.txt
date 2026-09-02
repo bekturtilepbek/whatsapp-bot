@@ -1,0 +1,7 @@
+# Инструменты качества и тестов; ставятся поверх editable-пакетов libs/* и services/worker
+ruff>=0.6
+mypy>=1.11
+pytest>=8.3
+pytest-asyncio>=0.24
+jsonschema>=4.23
+testcontainers[postgres,redis]>=4.8

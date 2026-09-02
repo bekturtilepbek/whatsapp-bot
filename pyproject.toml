@@ -7,6 +7,8 @@ extend-exclude = [".venv", "services/gateway", "services/admin-web"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+# RUF001-003: комментарии и докстроки — по-русски (CLAUDE.md), кириллица не "ambiguous"
+ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.12"

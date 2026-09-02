@@ -9,7 +9,6 @@ from pathlib import Path
 
 import jsonschema
 import pytest
-
 from core.events import Event
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

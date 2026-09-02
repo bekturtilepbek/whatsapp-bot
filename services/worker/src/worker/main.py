@@ -31,8 +31,7 @@ async def run_health_server() -> None:
 async def main() -> None:
     await run_health_server()
     # Консюмер wa:in подключается в шаге 5; пока просто держим процесс живым.
-    while True:
-        await asyncio.sleep(3600)
+    await asyncio.Event().wait()
 
 
 if __name__ == "__main__":

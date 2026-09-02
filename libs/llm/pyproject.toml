@@ -1,0 +1,18 @@
+[project]
+name = "llm"
+version = "0.1.0"
+description = "Клиент LLM, токены/стоимость. Провайдер сейчас — OpenAI (ADR: единая модель на платформу через OPENAI_MODEL)."
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.40",
+    # zoneinfo полагается на системную tzdata; на Windows и на минимальных
+    # Linux-образах (python:3.12-slim) её может не быть — ставим явно.
+    "tzdata>=2024.1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -54,7 +54,7 @@
 - Ничего per-bot в коде (имена таблиц, таймзона, лимиты) — всё в `bots.settings`.
 - Каждая фича из FEATURES.md закрывается тестом; пайплайн тестируется на фейковом
   транспорте, без реального WhatsApp.
-- Миграции только через Alembic. Conventional Commits. Ветки от `develop`.
+- Миграции только через Alembic. Conventional Commits. Ветки от `dev`.
 
 ## Команды
 

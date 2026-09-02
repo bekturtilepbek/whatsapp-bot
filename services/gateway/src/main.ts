@@ -1,19 +1,61 @@
-// Точка входа gateway. На шаге 1 — только каркас и /health для healthcheck compose;
-// сессии Baileys, мост в Redis Streams и идемпотентная отправка добавляются в шаге 4.
+// Точка входа gateway: сессии Baileys, auth-state в Postgres, QR-подключение.
+// Мост в Redis Streams (inbound/outbound) — шаги 4b/4c.
 import Fastify from "fastify";
+import QRCode from "qrcode";
+
+import { closeRedis, getRedis } from "./bus/redis.js";
+import { botExists, listLinkedBotIds } from "./db/bots.js";
+import { closePool, getPool } from "./db/pool.js";
+import { SessionManager } from "./session/manager.js";
 
 const app = Fastify({ logger: { name: "gateway" } });
+const pool = getPool();
+const redis = getRedis();
+const sessions = new SessionManager(pool, redis, app.log);
 
 app.get("/health", async () => ({ status: "ok" }));
 
-const port = Number(process.env.GATEWAY_PORT ?? 8080);
+app.get<{ Params: { botId: string } }>("/qr/:botId", async (request, reply) => {
+  const { botId } = request.params;
+  if (!(await botExists(pool, botId))) {
+    return reply.code(404).send({ error: "bot not found" });
+  }
+  try {
+    const qr = await sessions.waitForQr(botId);
+    const png = await QRCode.toBuffer(qr, { type: "png" });
+    return reply.type("image/png").send(png);
+  } catch (err) {
+    app.log.warn({ err, botId }, "qr not available");
+    return reply.code(504).send({ error: "qr not available, try again" });
+  }
+});
 
-app
-  .listen({ port, host: "0.0.0.0" })
-  .then(() => {
-    app.log.info({ port }, "gateway listening");
-  })
-  .catch((err) => {
-    app.log.error(err, "gateway failed to start");
-    process.exit(1);
-  });
+// POST /bots/{id}/logout — HTTP-ручка api (STAGE1_CORE Блок 3), сюда придёт
+// вызов из api-сервиса; SessionManager.logout() уже реализован и ждёт маршрута.
+
+async function start(): Promise<void> {
+  const linkedBotIds = await listLinkedBotIds(pool);
+  app.log.info({ count: linkedBotIds.length }, "starting sessions for linked bots");
+  await sessions.startAllLinked(linkedBotIds);
+
+  const port = Number(process.env.GATEWAY_PORT ?? 8080);
+  await app.listen({ port, host: "0.0.0.0" });
+  app.log.info({ port }, "gateway listening");
+}
+
+async function shutdown(): Promise<void> {
+  app.log.info("shutting down");
+  await sessions.stopAll();
+  await app.close();
+  await closeRedis();
+  await closePool();
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void shutdown());
+process.on("SIGINT", () => void shutdown());
+
+start().catch((err) => {
+  app.log.error(err, "gateway failed to start");
+  process.exit(1);
+});

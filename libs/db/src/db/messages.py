@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -19,6 +20,7 @@ async def insert_incoming(
     content: str,
     wa_msg_id: str,
     ts: datetime,
+    media_ref: dict[str, Any] | None = None,
 ) -> None:
     """Идемпотентно: редоставка entry консюмер-группой не должна падать
     на UNIQUE(bot_id, wa_msg_id) — тихо игнорируем повтор.
@@ -32,6 +34,7 @@ async def insert_incoming(
             content=content,
             wa_msg_id=wa_msg_id,
             ts=ts,
+            media_ref=media_ref,
         )
         .on_conflict_do_nothing(constraint="uq_messages_bot_wa_msg_id")
     )

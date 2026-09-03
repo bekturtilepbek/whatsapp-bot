@@ -98,6 +98,15 @@ async def _process_entry(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )
         content = incoming_content(event.text, event.media_type)
+        media_ref = (
+            {
+                "storage_key": event.storage_key,
+                "mime_type": event.mime_type,
+                "size_bytes": event.size_bytes,
+            }
+            if event.storage_key is not None
+            else None
+        )
         await insert_incoming(
             session,
             event.bot_id,
@@ -105,6 +114,7 @@ async def _process_entry(
             content,
             event.wa_msg_id,
             _to_datetime(event.ts),
+            media_ref=media_ref,
         )
         bot = await get_bot(session, event.bot_id)
         await session.commit()

@@ -129,6 +129,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
     wa_msg_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    media_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -154,3 +154,49 @@ async def test_media_fallback_text_is_configurable_via_bot_settings(
         assert custom_text in out_entries[1][1]["payload"]
     finally:
         await redis.aclose()
+
+
+def _inbound_image_payload_with_storage(bot_id: uuid.UUID) -> dict[str, object]:
+    payload = _inbound_image_payload(bot_id)
+    payload.update(
+        {
+            "wa_msg_id": "wamsg-photo-stored-1",
+            "storage_key": f"bots/{bot_id}/media/wamsg-photo-stored-1",
+            "mime_type": "image/jpeg",
+            "size_bytes": 245760,
+        }
+    )
+    return payload
+
+
+async def test_media_message_with_storage_key_persists_media_ref(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("LLM не должен вызываться для медиа-сообщения")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_if_called)
+
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_image_payload_with_storage(bot_id), redis, session_factory)
+
+        async with session_factory() as session:
+            messages = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert messages[0].media_ref == {
+                "storage_key": f"bots/{bot_id}/media/wamsg-photo-stored-1",
+                "mime_type": "image/jpeg",
+                "size_bytes": 245760,
+            }
+    finally:
+        await redis.aclose()

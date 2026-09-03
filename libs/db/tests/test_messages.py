@@ -115,3 +115,32 @@ async def test_history_includes_both_user_and_assistant_messages_in_order(
 
     history = await fetch_recent_history(session, contact_id)
     assert [(m.role, m.content) for m in history] == [("user", "вопрос"), ("assistant", "ответ")]
+
+
+async def test_insert_incoming_persists_media_ref(session: AsyncSession) -> None:
+    bot_id, contact_id = await _make_contact(session)
+    media_ref = {
+        "storage_key": "bots/x/media/wamsg-1",
+        "mime_type": "image/jpeg",
+        "size_bytes": 123,
+    }
+    await insert_incoming(
+        session,
+        bot_id,
+        contact_id,
+        "[фото]",
+        "wamsg-media-1",
+        datetime.now(UTC),
+        media_ref=media_ref,
+    )
+
+    history = await fetch_recent_history(session, contact_id)
+    assert history[0].media_ref == media_ref
+
+
+async def test_insert_incoming_without_media_ref_leaves_it_null(session: AsyncSession) -> None:
+    bot_id, contact_id = await _make_contact(session)
+    await insert_incoming(session, bot_id, contact_id, "привет", "wamsg-text-1", datetime.now(UTC))
+
+    history = await fetch_recent_history(session, contact_id)
+    assert history[0].media_ref is None

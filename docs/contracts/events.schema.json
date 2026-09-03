@@ -20,6 +20,9 @@
         "text": { "type": "string" },
         "quoted_text": { "type": ["string", "null"] },
         "media_type": { "type": ["string", "null"] },
+        "storage_key": { "type": ["string", "null"] },
+        "mime_type": { "type": ["string", "null"] },
+        "size_bytes": { "type": ["integer", "null"] },
         "ts": { "type": "integer", "description": "unix ms" }
       },
       "required": [

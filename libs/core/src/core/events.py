@@ -26,6 +26,9 @@ class InboundText(BaseModel):
     text: str
     quoted_text: str | None = None
     media_type: str | None = None
+    storage_key: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
     ts: int
 
 

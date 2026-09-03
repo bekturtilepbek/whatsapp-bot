@@ -1,0 +1,16 @@
+{
+  "type": "inbound.text",
+  "bot_id": "00000000-0000-0000-0000-000000000001",
+  "wa_msg_id": "3EB0C767D26A1D7",
+  "chat_id": "996700000000@s.whatsapp.net",
+  "sender_wa_id": "996700000000",
+  "sender_lid": null,
+  "from_me": false,
+  "text": "",
+  "quoted_text": null,
+  "media_type": "image",
+  "storage_key": "bots/00000000-0000-0000-0000-000000000001/media/3EB0C767D26A1D7",
+  "mime_type": "image/jpeg",
+  "size_bytes": 245760,
+  "ts": 1756800000000
+}

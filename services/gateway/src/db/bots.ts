@@ -48,3 +48,14 @@ export async function clearSession(pool: Pool, botId: string): Promise<void> {
     [botId],
   );
 }
+
+export const DEFAULT_MEDIA_MAX_SIZE_BYTES = 16 * 1024 * 1024;
+
+export async function getBotMediaMaxSizeBytes(pool: Pool, botId: string): Promise<number> {
+  const { rows } = await pool.query<{ settings: { media_max_size_bytes?: unknown } }>(
+    "SELECT settings FROM bots WHERE id = $1",
+    [botId],
+  );
+  const value = rows[0]?.settings?.media_max_size_bytes;
+  return typeof value === "number" && value > 0 ? value : DEFAULT_MEDIA_MAX_SIZE_BYTES;
+}

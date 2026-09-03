@@ -87,6 +87,21 @@ describe("attachMedia", () => {
     expect(storage.put).toHaveBeenCalledWith("bots/bot-1/media/MSG1", Buffer.from("bytes"), "image/jpeg");
   });
 
+  it("returns null when the limit lookup (Postgres) fails, without throwing", async () => {
+    // downloadMediaMessage — общий мок на весь файл, предыдущие тесты уже
+    // могли его вызвать; сбрасываем счётчик, чтобы проверить именно "не
+    // вызван в этом сценарии", а не глобальный счётчик по всему файлу.
+    vi.mocked(downloadMediaMessage).mockClear();
+    const pool = { query: vi.fn(async () => { throw new Error("connection terminated"); }) } as unknown as import("pg").Pool;
+    const storage = makeFakeStorage();
+
+    const result = await attachMedia(pool, storage, makeFakeLogger(), "bot-1", "MSG1", imageMessage());
+
+    expect(result).toBeNull();
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
   it("returns null when the CDN download fails, without throwing", async () => {
     vi.mocked(downloadMediaMessage).mockRejectedValue(new Error("network down"));
     const pool = makeFakePool(10_000_000);

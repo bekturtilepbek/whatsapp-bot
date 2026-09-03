@@ -51,7 +51,13 @@ export async function attachMedia(
     return null;
   }
 
-  const maxBytes = await getBotMediaMaxSizeBytes(pool, botId);
+  let maxBytes: number;
+  try {
+    maxBytes = await getBotMediaMaxSizeBytes(pool, botId);
+  } catch (err) {
+    logger.warn({ err, botId, waMsgId }, "media_skipped: limit_lookup_failed");
+    return null;
+  }
   if (info.fileLength > maxBytes) {
     logger.warn({ botId, waMsgId, fileLength: info.fileLength, maxBytes }, "media_skipped: too_large");
     return null;

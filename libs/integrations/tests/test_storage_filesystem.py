@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from integrations.storage.filesystem import FilesystemStorage
 
 
@@ -16,3 +17,17 @@ async def test_get_reads_bytes_written_at_nested_key(tmp_path: Path) -> None:
     result = await storage.get("bots/bot-1/media/msg-1")
 
     assert result == b"hello"
+
+
+async def test_get_rejects_a_path_traversal_key(tmp_path: Path) -> None:
+    # Fix 1 (финальный review): защита на границе join() — этот пакет пока
+    # никуда не подключён, но key по контракту не доверенный.
+    root = tmp_path / "storage-root"
+    root.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_bytes(b"do not read me")
+
+    storage = FilesystemStorage(str(root))
+
+    with pytest.raises(ValueError):
+        await storage.get("../secret.txt")

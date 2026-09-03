@@ -12,6 +12,14 @@ import { withTimeout } from "../utils/timeout.js";
 
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 20_000;
+// Локальный Postgres SELECT по индексу — не CDN-вызов, 5с более чем достаточно.
+const LIMIT_LOOKUP_TIMEOUT_MS = 5_000;
+
+// wa_msg_id управляется отправителем (Baileys его не валидирует) и идёт прямо
+// в storage key → без проверки это path traversal (см. финальный review, Fix 1).
+// Реальные id вида "3EB0C767D26A1D6" этому паттерну соответствуют; botId тоже
+// проверяем — дешёвая подстраховка, хоть он и не под контролем отправителя.
+const SAFE_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 export interface MediaAttachment {
   storage_key: string;
@@ -45,6 +53,11 @@ export async function attachMedia(
   waMsgId: string,
   msg: WAMessage,
 ): Promise<MediaAttachment | null> {
+  if (!SAFE_ID_PATTERN.test(waMsgId) || !SAFE_ID_PATTERN.test(botId)) {
+    logger.warn({ botId, waMsgId }, "media_skipped: unsafe_wa_msg_id");
+    return null;
+  }
+
   const info = extractMediaFileInfo(msg);
   if (!info) {
     logger.warn({ botId, waMsgId }, "media_skipped: no file info in message");
@@ -53,7 +66,7 @@ export async function attachMedia(
 
   let maxBytes: number;
   try {
-    maxBytes = await getBotMediaMaxSizeBytes(pool, botId);
+    maxBytes = await withTimeout(getBotMediaMaxSizeBytes(pool, botId), LIMIT_LOOKUP_TIMEOUT_MS, "media limit lookup");
   } catch (err) {
     logger.warn({ err, botId, waMsgId }, "media_skipped: limit_lookup_failed");
     return null;
@@ -75,6 +88,16 @@ export async function attachMedia(
     );
   } catch (err) {
     logger.warn({ err, botId, waMsgId }, "media_skipped: download_failed");
+    return null;
+  }
+
+  // fileLength — это то, что заявил отправитель; враждебный клиент может
+  // занизить его и залить сколько угодно байт — downloadMediaMessage всё
+  // равно буферизует их целиком в памяти. Бэкстоп после скачивания, не
+  // замена пре-чеку выше (грабля CLAUDE.md — лимит ДО скачивания, тут —
+  // страховка на случай, если сам факт скачивания уже произошёл).
+  if (bytes.length > maxBytes) {
+    logger.warn({ botId, waMsgId, size: bytes.length, maxBytes }, "media_skipped: downloaded_size_exceeds_limit");
     return null;
   }
 

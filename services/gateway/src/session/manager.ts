@@ -17,7 +17,7 @@ import type { TransportLogger } from "../logger.js";
 
 import { usePostgresAuthState } from "../auth/postgres-auth-state.js";
 import { publishEvent } from "../bus/publish.js";
-import type { SessionStatus } from "../contracts/events.js";
+import type { InboundText, SessionStatus } from "../contracts/events.js";
 import { clearSession, markLinked } from "../db/bots.js";
 import { attachMedia } from "../media/download.js";
 import { normalizeInboundMessage } from "../normalize/inbound.js";
@@ -29,6 +29,19 @@ const WATCHDOG_INTERVAL_MS = 30_000;
 // Без единого события от сокета дольше этого — считаем сессию зависшей и рестартуем.
 const WATCHDOG_STALE_MS = 90_000;
 const IN_STREAM = "wa:in";
+
+/**
+ * Fix 2 (финальный review): не скачиваем/не заливаем медиа, которое worker
+ * всё равно отбросит до сохранения — группы и status@broadcast worker
+ * игнорирует целиком (см. is_ignored_chat в
+ * services/worker/src/worker/pipeline/filters.py), а from_me-сообщения
+ * попадают не в insert_incoming, а в отдельный путь handoff-детекта
+ * (_handle_manager_message/insert_outgoing), который media_ref не использует.
+ * Скачивание для них — трата и (для from_me) задержка детекта handoff.
+ */
+function isMediaDownloadSkipped(event: InboundText): boolean {
+  return event.from_me || event.chat_id.endsWith("@g.us") || event.chat_id === "status@broadcast";
+}
 
 interface RunningSession {
   sock: WASocket;
@@ -243,7 +256,7 @@ export class SessionManager {
       if (!event) continue;
 
       let outgoingEvent = event;
-      if (event.media_type) {
+      if (event.media_type && !isMediaDownloadSkipped(event)) {
         const attachment = await attachMedia(this.pool, this.storage, this.logger, botId, event.wa_msg_id, msg);
         if (attachment) {
           outgoingEvent = { ...event, ...attachment };

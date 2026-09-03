@@ -26,10 +26,14 @@ vi.mock("@whiskeysockets/baileys", async (importOriginal) => {
     ...actual,
     default: vi.fn(() => makeFakeSocket()),
     fetchLatestBaileysVersion: vi.fn(async () => ({ version: [2, 3000, 0] })),
+    // Fix 2 (финальный review): гарантируем, что нижеидущие тесты действительно
+    // ловят пропуск скачивания, а не просто попадание в замоканный happy-path.
+    downloadMediaMessage: vi.fn(),
   };
 });
 
 // vi.mock выше хостится vitest'ом перед всеми импортами модуля.
+const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
 import { SessionManager } from "./manager.js";
 
 function makeFakePool(): Pool {
@@ -85,5 +89,68 @@ describe("SessionManager.sendText / sendTyping", () => {
     await sessions.sendTyping("bot-1", "996700000000@s.whatsapp.net");
 
     expect(sendPresenceUpdateMock).toHaveBeenCalledWith("composing", "996700000000@s.whatsapp.net");
+  });
+});
+
+// Fix 2 (финальный review): gateway не должен скачивать/заливать медиа,
+// которое worker всё равно отбросит до сохранения (группы, status@broadcast,
+// from_me — см. is_ignored_chat в worker/pipeline/filters.py и отдельный путь
+// handoff для from_me). onMessagesUpsert приватный — вызываем его напрямую,
+// это ровно тот код, что реально подписан на "messages.upsert".
+describe("SessionManager - media download skipped for group/broadcast/from_me", () => {
+  function imageUpsert(overrides: { remoteJid: string; fromMe?: boolean }) {
+    return {
+      type: "notify" as const,
+      messages: [
+        {
+          key: { remoteJid: overrides.remoteJid, id: "MSG1", fromMe: overrides.fromMe ?? false },
+          message: { imageMessage: { mimetype: "image/jpeg", fileLength: 1000 } },
+          messageTimestamp: 1_700_000_000,
+        },
+      ],
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(downloadMediaMessage).mockClear();
+  });
+
+  it("does not download media for a group chat message", async () => {
+    const storage = makeFakeStorage();
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), storage);
+    await sessions.startSession("bot-1");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sessions as any).onMessagesUpsert("bot-1", imageUpsert({ remoteJid: "123456-789@g.us" }));
+
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it("does not download media for status@broadcast", async () => {
+    const storage = makeFakeStorage();
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), storage);
+    await sessions.startSession("bot-1");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sessions as any).onMessagesUpsert("bot-1", imageUpsert({ remoteJid: "status@broadcast" }));
+
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it("does not download media for a from_me message", async () => {
+    const storage = makeFakeStorage();
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), storage);
+    await sessions.startSession("bot-1");
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sessions as any).onMessagesUpsert(
+      "bot-1",
+      imageUpsert({ remoteJid: "996700000000@s.whatsapp.net", fromMe: true }),
+    );
+
+    expect(downloadMediaMessage).not.toHaveBeenCalled();
+    expect(storage.put).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,15 @@
+[project]
+name = "integrations"
+version = "0.1.0"
+description = "Внешние интеграции: Storage (S3-совместимое/fs), позже Sheets/Telegram/STT (см. ARCHITECTURE.md §4)"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.34",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -13,7 +13,7 @@ dev-down:
 install:
 	python -m venv .venv || true
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \
-	pip install -e libs/core -e libs/db -e services/worker -r requirements-dev.txt
+	pip install -e libs/core -e libs/db -e libs/integrations -e services/worker -r requirements-dev.txt
 	cd services/gateway && npm install
 
 test:
@@ -22,7 +22,7 @@ test:
 
 lint:
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \
-	ruff check . && mypy libs/core/src libs/db/src services/worker/src
+	ruff check . && mypy libs/core/src libs/db/src libs/integrations/src services/worker/src
 	cd services/gateway && npm run lint
 
 migrate:

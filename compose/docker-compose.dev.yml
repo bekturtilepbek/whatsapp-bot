@@ -35,10 +35,13 @@ services:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
       GATEWAY_PORT: "8080"
+      STORAGE_DRIVER: fs
+      STORAGE_FS_ROOT: /data/media
     ports:
       - "8080:8080"
     volumes:
       - ../services/gateway/src:/app/src
+      - media-data:/data/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -61,9 +64,12 @@ services:
       # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      STORAGE_DRIVER: fs
+      STORAGE_FS_ROOT: /data/media
     volumes:
       - ../services/worker/src:/app/services/worker/src
       - ../libs:/app/libs
+      - media-data:/data/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,3 +109,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

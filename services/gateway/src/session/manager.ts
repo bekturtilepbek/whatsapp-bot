@@ -19,7 +19,9 @@ import { usePostgresAuthState } from "../auth/postgres-auth-state.js";
 import { publishEvent } from "../bus/publish.js";
 import type { SessionStatus } from "../contracts/events.js";
 import { clearSession, markLinked } from "../db/bots.js";
+import { attachMedia } from "../media/download.js";
 import { normalizeInboundMessage } from "../normalize/inbound.js";
+import type { Storage } from "../storage/types.js";
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
@@ -46,6 +48,7 @@ export class SessionManager {
     private readonly pool: Pool,
     private readonly redis: Redis,
     private readonly logger: TransportLogger,
+    private readonly storage: Storage,
   ) {}
 
   async startAllLinked(botIds: string[]): Promise<void> {
@@ -238,8 +241,17 @@ export class SessionManager {
     for (const msg of upsert.messages) {
       const event = normalizeInboundMessage(botId, msg);
       if (!event) continue;
+
+      let outgoingEvent = event;
+      if (event.media_type) {
+        const attachment = await attachMedia(this.pool, this.storage, this.logger, botId, event.wa_msg_id, msg);
+        if (attachment) {
+          outgoingEvent = { ...event, ...attachment };
+        }
+      }
+
       try {
-        await publishEvent(this.redis, IN_STREAM, event);
+        await publishEvent(this.redis, IN_STREAM, outgoingEvent);
       } catch (err) {
         this.logger.error({ err, botId, waMsgId: event.wa_msg_id }, "failed to publish inbound.text");
       }

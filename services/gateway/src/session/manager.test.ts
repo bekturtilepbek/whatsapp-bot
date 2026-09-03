@@ -55,6 +55,10 @@ function makeFakeLogger(): import("../logger.js").TransportLogger {
   return logger;
 }
 
+function makeFakeStorage(): import("../storage/types.js").Storage {
+  return { put: vi.fn(async () => undefined) };
+}
+
 describe("SessionManager.sendText / sendTyping", () => {
   beforeEach(() => {
     sendMessageMock.mockClear();
@@ -62,7 +66,7 @@ describe("SessionManager.sendText / sendTyping", () => {
   });
 
   it("passes clientMsgId as Baileys messageId when sending text", async () => {
-    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger());
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
     await sessions.startSession("bot-1");
 
     await sessions.sendText("bot-1", "996700000000@s.whatsapp.net", "привет", "abc123hex");
@@ -75,7 +79,7 @@ describe("SessionManager.sendText / sendTyping", () => {
   });
 
   it("sendTyping sends a composing presence update", async () => {
-    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger());
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
     await sessions.startSession("bot-1");
 
     await sessions.sendTyping("bot-1", "996700000000@s.whatsapp.net");

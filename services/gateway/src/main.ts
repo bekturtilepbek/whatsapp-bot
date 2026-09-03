@@ -8,11 +8,13 @@ import { botExists, listLinkedBotIds } from "./db/bots.js";
 import { closePool, getPool } from "./db/pool.js";
 import { OutboundConsumer } from "./outbound/consumer.js";
 import { SessionManager } from "./session/manager.js";
+import { createStorage } from "./storage/index.js";
 
 const app = Fastify({ logger: { name: "gateway" } });
 const pool = getPool();
 const redis = getRedis();
-const sessions = new SessionManager(pool, redis, app.log);
+const storage = createStorage();
+const sessions = new SessionManager(pool, redis, app.log, storage);
 const outbound = new OutboundConsumer(redis, sessions, app.log);
 
 app.get("/health", async () => ({ status: "ok" }));

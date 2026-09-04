@@ -229,6 +229,12 @@ async def test_duplicate_delivery_sends_reminder_only_once(
     """Redis-брокер может доставить ETA-задачу повторно (visibility_timeout,
     см. celery_app.py) — симулируем это прямым повторным вызовом
     _send_reminder_async с идентичными аргументами и тем же redis.
+
+    Примечание: этот тест проходит не благодаря guard'у SET NX (как можно
+    предположить), а потому что вторая доставка попадает в gate 4, которая
+    обнаруживает более новое сообщение, созданное первой доставкой. Для
+    изолированного тестирования самого guard'а — см.
+    test_idempotency_guard_blocks_duplicate_when_key_already_set.
     """
     from tasks.followup import DEFAULT_REMINDER_MESSAGE, _send_reminder_async
 
@@ -328,6 +334,43 @@ async def test_skips_when_bot_disabled(
         await _send_reminder_async(
             redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
         )
+        assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
+async def test_idempotency_guard_blocks_duplicate_when_key_already_set(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Guard'ом на основе SET NX EX можно сразу же блокировать повторную
+    доставку, если ключ в Redis уже установлен — без необходимости
+    дожидаться gate 4. Тестируем это в изолированном режиме: pre-set guard'а
+    перед вызовом, все остальные условия чистые (бот включён, reminder_enabled,
+    handoff не активен, нет более новых сообщений) — единственное, что может
+    остановить доставку, это сам guard.
+    """
+    from core.redis_keys import followup_sent_key
+    from tasks.followup import _send_reminder_async
+
+    bot_id, contact_id = await _make_bot_and_contact(session_factory)
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ бота")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        # Guard's key is already set — симулирует задачу, повторно доставленную
+        # брокером уже после того, как первая доставка отправила (или готовилась
+        # отправить). Все 4 gate'ы проходят чисто (нет более нового сообщения,
+        # handoff не активен, бот включён, reminder_enabled) — единственное, что
+        # может остановить этот вызов, это сам guard SET NX.
+        await redis.set(followup_sent_key(str(contact_id), seq), "1", ex=172800)
+
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+
+        # Никаких событий в очередь не должно быть: не typing, не text.
         assert await redis.xlen("wa:out") == 0
     finally:
         await redis.aclose()

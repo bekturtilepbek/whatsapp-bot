@@ -22,6 +22,7 @@ async def update_bot(
     *,
     enabled: bool | None = None,
     system_prompt: str | None = None,
+    image_prompt: str | None = None,
     settings_patch: dict[str, Any] | None = None,
 ) -> Bot | None:
     """Частичное обновление: None-параметр = не трогать это поле.
@@ -36,6 +37,8 @@ async def update_bot(
         values["enabled"] = enabled
     if system_prompt is not None:
         values["system_prompt"] = system_prompt
+    if image_prompt is not None:
+        values["image_prompt"] = image_prompt
     if settings_patch is not None:
         values["settings"] = Bot.settings.op("||")(cast(settings_patch, JSONB))
 

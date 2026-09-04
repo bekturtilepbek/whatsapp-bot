@@ -16,6 +16,7 @@ class BotOut(BaseModel):
     name: str
     enabled: bool
     system_prompt: str
+    image_prompt: str | None
     timezone: str
     settings: dict[str, Any]
     created_at: datetime
@@ -26,4 +27,5 @@ class BotPatch(BaseModel):
 
     enabled: bool | None = None
     system_prompt: str | None = None
+    image_prompt: str | None = None
     settings: dict[str, Any] | None = None

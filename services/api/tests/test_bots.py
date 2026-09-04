@@ -149,6 +149,26 @@ async def test_patch_system_prompt_only(
     assert body["enabled"] is True  # не тронуто
 
 
+async def test_patch_bot_updates_image_prompt(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.patch(f"/bots/{bot_id}", json={"image_prompt": "Опиши товар клиенту."})
+    assert response.status_code == 200
+    assert response.json()["image_prompt"] == "Опиши товар клиенту."
+
+    follow_up = await client.get(f"/bots/{bot_id}")
+    assert follow_up.json()["image_prompt"] == "Опиши товар клиенту."
+
+
+async def test_get_bot_includes_null_image_prompt_by_default(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.get(f"/bots/{bot_id}")
+    assert response.json()["image_prompt"] is None
+
+
 async def test_patch_unknown_bot_is_404(client: httpx.AsyncClient) -> None:
     response = await client.patch(f"/bots/{uuid.uuid4()}", json={"enabled": False})
     assert response.status_code == 404

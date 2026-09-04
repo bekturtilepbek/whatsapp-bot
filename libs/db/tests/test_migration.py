@@ -57,7 +57,10 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
         tables = set(
             await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         )
-        assert {"bots", "bot_sessions", "contacts", "messages", "usage_events"} <= tables
+        assert {
+            "bots", "bot_sessions", "contacts", "messages", "usage_events",
+            "blocked_contacts",
+        } <= tables
 
         bot_columns = set(
             await conn.run_sync(

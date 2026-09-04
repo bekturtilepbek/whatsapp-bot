@@ -161,3 +161,26 @@ class UsageEvent(Base):
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class BlockedContact(Base):
+    """Чёрный список номеров (FEATURES.md 1.5). Матчинг — по тому же
+    "сырому" wa_id (без "+"), что и Contact.wa_id/дедуп/handoff, НЕ по
+    нормализованному телефону (эталон — V1, ignored_numbers).
+    """
+
+    __tablename__ = "blocked_contacts"
+    __table_args__ = (
+        UniqueConstraint("bot_id", "phone", name="uq_blocked_contacts_bot_phone"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    phone: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

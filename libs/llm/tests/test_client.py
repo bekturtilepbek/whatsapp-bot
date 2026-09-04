@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+import httpx2
+import openai
 import pytest
 from llm.client import HistoryMessage, complete, complete_with_image
 
@@ -65,6 +68,61 @@ def _client_with_response(text: str, tokens_in: int, tokens_out: int) -> _FakeCl
         usage=_FakeUsage(prompt_tokens=tokens_in, completion_tokens=tokens_out),
     )
     return _FakeClient(_FakeCompletions(response=response))
+
+
+class _FlakyCompletions:
+    """Возвращает элементы `outcomes` по очереди на каждый вызов `create()` —
+    исключение бросается, ответ возвращается. Для тестов ретраев: N сбоев
+    подряд, затем успех (или сбоев больше, чем попыток — на исчерпание).
+    """
+
+    def __init__(self, outcomes: list[Exception | _FakeResponse]) -> None:
+        self._outcomes = outcomes
+        self.call_count = 0
+
+    async def create(self, **kwargs: object) -> _FakeResponse:
+        outcome = self._outcomes[self.call_count]
+        self.call_count += 1
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+@dataclass
+class _RecordingSleep:
+    calls: list[float] = field(default_factory=list)
+
+    async def __call__(self, delay: float) -> None:
+        self.calls.append(delay)
+
+
+def _fake_request() -> httpx2.Request:
+    return httpx2.Request("POST", "https://api.openai.com/v1/chat/completions")
+
+
+def _rate_limit_error() -> openai.RateLimitError:
+    request = _fake_request()
+    return openai.RateLimitError(
+        "rate limited", response=httpx2.Response(429, request=request), body=None
+    )
+
+
+def _connection_error() -> openai.APIConnectionError:
+    return openai.APIConnectionError(request=_fake_request())
+
+
+def _internal_server_error() -> openai.InternalServerError:
+    request = _fake_request()
+    return openai.InternalServerError(
+        "server error", response=httpx2.Response(500, request=request), body=None
+    )
+
+
+def _auth_error() -> openai.AuthenticationError:
+    request = _fake_request()
+    return openai.AuthenticationError(
+        "invalid api key", response=httpx2.Response(401, request=request), body=None
+    )
 
 
 async def test_returns_text_and_token_usage_from_response() -> None:
@@ -168,3 +226,98 @@ async def test_image_call_passes_timeout_through_to_sdk() -> None:
         "SYS", [], "", b"abc", "image/jpeg", client=client, timeout_seconds=12.5
     )  # type: ignore[arg-type]
     assert client.chat.completions.last_call_kwargs["timeout"] == 12.5
+
+
+async def test_retries_on_rate_limit_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep = _RecordingSleep()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    response = _FakeResponse(
+        choices=[_FakeChoice(message=_FakeMessage(content="ok"))],
+        usage=_FakeUsage(prompt_tokens=1, completion_tokens=1),
+    )
+    completions = _FlakyCompletions([_rate_limit_error(), _rate_limit_error(), response])
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    result = await complete("SYS", [], client=client)  # type: ignore[arg-type]
+
+    assert result.text == "ok"
+    assert completions.call_count == 3
+    assert sleep.calls == [1.0, 2.0]  # экспоненциальный backoff между 3 попытками
+
+
+async def test_retries_on_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(asyncio, "sleep", _RecordingSleep())
+    response = _FakeResponse(
+        choices=[_FakeChoice(message=_FakeMessage(content="ok"))],
+        usage=_FakeUsage(prompt_tokens=1, completion_tokens=1),
+    )
+    completions = _FlakyCompletions([_connection_error(), response])
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    result = await complete("SYS", [], client=client)  # type: ignore[arg-type]
+    assert result.text == "ok"
+    assert completions.call_count == 2
+
+
+async def test_retries_on_internal_server_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(asyncio, "sleep", _RecordingSleep())
+    response = _FakeResponse(
+        choices=[_FakeChoice(message=_FakeMessage(content="ok"))],
+        usage=_FakeUsage(prompt_tokens=1, completion_tokens=1),
+    )
+    completions = _FlakyCompletions([_internal_server_error(), response])
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    result = await complete("SYS", [], client=client)  # type: ignore[arg-type]
+    assert result.text == "ok"
+    assert completions.call_count == 2
+
+
+async def test_gives_up_after_max_attempts_and_raises_last_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleep = _RecordingSleep()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    completions = _FlakyCompletions(
+        [_rate_limit_error(), _rate_limit_error(), _rate_limit_error()]
+    )
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    with pytest.raises(openai.RateLimitError):
+        await complete("SYS", [], client=client)  # type: ignore[arg-type]
+
+    assert completions.call_count == 3  # ровно 3 попытки, не больше
+    assert sleep.calls == [1.0, 2.0]  # задержка только между попытками, не после последней
+
+
+async def test_does_not_retry_non_retryable_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    sleep = _RecordingSleep()
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+
+    completions = _FlakyCompletions([_auth_error()])
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    with pytest.raises(openai.AuthenticationError):
+        await complete("SYS", [], client=client)  # type: ignore[arg-type]
+
+    assert completions.call_count == 1  # ни одного ретрая
+    assert sleep.calls == []
+
+
+async def test_vision_call_also_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """complete_with_image идёт через тот же _call_and_extract — ретраи общие."""
+    monkeypatch.setattr(asyncio, "sleep", _RecordingSleep())
+    response = _FakeResponse(
+        choices=[_FakeChoice(message=_FakeMessage(content="описание фото"))],
+        usage=_FakeUsage(prompt_tokens=1, completion_tokens=1),
+    )
+    completions = _FlakyCompletions([_rate_limit_error(), response])
+    client = _FakeClient(completions)  # type: ignore[arg-type]
+
+    result = await complete_with_image(
+        "SYS", [], "", b"abc", "image/jpeg", client=client
+    )  # type: ignore[arg-type]
+    assert result.text == "описание фото"
+    assert completions.call_count == 2

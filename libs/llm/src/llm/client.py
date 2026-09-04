@@ -7,14 +7,29 @@ OPENAI_MODEL (ADR, подтверждено пользователем: gpt-4o-m
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import os
 from dataclasses import dataclass
 
-from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError,
+    AsyncOpenAI,
+    InternalServerError,
+    RateLimitError,
+)
 
 DEFAULT_MODEL = "gpt-4o-mini"
 REQUEST_TIMEOUT_SECONDS = 60.0
+
+# Ретраи — только временные сбои (Волна 1, отложено ещё в Блоке 2:
+# "ретраи — Волна 1 (STAGE1_CORE)"). APIConnectionError включает
+# APITimeoutError (подкласс) — таймаут одного запроса тоже ретраится.
+# Постоянные ошибки (авторизация, некорректный запрос и т.п.) НЕ ретраим —
+# лишняя задержка ответа клиенту без единого шанса на успех.
+_RETRYABLE_EXCEPTIONS = (APIConnectionError, RateLimitError, InternalServerError)
+RETRY_MAX_ATTEMPTS = 3
+RETRY_BASE_DELAY_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -51,11 +66,25 @@ async def _call_and_extract(
     messages: list[dict[str, object]],
     timeout_seconds: float,
 ) -> LLMResult:
-    response = await active_client.chat.completions.create(
-        model=model,
-        messages=messages,  # type: ignore[arg-type]  # role/content уже валидные строки
-        timeout=timeout_seconds,
-    )
+    """Ретрай — только на временные сбои SDK (см. _RETRYABLE_EXCEPTIONS),
+    экспоненциальный backoff (1с, 2с) между попытками. Таймаут на каждую
+    попытку — тот же timeout_seconds, не суммируется отдельно.
+    """
+    response = None
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            response = await active_client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]  # role/content уже валидные строки
+                timeout=timeout_seconds,
+            )
+            break
+        except _RETRYABLE_EXCEPTIONS:
+            if attempt == RETRY_MAX_ATTEMPTS:
+                raise
+            await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)))
+    # цикл либо break (успех), либо raise на последней попытке — эта ветка недостижима
+    assert response is not None  # pragma: no cover
 
     choice = response.choices[0]
     text = choice.message.content or ""

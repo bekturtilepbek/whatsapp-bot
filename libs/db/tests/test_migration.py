@@ -59,7 +59,7 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
         )
         assert {
             "bots", "bot_sessions", "contacts", "messages", "usage_events",
-            "blocked_contacts",
+            "blocked_contacts", "tool_bindings",
         } <= tables
 
         bot_columns = set(

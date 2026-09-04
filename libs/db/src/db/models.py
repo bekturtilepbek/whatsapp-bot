@@ -200,3 +200,29 @@ class BlockedContact(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ToolBinding(Base):
+    """Тулзы, включённые конкретному боту (FEATURES.md 4.13). Сама тулза —
+    код в libs/tools; эта таблица решает, что боту доступно и с каким
+    config (например chat_id для telegram-лидов).
+    """
+
+    __tablename__ = "tool_bindings"
+    __table_args__ = (
+        UniqueConstraint("bot_id", "tool_name", name="uq_tool_bindings_bot_tool_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_name: Mapped[str] = mapped_column(String, nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

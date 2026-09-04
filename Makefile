@@ -13,7 +13,7 @@ dev-down:
 install:
 	python -m venv .venv || true
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \
-	pip install -e libs/core -e libs/db -e libs/integrations -e libs/scheduling -e services/worker -e services/celery -r requirements-dev.txt
+	pip install -e libs/core -e libs/db -e libs/llm -e libs/integrations -e libs/scheduling -e services/worker -e services/celery -e services/api -r requirements-dev.txt
 	cd services/gateway && npm install
 
 test:

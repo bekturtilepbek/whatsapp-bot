@@ -8,6 +8,7 @@ dependencies = [
     "db",
     "llm",
     "integrations",
+    "tools",
     "scheduling",
     "redis>=5.0",
     "structlog>=24.4",

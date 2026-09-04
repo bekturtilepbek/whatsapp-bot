@@ -7,8 +7,9 @@ enabled → handoff активен? молчим : батчинг
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
 PDF с настроенным pdf_prompt? PDF-ответ (текст извлекается ДО LLM, обычный
 complete(), pdf_prompt как system prompt) : прочее медиа? заглушка без LLM :
-история → LLM → typing → ответ → запись ответа → usage_events (LLM-ветки,
-включая vision и PDF).
+история → тулзы бота (LLM↔tool-calls, FEATURES.md 4.13; реестр пуст — как
+раньше, просто complete()) → typing → ответ → запись ответа →
+usage_events (LLM-ветки, включая vision и PDF).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
 снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE). Исключение:
@@ -31,10 +32,11 @@ from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
-from db.models import Bot
+from db.models import Bot, ToolBinding
+from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
-from llm.client import HistoryMessage, complete, complete_with_image
+from llm.client import HistoryMessage, ToolSpec, complete, complete_with_image, complete_with_tools
 from llm.pricing import compute_cost
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
@@ -42,6 +44,8 @@ from redis.asyncio import Redis
 from scheduling.celery_app import celery_app
 from scheduling.task_names import FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tools.base import ToolContext
+from tools.registry import get_tool
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
 from . import batching, handoff, lock
@@ -49,6 +53,7 @@ from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
 from .pdf_extract import extract_pdf_text
+from .tool_loop import ToolExecutor, run_tool_loop
 
 GROUP = "worker"
 
@@ -179,7 +184,7 @@ async def _process_entry(
         elif event.media_type is not None:
             await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
         else:
-            await _reply(event, bot, contact.id, redis, session_factory)
+            await _reply(event, bot, contact.id, redis, session_factory, storage)
     except Exception:
         # "Любой внешний вызов — с таймаутом" не спасает от сбоя самого
         # вызова (LLM/Redis/БД) — здесь лог и тихий отказ, без ретрая
@@ -284,28 +289,91 @@ async def _reply(
     contact_id: uuid.UUID,
     redis: Redis,
     session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
 ) -> None:
     async with session_factory() as session:
         history_rows = await fetch_recent_history(session, contact_id)
+        bindings = await list_enabled_tool_bindings(session, bot.id)
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
     system_prompt = f"{bot.system_prompt}\n\n{time_context(bot.timezone)}"
 
-    result = await complete(system_prompt, history)
-    if not result.text.strip():
+    tool_specs = _tool_specs_for_bindings(bindings)
+    executor = _make_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)
+
+    loop_result = await run_tool_loop(
+        system_prompt,
+        history,
+        tool_specs,
+        executor,
+        complete_fn=complete,
+        complete_with_tools_fn=complete_with_tools,
+    )
+    if not loop_result.text.strip():
         logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
         return
 
-    await _send_reply(event, redis, result.text)
+    await _send_reply(event, redis, loop_result.text)
 
-    cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
+    cost = compute_cost(loop_result.model, loop_result.tokens_in, loop_result.tokens_out)
     async with session_factory() as session:
-        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, result.text)
+        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, loop_result.text)
         await record_usage(
-            session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
+            session,
+            event.bot_id,
+            loop_result.model,
+            loop_result.tokens_in,
+            loop_result.tokens_out,
+            cost,
         )
         await session.commit()
     await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
+
+
+def _tool_specs_for_bindings(bindings: list[ToolBinding]) -> list[ToolSpec]:
+    """Тулзы, включённые боту (tool_bindings), но отсутствующие в реестре
+    libs/tools — молча пропускаются: рассинхрон между БД и деплоем кода не
+    должен ронять диалог (FEATURES.md 4.13)."""
+    specs: list[ToolSpec] = []
+    for binding in bindings:
+        tool = get_tool(binding.tool_name)
+        if tool is None:
+            continue
+        specs.append(
+            ToolSpec(
+                name=tool.name,
+                description=tool.description,
+                parameters_schema=tool.parameters_schema,
+            )
+        )
+    return specs
+
+
+def _make_tool_executor(
+    bot: Bot,
+    contact_id: uuid.UUID,
+    session_factory: async_sessionmaker[AsyncSession],
+    redis: Redis,
+    storage: Storage,
+    bindings: list[ToolBinding],
+) -> ToolExecutor:
+    config_by_name = {binding.tool_name: binding.config for binding in bindings}
+
+    async def executor(name: str, arguments: dict[str, Any]) -> str:
+        tool = get_tool(name)
+        if tool is None:
+            raise LookupError(f"tool not in registry: {name}")
+        ctx = ToolContext(
+            bot=bot,
+            contact_id=contact_id,
+            session_factory=session_factory,
+            redis=redis,
+            storage=storage,
+            config=config_by_name.get(name, {}),
+        )
+        return await tool.execute(arguments, ctx)
+
+    return executor
 
 
 async def _reply_with_vision(

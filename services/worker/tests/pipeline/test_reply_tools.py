@@ -1,0 +1,201 @@
+"""_reply(): включённые в tool_bindings тулзы попадают в run_tool_loop;
+тулза, которой нет в реестре libs/tools, молча пропускается (FEATURES.md
+4.13, инфраструктура — реального дозвона до LLM здесь нет, run_tool_loop
+патчится тестовыми фейками, как и complete/complete_with_image в
+test_reply_smoke.py).
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import uuid
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import ClassVar
+
+import pytest
+
+pytest.importorskip("testcontainers.postgres")
+from db.engine import make_engine, make_session_factory
+from db.models import Bot
+from db.tool_bindings import enable as enable_tool_binding
+from fakeredis.aioredis import FakeRedis
+from llm.client import LLMResult, ToolCall
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from testcontainers.postgres import PostgresContainer
+from tools import registry as tools_registry
+from tools.base import ToolContext
+from worker.pipeline import consumer as consumer_module
+from worker.pipeline.consumer import _process_entry
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
+
+
+def _docker_available() -> bool:
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _docker_available(), reason="Docker недоступен в этом окружении"
+)
+
+
+@pytest.fixture(scope="module")
+def database_url() -> AsyncIterator[str]:
+    with PostgresContainer("pgvector/pgvector:pg17", driver="psycopg2") as pg:
+        url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "-c", str(ALEMBIC_INI), "upgrade", "head"],
+            check=True,
+            env={**os.environ, "DATABASE_URL": url},
+        )
+        yield url
+
+
+@pytest.fixture
+def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
+    engine = make_engine(database_url)
+    return make_session_factory(engine)
+
+
+class _NullStorage:
+    async def get(self, key: str) -> bytes:
+        raise NotImplementedError("этот тест не читает из Storage")
+
+
+async def _make_bot(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID:
+    async with session_factory() as session:
+        bot = Bot(
+            name="test-bot", enabled=True, system_prompt="Ты — ассистент.",
+            timezone="Asia/Bishkek", settings={"batch_timeout_seconds": 0.02},
+        )
+        session.add(bot)
+        await session.flush()
+        await session.commit()
+        return bot.id
+
+
+def _inbound_payload(bot_id: uuid.UUID) -> dict[str, object]:
+    return {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-1",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "Привет",
+        "ts": 1756800000000,
+    }
+
+
+async def test_no_bindings_uses_complete_fn_fast_path(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ни одной строки в tool_bindings — как сейчас у всех ботов: быстрый
+    путь run_tool_loop (просто complete()), поведение не меняется."""
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(text="ответ без тулз", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        assert "ответ без тулз" in out_entries[1][1]["payload"]
+    finally:
+        await redis.aclose()
+
+
+async def test_binding_for_tool_missing_from_registry_is_silently_skipped(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tool_bindings ссылается на имя, которого нет в реестре libs/tools
+    (рассинхрон БД/деплоя кода) — не должно ронять диалог и не должно
+    доходить до complete_with_tools (итоговых тулз для LLM — ноль)."""
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(text="ok", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    async def fail_complete_with_tools(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("не должен вызываться — тулза не найдена в реестре")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fail_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "phantom_tool", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        assert "ok" in out_entries[1][1]["payload"]
+    finally:
+        await redis.aclose()
+
+
+async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Реестр временно содержит фейковую тулзу (monkeypatch, не продакшн-код)
+    — доказывает, что вся цепочка tool_bindings -> реестр -> ToolContext ->
+    executor реально работает, без реального OpenAI-вызова."""
+
+    class _FakeSearchTool:
+        name = "search"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> str:
+            assert ctx.config == {"limit": 3}
+            assert ctx.contact_id is not None
+            return "найдено: тестовый товар"
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeSearchTool())
+
+    captured_tool_specs: list[object] = []
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        captured_tool_specs.append(tools)
+        if not list(exchange):
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="search", arguments_json="{}")],
+            )
+        return LLMResult(text="Вот тестовый товар.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "search", {"limit": 3})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        assert "Вот тестовый товар." in out_entries[1][1]["payload"]
+        assert len(captured_tool_specs[0]) == 1
+        assert captured_tool_specs[0][0].name == "search"
+    finally:
+        await redis.aclose()

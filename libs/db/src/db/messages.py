@@ -47,7 +47,7 @@ async def insert_outgoing(
     bot_id: uuid.UUID,
     contact_id: uuid.UUID,
     content: str,
-) -> None:
+) -> int:
     """Ответ ассистента — wa_msg_id нет, UNIQUE(bot_id, wa_msg_id) на NULL не срабатывает.
 
     ts выставляем на Python-стороне (как и insert_incoming), а не полагаемся
@@ -55,17 +55,21 @@ async def insert_outgoing(
     заморожен на момент её начала, поэтому ts ответа мог оказаться РАНЬШЕ
     ts входящего сообщения той же транзакции — история сортировалась не по
     реальному порядку записи.
+
+    Возвращает seq вставленной строки — нужен вызывающему коду для
+    постановки follow-up-задачи (FEATURES.md 5.5): "было ли что-то новее
+    этого сообщения к моменту срабатывания задачи".
     """
-    session.add(
-        Message(
-            bot_id=bot_id,
-            contact_id=contact_id,
-            role="assistant",
-            content=content,
-            ts=datetime.now(UTC),
-        )
+    message = Message(
+        bot_id=bot_id,
+        contact_id=contact_id,
+        role="assistant",
+        content=content,
+        ts=datetime.now(UTC),
     )
+    session.add(message)
     await session.flush()
+    return message.seq
 
 
 async def fetch_recent_history(

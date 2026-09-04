@@ -172,3 +172,11 @@ async def test_insert_incoming_without_media_ref_leaves_it_null(session: AsyncSe
 
     history = await fetch_recent_history(session, contact_id)
     assert history[0].media_ref is None
+
+
+async def test_insert_outgoing_returns_the_new_row_seq(session: AsyncSession) -> None:
+    bot_id, contact_id = await _make_contact(session)
+    seq = await insert_outgoing(session, bot_id, contact_id, "ответ")
+
+    history = await fetch_recent_history(session, contact_id)
+    assert history[0].seq == seq

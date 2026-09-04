@@ -352,7 +352,6 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `libs/db/src/db/messages.py`
 - Modify: `libs/db/tests/test_messages.py`
-- Modify: `services/worker/src/worker/pipeline/consumer.py` (только 2 из 4 call sites)
 
 **Interfaces:**
 - Produces: `insert_outgoing(session, bot_id, contact_id, content) -> int`
@@ -419,40 +418,25 @@ Run: `pytest libs/db/tests/test_messages.py -v`
 Expected: PASS, весь файл (флеш присваивает `seq` через `IDENTITY` —
 объект `message.seq` доступен сразу после `flush()`, до `commit()`).
 
-- [ ] **Step 5: Обновить 2 из 4 вызовов в consumer.py**
+- [ ] **Step 5: Прогнать весь db-пакет — регрессия**
 
-В `services/worker/src/worker/pipeline/consumer.py`, изменить ТОЛЬКО
-строки внутри `_reply` (было `await insert_outgoing(session, event.bot_id, contact_id, result.text)`,
-строка ~247) и `_reply_with_vision` (аналогичная строка ~313) — присвоить
-возврат переменной:
+Run: `pytest libs/db -v`
 
-```python
-        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, result.text)
-```
+Expected: PASS, без регрессий.
 
-Строки в `_handle_manager_message` (~195) и `_reply_with_media_fallback`
-(~334) НЕ трогать — возврат там не нужен (follow-up не планируется для
-этих веток).
-
-- [ ] **Step 6: Прогнать весь worker-пакет — регрессия**
-
-Run: `pytest services/worker -v`
-
-Expected: PASS, без регрессий (переменная `outgoing_seq` пока нигде не
-используется дальше — это нормально для этого шага, использование
-появится в Task 5; если линтер ругнётся на "assigned but never used" —
-это ожидаемо ровно до Task 5, коммитить в Task 3 всё равно можно, т.к.
-переменная используется в той же функции — просто присвоение без чтения
-внутри ЭТОЙ задачи; следующая задача добавит чтение).
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add libs/db/src/db/messages.py libs/db/tests/test_messages.py services/worker/src/worker/pipeline/consumer.py
+git add libs/db/src/db/messages.py libs/db/tests/test_messages.py
 git commit -m "feat(db): insert_outgoing returns the inserted row's seq
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
+
+Правки `services/worker/src/worker/pipeline/consumer.py` (захват и
+использование `outgoing_seq`) — целиком в Task 5: захват возврата без
+использования в этой задаче завёл бы неиспользуемую переменную и упал бы
+на ruff (`F841`) между коммитами Task 3 и Task 5.
 
 ---
 
@@ -460,10 +444,12 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 **Files:**
 - Create: `services/celery/pyproject.toml`
-- Create: `services/celery/Dockerfile`
 - Create: `services/celery/src/tasks/__init__.py`
 - Create: `services/celery/src/tasks/followup.py`
 - Create: `services/celery/tests/test_followup.py`
+
+(`services/celery/Dockerfile` — создаётся в Task 6, вместе с остальным
+деплой-конфигом; не входит в эту задачу)
 
 **Interfaces:**
 - Consumes: `scheduling.celery_app.celery_app`, `scheduling.task_names.FOLLOW_UP_REMINDER`
@@ -892,11 +878,11 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `services/worker/pyproject.toml`
 - Modify: `services/worker/src/worker/pipeline/consumer.py`
-- Modify: `services/worker/tests/pipeline/test_reply_smoke.py`
 - Create: `services/worker/tests/pipeline/test_followup_scheduling.py`
 
 **Interfaces:**
-- Consumes: `scheduling.celery_app.celery_app`, `scheduling.task_names.FOLLOW_UP_REMINDER` (Task 2).
+- Consumes: `scheduling.celery_app.celery_app`, `scheduling.task_names.FOLLOW_UP_REMINDER` (Task 2);
+  `db.messages.insert_outgoing(session, bot_id, contact_id, content) -> int` (Task 3).
 - Produces: `_schedule_follow_up(bot, chat_id, contact_id, after_seq) -> None` в `consumer.py`.
 
 - [ ] **Step 1: Добавить `scheduling` в зависимости worker'а**

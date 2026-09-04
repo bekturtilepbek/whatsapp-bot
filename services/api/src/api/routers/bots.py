@@ -13,13 +13,18 @@ import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bots import get_bot, update_bot
+from db.tool_bindings import disable as disable_tool
+from db.tool_bindings import enable as enable_tool
+from db.tool_bindings import list_enabled as list_enabled_tools
 from fastapi import APIRouter, HTTPException, Response
+from tools.registry import all_tool_names
 
 from ..db import SessionDep
 from ..gateway_client import GatewayClientDep
 from ..redis_client import RedisDep
 from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
 from ..schemas.bots import BotOut, BotPatch
+from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -112,4 +117,25 @@ async def add_blocked(
 @router.delete("/{bot_id}/blocked-numbers/{phone}", status_code=204)
 async def delete_blocked(bot_id: uuid.UUID, phone: str, session: SessionDep) -> None:
     await remove_blocked_number(session, bot_id, phone)
+    await session.commit()
+
+
+@router.get("/{bot_id}/tools", response_model=list[ToolBindingOut])
+async def list_tools(bot_id: uuid.UUID, session: SessionDep) -> list[ToolBindingOut]:
+    bindings = await list_enabled_tools(session, bot_id)
+    return [ToolBindingOut(tool_name=b.tool_name, config=b.config) for b in bindings]
+
+
+@router.post("/{bot_id}/tools", response_model=ToolBindingOut, status_code=201)
+async def add_tool(bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep) -> ToolBindingOut:
+    if body.tool_name not in all_tool_names():
+        raise HTTPException(status_code=400, detail=f"unknown tool: {body.tool_name}")
+    await enable_tool(session, bot_id, body.tool_name, body.config)
+    await session.commit()
+    return ToolBindingOut(tool_name=body.tool_name, config=body.config)
+
+
+@router.delete("/{bot_id}/tools/{tool_name}", status_code=204)
+async def delete_tool(bot_id: uuid.UUID, tool_name: str, session: SessionDep) -> None:
+    await disable_tool(session, bot_id, tool_name)
     await session.commit()

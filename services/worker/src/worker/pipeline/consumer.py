@@ -1,12 +1,18 @@
 """Реальный пайплайн диалога — заменяет временный echo (Блок 1).
 
-Порядок (STAGE1_CORE Блок 2+3): дедуп → фильтры → from_me? handoff-ветка :
+Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.2.1): дедуп → фильтры → from_me? handoff-ветка :
 contact → запись входящего → enabled → handoff активен? молчим : батчинг
-(debounce) → лок диалога → медиа? заглушка без LLM : история → LLM →
-typing → ответ → запись ответа → usage_events (только для LLM-ветки).
+(debounce) → лок диалога → фото с настроенным image_prompt? vision-ответ (один
+вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
+прочее медиа? заглушка без LLM : история → LLM → typing → ответ → запись
+ответа → usage_events (LLM-ветки, включая vision).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
-снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE).
+снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE). Исключение:
+сбой именно vision-вызова (storage/LLM/таймаут) не проваливается наружу —
+_reply_with_vision сама деградирует в _reply_with_media_fallback, чтобы
+клиент не остался без ответа из-за временной недоступности OpenAI vision
+или хранилища.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot
 from db.usage import record_usage
 from integrations.storage import Storage
-from llm.client import HistoryMessage, complete
+from llm.client import HistoryMessage, complete, complete_with_image
 from llm.pricing import compute_cost
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
@@ -46,6 +52,7 @@ _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
 DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 DEFAULT_AUTO_RELEASE_MINUTES = 12
+STORAGE_READ_TIMEOUT_SECONDS = 20.0
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -144,7 +151,9 @@ async def _process_entry(
         return
 
     try:
-        if event.media_type is not None:
+        if event.media_type == "image" and event.storage_key is not None and bot.image_prompt:
+            await _reply_with_vision(event, bot, contact.id, redis, session_factory, storage)
+        elif event.media_type is not None:
             await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
         else:
             await _reply(event, bot, contact.id, redis, session_factory)
@@ -222,6 +231,72 @@ async def _reply(
     result = await complete(system_prompt, history)
     if not result.text.strip():
         logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
+        return
+
+    await _send_reply(event, redis, result.text)
+
+    cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
+    async with session_factory() as session:
+        await insert_outgoing(session, event.bot_id, contact_id, result.text)
+        await record_usage(
+            session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
+        )
+        await session.commit()
+
+
+async def _reply_with_vision(
+    event: InboundText,
+    bot: Bot,
+    contact_id: uuid.UUID,
+    redis: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
+) -> None:
+    """FEATURES.md 2.1: один вызов LLM на фото — image_prompt бота как system
+    prompt, ответ модели уходит клиенту напрямую (без второго прохода).
+
+    Любой сбой на этом пути (чтение из storage, таймаут, сам вызов LLM,
+    пустой ответ) — НЕ бросаем наружу: тихо деградируем в
+    _reply_with_media_fallback, чтобы клиент гарантированно получил хоть
+    какой-то ответ, а не тишину (в отличие от сбоя обычного _reply, который
+    в _process_entry просто логируется без всякого ответа — здесь так
+    нельзя, у нас уже есть рабочий fallback ровно для медиа-сообщений).
+    """
+    try:
+        async with session_factory() as session:
+            history_rows = await fetch_recent_history(session, contact_id)
+        # Последняя строка — плейсхолдер текущего фото ("[фото]"), уже
+        # вставленный insert_incoming выше по _process_entry; текущий ход
+        # собирается заново из самих байтов картинки, а не из плейсхолдера.
+        history = [
+            HistoryMessage(role=m.role, content=m.content) for m in history_rows[:-1]
+        ]
+
+        assert event.storage_key is not None  # гарантировано веткой в _process_entry
+        image_bytes = await asyncio.wait_for(
+            storage.get(event.storage_key), timeout=STORAGE_READ_TIMEOUT_SECONDS
+        )
+
+        assert bot.image_prompt is not None  # гарантировано веткой в _process_entry
+        system_prompt = f"{bot.image_prompt}\n\n{time_context(bot.timezone)}"
+        mime_type = event.mime_type or "image/jpeg"
+        result = await complete_with_image(
+            system_prompt, history, event.text, image_bytes, mime_type
+        )
+        if not result.text.strip():
+            logger.warning(
+                "vision LLM returned empty text, falling back", bot_id=str(event.bot_id)
+            )
+            await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
+            return
+    except Exception:
+        logger.warning(
+            "vision reply failed, falling back to media placeholder",
+            bot_id=str(event.bot_id),
+            chat_id=event.chat_id,
+            exc_info=True,
+        )
+        await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
         return
 
     await _send_reply(event, redis, result.text)

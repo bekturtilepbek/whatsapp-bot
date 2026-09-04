@@ -75,6 +75,15 @@ async def _make_bot(
         return bot.id
 
 
+class _NullStorage:
+    """Заглушка для тестов, которые не доходят до vision-ветки — она никогда
+    не должна вызываться, поэтому падает явно, а не тихо возвращает мусор.
+    """
+
+    async def get(self, key: str) -> bytes:
+        raise NotImplementedError("этот тест не должен читать из Storage")
+
+
 def _inbound_image_payload(bot_id: uuid.UUID) -> dict[str, object]:
     return {
         "type": "inbound.text",
@@ -101,7 +110,7 @@ async def test_media_message_gets_fallback_reply_without_llm(
     bot_id = await _make_bot(session_factory)
     redis = FakeRedis(decode_responses=True)
     try:
-        await _process_entry(_inbound_image_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
         assert len(out_entries) == 2
@@ -148,7 +157,7 @@ async def test_media_fallback_text_is_configurable_via_bot_settings(
     bot_id = await _make_bot(session_factory, settings={"media_fallback_text": custom_text})
     redis = FakeRedis(decode_responses=True)
     try:
-        await _process_entry(_inbound_image_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
         assert custom_text in out_entries[1][1]["payload"]
@@ -181,7 +190,9 @@ async def test_media_message_with_storage_key_persists_media_ref(
     bot_id = await _make_bot(session_factory)
     redis = FakeRedis(decode_responses=True)
     try:
-        await _process_entry(_inbound_image_payload_with_storage(bot_id), redis, session_factory)
+        await _process_entry(
+            _inbound_image_payload_with_storage(bot_id), redis, session_factory, _NullStorage()
+        )
 
         async with session_factory() as session:
             messages = (

@@ -81,6 +81,15 @@ async def _make_bot(session_factory: async_sessionmaker[AsyncSession]) -> uuid.U
         return bot.id
 
 
+class _NullStorage:
+    """Заглушка для тестов, которые не доходят до vision-ветки — она никогда
+    не должна вызываться, поэтому падает явно, а не тихо возвращает мусор.
+    """
+
+    async def get(self, key: str) -> bytes:
+        raise NotImplementedError("этот тест не должен читать из Storage")
+
+
 def _inbound_payload(bot_id: uuid.UUID) -> dict[str, object]:
     return {
         "type": "inbound.text",
@@ -107,7 +116,7 @@ async def test_inbound_text_produces_reply_history_and_usage(
     bot_id = await _make_bot(session_factory)
     redis = FakeRedis(decode_responses=True)
     try:
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
         assert len(out_entries) == 2
@@ -158,7 +167,9 @@ async def test_llm_failure_does_not_crash_and_releases_lock(
     bot_id = await _make_bot(session_factory)
     redis = FakeRedis(decode_responses=True)
     try:
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)  # не должно упасть
+        await _process_entry(
+            _inbound_payload(bot_id), redis, session_factory, _NullStorage()
+        )  # не должно упасть
 
         assert await redis.xlen("wa:out") == 0
         assert await redis.get(_lock_key(str(bot_id), "996700000000@s.whatsapp.net")) is None

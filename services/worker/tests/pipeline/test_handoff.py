@@ -64,6 +64,15 @@ def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
 CHAT_ID = "996700000000@s.whatsapp.net"
 
 
+class _NullStorage:
+    """Заглушка для тестов, которые не доходят до vision-ветки — она никогда
+    не должна вызываться, поэтому падает явно, а не тихо возвращает мусор.
+    """
+
+    async def get(self, key: str) -> bytes:
+        raise NotImplementedError("этот тест не должен читать из Storage")
+
+
 async def _make_bot(
     session_factory: async_sessionmaker[AsyncSession], **settings_overrides: object
 ) -> uuid.UUID:
@@ -136,7 +145,7 @@ async def test_manager_reply_sets_handoff_and_logs_with_prefix(
     redis = FakeRedis(decode_responses=True)
     try:
         payload = _from_me_payload(bot_id, "wamsg-manager-1", "Да, привезём завтра")
-        await _process_entry(payload, redis, session_factory)
+        await _process_entry(payload, redis, session_factory, _NullStorage())
 
         assert await redis.exists(handoff_key(str(bot_id), CHAT_ID))
         messages = await _messages(session_factory, bot_id)
@@ -160,9 +169,9 @@ async def test_customer_message_during_handoff_is_logged_but_not_replied(
     redis = FakeRedis(decode_responses=True)
     try:
         manager_payload = _from_me_payload(bot_id, "wamsg-manager-2", "Уже занимаюсь")
-        await _process_entry(manager_payload, redis, session_factory)
+        await _process_entry(manager_payload, redis, session_factory, _NullStorage())
         customer_payload = _customer_payload(bot_id, "wamsg-customer-1", "А когда доставка?")
-        await _process_entry(customer_payload, redis, session_factory)
+        await _process_entry(customer_payload, redis, session_factory, _NullStorage())
 
         assert await redis.xlen("wa:out") == 0  # бот не ответил
         messages = await _messages(session_factory, bot_id)
@@ -183,7 +192,10 @@ async def test_own_echo_is_fully_ignored(
         await redis.set(wa_sent_key("own-msg-id-1"), "1")
 
         await _process_entry(
-            _from_me_payload(bot_id, "own-msg-id-1", "Да, доставка есть."), redis, session_factory
+            _from_me_payload(bot_id, "own-msg-id-1", "Да, доставка есть."),
+            redis,
+            session_factory,
+            _NullStorage(),
         )
 
         assert not await redis.exists(handoff_key(str(bot_id), CHAT_ID))
@@ -199,7 +211,10 @@ async def test_second_manager_message_extends_ttl(
     redis = FakeRedis(decode_responses=True)
     try:
         await _process_entry(
-            _from_me_payload(bot_id, "wamsg-manager-3", "первое"), redis, session_factory
+            _from_me_payload(bot_id, "wamsg-manager-3", "первое"),
+            redis,
+            session_factory,
+            _NullStorage(),
         )
         key = handoff_key(str(bot_id), CHAT_ID)
         first_ttl = await redis.ttl(key)
@@ -210,7 +225,10 @@ async def test_second_manager_message_extends_ttl(
         assert await redis.ttl(key) <= 5
 
         await _process_entry(
-            _from_me_payload(bot_id, "wamsg-manager-4", "второе"), redis, session_factory
+            _from_me_payload(bot_id, "wamsg-manager-4", "второе"),
+            redis,
+            session_factory,
+            _NullStorage(),
         )
         assert await redis.ttl(key) > 700  # снова продлилось до полного окна
     finally:
@@ -225,7 +243,7 @@ async def test_media_manager_message_gets_placeholder_with_prefix(
     payload = _from_me_payload(bot_id, "wamsg-manager-5", "")
     payload["media_type"] = "image"
     try:
-        await _process_entry(payload, redis, session_factory)
+        await _process_entry(payload, redis, session_factory, _NullStorage())
 
         messages = await _messages(session_factory, bot_id)
         assert messages[0].content == "[Ответ менеджера] [фото]"

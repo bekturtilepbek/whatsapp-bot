@@ -23,6 +23,7 @@ from db.contacts import match_or_create_contact
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot
 from db.usage import record_usage
+from integrations.storage import Storage
 from llm.client import HistoryMessage, complete
 from llm.pricing import compute_cost
 from llm.time_context import time_context
@@ -72,6 +73,7 @@ async def _process_entry(
     payload: dict[str, Any],
     redis: Redis,
     session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
 ) -> None:
     try:
         event = _event_adapter.validate_python(payload)
@@ -255,6 +257,7 @@ async def run_pipeline_consumer(
     redis: Redis,
     session_factory: async_sessionmaker[AsyncSession],
     consumer_name: str,
+    storage: Storage,
 ) -> None:
     """Останавливается через отмену задачи (asyncio.CancelledError) — как echo.py.
 
@@ -271,7 +274,7 @@ async def run_pipeline_consumer(
             async for entry in read_group(redis, IN_STREAM, GROUP, consumer_name):
                 try:
                     if entry.payload is not None:
-                        await _process_entry(entry.payload, redis, session_factory)
+                        await _process_entry(entry.payload, redis, session_factory, storage)
                 finally:
                     await redis.xack(IN_STREAM, GROUP, entry.entry_id)
         except Exception:

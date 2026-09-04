@@ -69,6 +69,15 @@ async def _make_bot(
         return bot.id
 
 
+class _NullStorage:
+    """Заглушка для тестов, которые не доходят до vision-ветки — она никогда
+    не должна вызываться, поэтому падает явно, а не тихо возвращает мусор.
+    """
+
+    async def get(self, key: str) -> bytes:
+        raise NotImplementedError("этот тест не должен читать из Storage")
+
+
 def _inbound_payload(bot_id: uuid.UUID, **overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "inbound.text",
@@ -100,7 +109,7 @@ async def test_enabled_bot_writes_incoming_message(
     bot_id = await _make_bot(session_factory, enabled=True)
     redis = FakeRedis()
     try:
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
     finally:
         await redis.aclose()
 
@@ -114,7 +123,7 @@ async def test_disabled_bot_still_writes_history(
     bot_id = await _make_bot(session_factory, enabled=False)
     redis = FakeRedis()
     try:
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
     finally:
         await redis.aclose()
 
@@ -127,8 +136,8 @@ async def test_duplicate_wa_msg_id_is_not_written_twice(
     bot_id = await _make_bot(session_factory, enabled=True)
     redis = FakeRedis()
     try:
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)
-        await _process_entry(_inbound_payload(bot_id), redis, session_factory)
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
     finally:
         await redis.aclose()
 
@@ -142,7 +151,10 @@ async def test_group_chat_event_is_not_written(
     redis = FakeRedis()
     try:
         await _process_entry(
-            _inbound_payload(bot_id, chat_id="120363000000000000@g.us"), redis, session_factory
+            _inbound_payload(bot_id, chat_id="120363000000000000@g.us"),
+            redis,
+            session_factory,
+            _NullStorage(),
         )
     finally:
         await redis.aclose()
@@ -157,7 +169,7 @@ async def test_session_status_event_is_ignored(
     redis = FakeRedis()
     payload = {"type": "session.status", "bot_id": str(bot_id), "status": "open", "ts": 1}
     try:
-        await _process_entry(payload, redis, session_factory)
+        await _process_entry(payload, redis, session_factory, _NullStorage())
     finally:
         await redis.aclose()
 

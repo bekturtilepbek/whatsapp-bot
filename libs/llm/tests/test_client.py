@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 
 import pytest
-from llm.client import HistoryMessage, complete
+from llm.client import HistoryMessage, complete, complete_with_image
 
 
 @dataclass
@@ -113,3 +114,57 @@ async def test_sdk_errors_propagate_to_the_caller() -> None:
     client = _FakeClient(_FakeCompletions(error=TimeoutError("request timed out")))
     with pytest.raises(TimeoutError):
         await complete("SYS", [], client=client)  # type: ignore[arg-type]
+
+
+async def test_image_message_sent_as_content_array_with_base64_data_url() -> None:
+    client = _client_with_response("На фото кроссовки Nike Air.", tokens_in=200, tokens_out=15)
+    result = await complete_with_image(
+        "SYS", [], "Что это?", b"\xff\xd8\xff", "image/jpeg", client=client
+    )  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    assert sent[0] == {"role": "system", "content": "SYS"}
+    assert sent[-1]["role"] == "user"
+    content = sent[-1]["content"]
+    assert content[0] == {"type": "text", "text": "Что это?"}
+    expected_b64 = base64.b64encode(b"\xff\xd8\xff").decode("ascii")
+    assert content[1] == {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{expected_b64}"},
+    }
+    assert result.text == "На фото кроссовки Nike Air."
+    assert result.tokens_in == 200
+    assert result.tokens_out == 15
+
+
+async def test_image_message_prior_history_sent_as_plain_text_before_final_turn() -> None:
+    client = _client_with_response("ok", 1, 1)
+    history = [
+        HistoryMessage(role="user", content="привет"),
+        HistoryMessage(role="assistant", content="здравствуйте"),
+    ]
+    await complete_with_image("SYS", history, "", b"abc", "image/png", client=client)  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    assert sent[1] == {"role": "user", "content": "привет"}
+    assert sent[2] == {"role": "assistant", "content": "здравствуйте"}
+    assert sent[3]["role"] == "user"
+    assert isinstance(sent[3]["content"], list)  # финальный ход — content-массив, не строка
+
+
+async def test_empty_caption_uses_placeholder_text_block() -> None:
+    client = _client_with_response("ok", 1, 1)
+    await complete_with_image("SYS", [], "", b"abc", "image/jpeg", client=client)  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    text_block = sent[-1]["content"][0]
+    assert text_block["type"] == "text"
+    assert text_block["text"]  # не пустая строка
+
+
+async def test_image_call_passes_timeout_through_to_sdk() -> None:
+    client = _client_with_response("ok", 1, 1)
+    await complete_with_image(
+        "SYS", [], "", b"abc", "image/jpeg", client=client, timeout_seconds=12.5
+    )  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["timeout"] == 12.5

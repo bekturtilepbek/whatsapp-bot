@@ -77,9 +77,8 @@ async def complete(
     а не только ожидание его результата.
     """
     model = current_model()
-    messages = [{"role": "system", "content": system_prompt}] + [
-        {"role": m.role, "content": m.content} for m in history
-    ]
+    messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
+    messages += [{"role": m.role, "content": m.content} for m in history]
     active_client = client or _default_client()
     return await _call_and_extract(active_client, model, messages, timeout_seconds)
 

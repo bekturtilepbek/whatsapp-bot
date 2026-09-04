@@ -1,0 +1,18 @@
+[project]
+name = "celery-worker"
+version = "0.1.0"
+description = "Celery worker: отложенные задачи (follow-up; кампании/бэкапы — позже волнами)"
+requires-python = ">=3.12"
+dependencies = [
+    "core",
+    "db",
+    "scheduling",
+    "structlog>=24.4",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -13,7 +13,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "libs/core/src:libs/db/src:libs/llm/src:libs/integrations/src:libs/scheduling/src:services/worker/src:services/api/src:services/celery/src"
+mypy_path = "libs/core/src:libs/db/src:libs/llm/src:libs/integrations/src:libs/scheduling/src:libs/tools/src:services/worker/src:services/api/src:services/celery/src"
 namespace_packages = true
 explicit_package_bases = true
 

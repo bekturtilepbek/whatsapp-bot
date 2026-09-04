@@ -6,7 +6,7 @@ WORKDIR /app
 COPY libs /app/libs
 COPY services/worker /app/services/worker
 
-RUN pip install --no-cache-dir -e /app/libs/core -e /app/libs/db -e /app/libs/llm -e /app/libs/integrations -e /app/services/worker
+RUN pip install --no-cache-dir -e /app/libs/core -e /app/libs/db -e /app/libs/llm -e /app/libs/integrations -e /app/libs/scheduling -e /app/services/worker
 
 EXPOSE 8081
 

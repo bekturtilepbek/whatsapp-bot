@@ -81,6 +81,22 @@ services:
       timeout: 5s
       retries: 10
 
+  celery:
+    build:
+      context: ..
+      dockerfile: services/celery/Dockerfile
+    environment:
+      DATABASE_URL: postgres://platform:platform@postgres:5432/platform
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ../services/celery/src:/app/services/celery/src
+      - ../libs:/app/libs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   api:
     build:
       context: ..

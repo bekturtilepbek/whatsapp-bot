@@ -1,33 +1,18 @@
-"""Redis Streams: подключение, consumer group, чтение/публикация событий.
-
-Событие лежит одним JSON-полем "payload" в записи стрима — тот же формат,
-что пишет gateway (services/gateway/src/bus/publish.ts).
+"""Redis Streams: consumer-group чтение wa:in — специфично для worker
+(единственный consumer этого стрима). make_redis/publish/IN_STREAM/OUT_STREAM
+теперь в core.bus (общие для worker и celery) — реэкспортируются здесь,
+чтобы существующие импорты в consumer.py не менялись.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, cast
 
+from core.bus import IN_STREAM, OUT_STREAM, make_redis, publish  # noqa: F401
 from redis.asyncio import Redis
-
-IN_STREAM = "wa:in"
-OUT_STREAM = "wa:out"
-
-
-def make_redis() -> Redis:
-    url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-    # socket_keepalive снижает риск, но не гарантирует: тихо потерянное сетью
-    # (напр. Docker Desktop/WSL2 NAT) TCP-соединение может всё равно оставить
-    # XREADGROUP BLOCK висеть без ответа. socket_timeout — вторая линия
-    # защиты: клиент сам обрывает такой read и позволяет вызывающему коду
-    # заметить и переподключиться, вместо вечного зависания консюмера.
-    return Redis.from_url(
-        url, decode_responses=True, socket_keepalive=True, socket_timeout=15
-    )
 
 
 async def ensure_group(redis: Redis, stream: str, group: str) -> None:
@@ -82,7 +67,3 @@ async def read_group(
                 except json.JSONDecodeError:
                     payload = None
             yield StreamEntry(entry_id=entry_id, payload=payload)
-
-
-async def publish(redis: Redis, stream: str, event: dict[str, Any]) -> None:
-    await redis.xadd(stream, {"payload": json.dumps(event, ensure_ascii=False)})

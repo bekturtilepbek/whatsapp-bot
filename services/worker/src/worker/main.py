@@ -14,6 +14,7 @@ import signal
 import structlog
 from aiohttp import web
 from db.engine import make_engine, make_session_factory
+from integrations.storage import create_storage
 
 from .bus import make_redis
 from .pipeline.consumer import run_pipeline_consumer
@@ -42,9 +43,10 @@ async def main() -> None:
     redis = make_redis()
     engine = make_engine()
     session_factory = make_session_factory(engine)
+    storage = create_storage()
     consumer_name = f"worker-{os.getpid()}"
     pipeline_task = asyncio.create_task(
-        run_pipeline_consumer(redis, session_factory, consumer_name)
+        run_pipeline_consumer(redis, session_factory, consumer_name, storage)
     )
 
     stop = asyncio.Event()

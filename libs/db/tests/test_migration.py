@@ -69,6 +69,7 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
             "name",
             "enabled",
             "system_prompt",
+            "image_prompt",
             "timezone",
             "settings",
             "created_at",

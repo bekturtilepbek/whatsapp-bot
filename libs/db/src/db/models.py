@@ -43,6 +43,12 @@ class Bot(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    # Отдельный system prompt для vision-ответа на фото (FEATURES.md 2.1).
+    # NULL = vision не настроен у этого бота — падаем в старую медиа-заглушку.
+    # Без server_default: NULL — осознанное состояние "не настроено", в
+    # отличие от system_prompt, где пустая строка была бы валидным (хоть и
+    # бесполезным) промптом.
+    image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Дефолт по прежней практике продукта (FEATURES.md 9.4) — единственный
     # известный рынок на старте; поле переопределяется per bot.
     timezone: Mapped[str] = mapped_column(

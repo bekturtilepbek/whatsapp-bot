@@ -6,16 +6,19 @@ localhost, доступ на проде — через SSH-туннель (см.
 
 from __future__ import annotations
 
+import re
 import uuid
 
 import httpx
 from core.redis_keys import handoff_key
+from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bots import get_bot, update_bot
 from fastapi import APIRouter, HTTPException, Response
 
 from ..db import SessionDep
 from ..gateway_client import GatewayClientDep
 from ..redis_client import RedisDep
+from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
 from ..schemas.bots import BotOut, BotPatch
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -80,3 +83,32 @@ async def release_chat(bot_id: uuid.UUID, chat_id: str, redis: RedisDep) -> dict
     """
     await redis.delete(handoff_key(str(bot_id), chat_id))
     return {"status": "released"}
+
+
+def _strip_non_digits(phone: str) -> str:
+    """Тот же формат хранения, что и Contact.wa_id — без "+"/пробелов/скобок
+    (эталон V1: re.sub(r'\\D', '', phone) в central-admin).
+    """
+    return re.sub(r"\D", "", phone)
+
+
+@router.get("/{bot_id}/blocked-numbers", response_model=list[BlockedNumberOut])
+async def list_blocked(bot_id: uuid.UUID, session: SessionDep) -> list[BlockedNumberOut]:
+    phones = await list_blocked_numbers(session, bot_id)
+    return [BlockedNumberOut(phone=p) for p in phones]
+
+
+@router.post("/{bot_id}/blocked-numbers", response_model=BlockedNumberOut, status_code=201)
+async def add_blocked(
+    bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep
+) -> BlockedNumberOut:
+    phone = _strip_non_digits(body.phone)
+    await add_blocked_number(session, bot_id, phone)
+    await session.commit()
+    return BlockedNumberOut(phone=phone)
+
+
+@router.delete("/{bot_id}/blocked-numbers/{phone}", status_code=204)
+async def delete_blocked(bot_id: uuid.UUID, phone: str, session: SessionDep) -> None:
+    await remove_blocked_number(session, bot_id, phone)
+    await session.commit()

@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from openai import (
     APIConnectionError,
@@ -39,11 +41,41 @@ class HistoryMessage:
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments_json: str  # сырой JSON от OpenAI — разбор на стороне вызывающего
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    name: str
+    description: str
+    parameters_schema: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AssistantToolCallsTurn:
+    tool_calls: list[ToolCall]
+
+
+@dataclass(frozen=True)
+class ToolResultTurn:
+    tool_call_id: str
+    name: str
+    content: str
+
+
+ToolExchangeTurn = AssistantToolCallsTurn | ToolResultTurn
+
+
+@dataclass(frozen=True)
 class LLMResult:
     text: str
     tokens_in: int
     tokens_out: int
     model: str
+    tool_calls: list[ToolCall] | None = None
 
 
 def current_model() -> str:
@@ -65,19 +97,27 @@ async def _call_and_extract(
     model: str,
     messages: list[dict[str, object]],
     timeout_seconds: float,
+    *,
+    tools: list[dict[str, object]] | None = None,
+    tool_choice: str | None = None,
 ) -> LLMResult:
     """Ретрай — только на временные сбои SDK (см. _RETRYABLE_EXCEPTIONS),
     экспоненциальный backoff (1с, 2с) между попытками. Таймаут на каждую
     попытку — тот же timeout_seconds, не суммируется отдельно.
+
+    tools/tool_choice — опциональны: complete()/complete_with_image() их не
+    передают, форма запроса для них не меняется (регрессия — см.
+    test_complete_without_tools_does_not_send_tools_key).
     """
     response = None
+    kwargs: dict[str, object] = {"model": model, "messages": messages, "timeout": timeout_seconds}
+    if tools is not None:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = tool_choice or "auto"
+
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
-            response = await active_client.chat.completions.create(
-                model=model,
-                messages=messages,  # type: ignore[arg-type]  # role/content уже валидные строки
-                timeout=timeout_seconds,
-            )
+            response = await active_client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
             break
         except _RETRYABLE_EXCEPTIONS:
             if attempt == RETRY_MAX_ATTEMPTS:
@@ -88,10 +128,20 @@ async def _call_and_extract(
 
     choice = response.choices[0]
     text = choice.message.content or ""
+    raw_tool_calls = getattr(choice.message, "tool_calls", None)
+    tool_calls: list[ToolCall] | None = None
+    if raw_tool_calls:
+        tool_calls = [
+            ToolCall(id=tc.id, name=tc.function.name, arguments_json=tc.function.arguments or "")
+            for tc in raw_tool_calls
+        ]
+
     usage = response.usage
     tokens_in = usage.prompt_tokens if usage else 0
     tokens_out = usage.completion_tokens if usage else 0
-    return LLMResult(text=text, tokens_in=tokens_in, tokens_out=tokens_out, model=model)
+    return LLMResult(
+        text=text, tokens_in=tokens_in, tokens_out=tokens_out, model=model, tool_calls=tool_calls
+    )
 
 
 async def complete(
@@ -156,3 +206,80 @@ async def complete_with_image(
     )
     active_client = client or _default_client()
     return await _call_and_extract(active_client, model, messages, timeout_seconds)
+
+
+def _tool_specs_to_openai(tools: list[ToolSpec]) -> list[dict[str, object]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.parameters_schema,
+            },
+        }
+        for t in tools
+    ]
+
+
+def _exchange_to_messages(exchange: Sequence[ToolExchangeTurn]) -> list[dict[str, object]]:
+    messages: list[dict[str, object]] = []
+    for turn in exchange:
+        if isinstance(turn, AssistantToolCallsTurn):
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {"name": call.name, "arguments": call.arguments_json},
+                        }
+                        for call in turn.tool_calls
+                    ],
+                }
+            )
+        else:
+            messages.append(
+                {"role": "tool", "tool_call_id": turn.tool_call_id, "content": turn.content}
+            )
+    return messages
+
+
+async def complete_with_tools(
+    system_prompt: str,
+    history: list[HistoryMessage],
+    tools: list[ToolSpec],
+    exchange: Sequence[ToolExchangeTurn] = (),
+    *,
+    force_text: bool = False,
+    client: AsyncOpenAI | None = None,
+    timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+) -> LLMResult:
+    """Один вызов LLM с доступными тулзами (FEATURES.md 4.13, инфраструктура).
+    Цикл по нескольким раундам — НЕ здесь, а в
+    services/worker/pipeline/tool_loop.py (ADR-002: этот пакет — только
+    механика вызова OpenAI, оркестрация цикла — бизнес-логика worker).
+
+    exchange — уже случившиеся в ТЕКУЩЕМ раунде реплики (assistant с
+    tool_calls + результаты тулз), эфемерны в рамках одного вызова
+    run_tool_loop — не путать с history (постоянная история из БД).
+
+    force_text=True форсирует tool_choice="none" — модель обязана ответить
+    текстом по уже собранным в exchange результатам, а не запросить ещё
+    одну тулзу (используется, когда исчерпан лимит раундов цикла).
+    """
+    model = current_model()
+    messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
+    messages += [{"role": m.role, "content": m.content} for m in history]
+    messages += _exchange_to_messages(exchange)
+    active_client = client or _default_client()
+    return await _call_and_extract(
+        active_client,
+        model,
+        messages,
+        timeout_seconds,
+        tools=_tool_specs_to_openai(tools),
+        tool_choice="none" if force_text else "auto",
+    )

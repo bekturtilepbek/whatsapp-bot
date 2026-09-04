@@ -13,12 +13,34 @@ from dataclasses import dataclass, field
 import httpx2
 import openai
 import pytest
-from llm.client import HistoryMessage, complete, complete_with_image
+from llm.client import (
+    AssistantToolCallsTurn,
+    HistoryMessage,
+    ToolCall,
+    ToolResultTurn,
+    ToolSpec,
+    complete,
+    complete_with_image,
+    complete_with_tools,
+)
 
 
 @dataclass
 class _FakeMessage:
     content: str | None
+    tool_calls: list[object] | None = None
+
+
+@dataclass
+class _FakeFunctionCall:
+    name: str
+    arguments: str
+
+
+@dataclass
+class _FakeToolCall:
+    id: str
+    function: _FakeFunctionCall
 
 
 @dataclass
@@ -321,3 +343,103 @@ async def test_vision_call_also_retries(monkeypatch: pytest.MonkeyPatch) -> None
     )  # type: ignore[arg-type]
     assert result.text == "описание фото"
     assert completions.call_count == 2
+
+
+async def test_complete_with_tools_sends_function_specs_and_auto_choice() -> None:
+    client = _client_with_response("ok", 1, 1)
+    spec = ToolSpec(
+        name="search",
+        description="ищет товар",
+        parameters_schema={"type": "object", "properties": {}},
+    )
+    await complete_with_tools("SYS", [], [spec], client=client)  # type: ignore[arg-type]
+
+    kwargs = client.chat.completions.last_call_kwargs
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "search",
+                "description": "ищет товар",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    assert kwargs["tool_choice"] == "auto"
+
+
+async def test_complete_with_tools_force_text_sets_tool_choice_none() -> None:
+    client = _client_with_response("ok", 1, 1)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    await complete_with_tools("SYS", [], [spec], force_text=True, client=client)  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["tool_choice"] == "none"
+
+
+async def test_complete_with_tools_parses_tool_calls_from_response() -> None:
+    response = _FakeResponse(
+        choices=[
+            _FakeChoice(
+                message=_FakeMessage(
+                    content=None,
+                    tool_calls=[
+                        _FakeToolCall(
+                            id="call_1",
+                            function=_FakeFunctionCall(
+                                name="search", arguments='{"q": "кроссовки"}'
+                            ),
+                        )
+                    ],
+                )
+            )
+        ],
+        usage=_FakeUsage(prompt_tokens=10, completion_tokens=5),
+    )
+    client = _FakeClient(_FakeCompletions(response=response))
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    result = await complete_with_tools("SYS", [], [spec], client=client)  # type: ignore[arg-type]
+
+    assert result.text == ""
+    assert result.tool_calls == [
+        ToolCall(id="call_1", name="search", arguments_json='{"q": "кроссовки"}')
+    ]
+
+
+async def test_complete_with_tools_no_tool_calls_returns_plain_text() -> None:
+    client = _client_with_response("обычный ответ", 5, 5)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    result = await complete_with_tools("SYS", [], [spec], client=client)  # type: ignore[arg-type]
+    assert result.text == "обычный ответ"
+    assert result.tool_calls is None
+
+
+async def test_complete_with_tools_exchange_becomes_assistant_and_tool_messages() -> None:
+    client = _client_with_response("финальный ответ", 1, 1)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    exchange = [
+        AssistantToolCallsTurn([ToolCall(id="call_1", name="search", arguments_json='{"q": "x"}')]),
+        ToolResultTurn(tool_call_id="call_1", name="search", content="ничего не найдено"),
+    ]
+    await complete_with_tools("SYS", [], [spec], exchange, client=client)  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    assert sent[1] == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "search", "arguments": '{"q": "x"}'},
+            }
+        ],
+    }
+    assert sent[2] == {"role": "tool", "tool_call_id": "call_1", "content": "ничего не найдено"}
+
+
+async def test_complete_without_tools_does_not_send_tools_key() -> None:
+    """Регрессия: у ботов без единой включённой тулзы (все сейчас) форма
+    запроса к OpenAI не должна меняться вообще."""
+    client = _client_with_response("ok", 1, 1)
+    await complete("SYS", [], client=client)  # type: ignore[arg-type]
+    assert "tools" not in client.chat.completions.last_call_kwargs
+    assert "tool_choice" not in client.chat.completions.last_call_kwargs

@@ -51,6 +51,10 @@ class Bot(Base):
     # отличие от system_prompt, где пустая строка была бы валидным (хоть и
     # бесполезным) промптом.
     image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Отдельный system prompt для PDF-ответа (FEATURES.md 2.4) — та же логика,
+    # что и image_prompt: NULL = PDF не настроен у этого бота, падаем в
+    # старую медиа-заглушку.
+    pdf_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Дефолт по прежней практике продукта (FEATURES.md 9.4) — единственный
     # известный рынок на старте; поле переопределяется per bot.
     timezone: Mapped[str] = mapped_column(

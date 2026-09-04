@@ -57,6 +57,7 @@ async def patch_bot(bot_id: uuid.UUID, patch: BotPatch, session: SessionDep) -> 
         enabled=data.get("enabled"),
         system_prompt=data.get("system_prompt"),
         image_prompt=data.get("image_prompt"),
+        pdf_prompt=data.get("pdf_prompt"),
         settings_patch=data.get("settings"),
     )
     await session.commit()

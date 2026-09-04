@@ -22,7 +22,7 @@ from db.engine import make_engine, make_session_factory
 from db.models import Bot
 from db.tool_bindings import enable as enable_tool_binding
 from fakeredis.aioredis import FakeRedis
-from llm.client import LLMResult, ToolCall
+from llm.client import LLMResult, ToolCall, ToolResultTurn
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from tools import registry as tools_registry
@@ -153,26 +153,35 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
     — доказывает, что вся цепочка tool_bindings -> реестр -> ToolContext ->
     executor реально работает, без реального OpenAI-вызова."""
 
+    # Ассерты по ctx нельзя класть внутрь execute(): tool_loop._run_one_tool
+    # оборачивает вызов executor'а в `except Exception` и превращает любое
+    # исключение (в т.ч. AssertionError — он тоже Exception) в текст ошибки
+    # для LLM, а не даёт тесту упасть. Поэтому просто запоминаем ctx здесь и
+    # проверяем его уже вне колбэка, где падение реально валит тест.
+    captured_contexts: list[ToolContext] = []
+
     class _FakeSearchTool:
         name = "search"
         description = "тестовая тулза"
         parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
 
         async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> str:
-            assert ctx.config == {"limit": 3}
-            assert ctx.contact_id is not None
+            captured_contexts.append(ctx)
             return "найдено: тестовый товар"
 
     monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeSearchTool())
 
     captured_tool_specs: list[object] = []
+    captured_exchanges: list[list[object]] = []
 
     async def fake_complete_with_tools(
         system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
         *, force_text: bool = False, **_: object,
     ) -> LLMResult:
         captured_tool_specs.append(tools)
-        if not list(exchange):
+        exchange_list = list(exchange)
+        captured_exchanges.append(exchange_list)
+        if not exchange_list:
             return LLMResult(
                 text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
                 tool_calls=[ToolCall(id="call_1", name="search", arguments_json="{}")],
@@ -197,5 +206,22 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
         assert "Вот тестовый товар." in out_entries[1][1]["payload"]
         assert len(captured_tool_specs[0]) == 1
         assert captured_tool_specs[0][0].name == "search"
+
+        # Ассерты по ToolContext — здесь, а не внутри execute() (см. коммент
+        # выше): падение реально валит тест, а не тонет в except Exception
+        # тул-лупа.
+        assert len(captured_contexts) == 1
+        assert captured_contexts[0].config == {"limit": 3}
+        assert captured_contexts[0].contact_id is not None
+
+        # Бонус: убеждаемся, что результат тулзы реально дошёл до второго
+        # вызова complete_with_tools как ToolResultTurn.content.
+        assert len(captured_exchanges) == 2
+        second_exchange = captured_exchanges[1]
+        tool_results = [
+            turn for turn in second_exchange if isinstance(turn, ToolResultTurn)
+        ]
+        assert len(tool_results) == 1
+        assert tool_results[0].content == "найдено: тестовый товар"
     finally:
         await redis.aclose()

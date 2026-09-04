@@ -7,6 +7,8 @@ dependencies = [
     "core",
     "db",
     "llm",
+    "integrations",
+    "scheduling",
     "redis>=5.0",
     "structlog>=24.4",
     "aiohttp>=3.10",

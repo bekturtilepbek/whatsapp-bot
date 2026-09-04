@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -37,6 +37,8 @@ from llm.pricing import compute_cost
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
 from redis.asyncio import Redis
+from scheduling.celery_app import celery_app
+from scheduling.task_names import FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
@@ -55,6 +57,8 @@ DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
 DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 DEFAULT_AUTO_RELEASE_MINUTES = 12
 STORAGE_READ_TIMEOUT_SECONDS = 20.0
+DEFAULT_REMINDER_DELAY_MINUTES = 60.0
+FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -222,6 +226,46 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
+async def _schedule_follow_up(
+    bot: Bot,
+    chat_id: str,
+    contact_id: uuid.UUID,
+    after_seq: int,
+) -> None:
+    """FEATURES.md 5.5: ставит Celery-задачу с eta, не таймер в памяти (см.
+    "грабли" CLAUDE.md). Сбой постановки (Redis/Celery недоступен) — не
+    должен маскировать уже успешно отправленный клиенту ответ: перехватываем
+    здесь, не пробрасываем в общий except _process_entry.
+    """
+    if not bot.settings.get("reminder_enabled", False):
+        return
+
+    delay_value = bot.settings.get("reminder_delay_minutes", DEFAULT_REMINDER_DELAY_MINUTES)
+    try:
+        delay_minutes = float(delay_value)
+    except (TypeError, ValueError):
+        delay_minutes = DEFAULT_REMINDER_DELAY_MINUTES
+
+    eta = datetime.now(UTC) + timedelta(minutes=delay_minutes)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                celery_app.send_task,
+                FOLLOW_UP_REMINDER,
+                args=[str(bot.id), str(contact_id), chat_id, after_seq],
+                eta=eta,
+            ),
+            timeout=FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        logger.warning(
+            "failed to schedule follow-up reminder",
+            bot_id=str(bot.id),
+            chat_id=chat_id,
+            exc_info=True,
+        )
+
+
 async def _reply(
     event: InboundText,
     bot: Bot,
@@ -244,11 +288,12 @@ async def _reply(
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     async with session_factory() as session:
-        await insert_outgoing(session, event.bot_id, contact_id, result.text)
+        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, result.text)
         await record_usage(
             session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
         )
         await session.commit()
+    await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
 
 
 async def _reply_with_vision(
@@ -310,11 +355,12 @@ async def _reply_with_vision(
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     async with session_factory() as session:
-        await insert_outgoing(session, event.bot_id, contact_id, result.text)
+        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, result.text)
         await record_usage(
             session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
         )
         await session.commit()
+    await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
 
 
 async def _reply_with_media_fallback(

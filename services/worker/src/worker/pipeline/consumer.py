@@ -1,7 +1,8 @@
 """Реальный пайплайн диалога — заменяет временный echo (Блок 1).
 
-Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.2.1): дедуп → фильтры → from_me? handoff-ветка :
-contact → запись входящего → enabled → handoff активен? молчим : батчинг
+Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.1.5+2.1): дедуп → фильтры (группы) →
+from_me? handoff-ветка : чёрный список → contact → запись входящего →
+enabled → handoff активен? молчим : батчинг
 (debounce) → лок диалога → фото с настроенным image_prompt? vision-ответ (один
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
 прочее медиа? заглушка без LLM : история → LLM → typing → ответ → запись
@@ -24,6 +25,7 @@ from typing import Any
 
 import structlog
 from core.events import Event, InboundText, OutboundText, OutboundTyping
+from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
@@ -103,6 +105,11 @@ async def _process_entry(
         return
 
     async with session_factory() as session:
+        if await is_blocked(session, event.bot_id, event.sender_wa_id):
+            logger.info(
+                "blocked contact, ignoring", bot_id=str(event.bot_id), phone=event.sender_wa_id
+            )
+            return
         contact = await match_or_create_contact(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )

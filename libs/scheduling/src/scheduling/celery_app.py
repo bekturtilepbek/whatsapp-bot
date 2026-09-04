@@ -22,4 +22,12 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # Redis-брокер не умеет нативную отложенную доставку: задача с eta
+    # вычитывается воркером сразу и ждёт eta в памяти процесса, ack уходит
+    # только по факту исполнения. Если eta длиннее visibility_timeout,
+    # Redis решает, что сообщение потеряно, и отдаёт его повторно —
+    # то есть задача выполняется дважды. Дефолт kombu — 3600с, ровно на
+    # границе DEFAULT_REMINDER_DELAY_MINUTES=60; поднимаем с запасом на
+    # реалистичные настройки reminder_delay_minutes per bot.
+    broker_transport_options={"visibility_timeout": 86400},
 )

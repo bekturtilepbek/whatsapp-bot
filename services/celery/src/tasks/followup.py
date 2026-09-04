@@ -13,7 +13,7 @@ import uuid
 import structlog
 from core.bus import OUT_STREAM, make_redis, publish
 from core.events import OutboundText, OutboundTyping
-from core.redis_keys import handoff_key
+from core.redis_keys import followup_sent_key, handoff_key
 from db.bots import get_bot
 from db.engine import make_engine, make_session_factory
 from db.messages import insert_outgoing
@@ -58,18 +58,34 @@ async def _send_reminder_async(
             select(Message.id)
             .where(
                 Message.contact_id == uuid.UUID(contact_id),
-                Message.role == "user",
                 Message.seq > after_seq,
             )
             .limit(1)
         )
         if newer.scalar_one_or_none() is not None:
             logger.info(
-                "follow-up skipped: customer already replied", bot_id=bot_id, chat_id=chat_id
+                "follow-up skipped: newer message exists", bot_id=bot_id, chat_id=chat_id
             )
             return
 
-        text = bot.settings.get("reminder_message", DEFAULT_REMINDER_MESSAGE)
+        # Атомарная пометка ДО публикации: вторая доставка той же задачи
+        # (см. celery_app.py про visibility_timeout) увидит NX=False и
+        # тихо выйдет, не отправив дубликат. TTL с запасом больше
+        # visibility_timeout, чтобы пережить любое реалистичное окно
+        # повторной доставки.
+        sent_key = followup_sent_key(contact_id, after_seq)
+        if not await redis.set(sent_key, "1", nx=True, ex=172800):
+            logger.info(
+                "follow-up skipped: already sent (duplicate delivery)",
+                bot_id=bot_id,
+                chat_id=chat_id,
+            )
+            return
+
+        text = (
+            str(bot.settings.get("reminder_message") or DEFAULT_REMINDER_MESSAGE).strip()
+            or DEFAULT_REMINDER_MESSAGE
+        )
         typing_event = OutboundTyping(
             bot_id=bot.id, chat_id=chat_id, client_msg_id=uuid.uuid4().hex
         )

@@ -65,6 +65,14 @@ class _NullStorage:
         raise NotImplementedError("этот тест не должен читать из Storage")
 
 
+class _FakeStorage:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def get(self, key: str) -> bytes:
+        return self._data
+
+
 class _FakeCeleryApp:
     def __init__(self, error: Exception | None = None) -> None:
         self.calls: list[dict[str, object]] = []
@@ -103,6 +111,23 @@ def _inbound_payload(bot_id: uuid.UUID) -> dict[str, object]:
         "from_me": False,
         "text": "Здравствуйте, у вас есть доставка?",
         "ts": 1756800000000,
+    }
+
+
+def _inbound_image_payload(bot_id: uuid.UUID) -> dict[str, object]:
+    return {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-img-1",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "",
+        "media_type": "image",
+        "storage_key": f"bots/{bot_id}/media/wamsg-img-1",
+        "mime_type": "image/jpeg",
+        "size_bytes": 12345,
+        "ts": 1756900000000,
     }
 
 
@@ -155,6 +180,38 @@ async def test_reminder_not_scheduled_when_disabled(
     redis = FakeRedis(decode_responses=True)
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        assert fake_celery.calls == []
+    finally:
+        await redis.aclose()
+
+
+async def test_media_fallback_never_schedules_follow_up(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Plan Global Constraints: follow-up ставится только после настоящего
+    LLM-ответа (_reply/_reply_with_vision), НЕ после медиа-заглушки
+    (_reply_with_media_fallback) — здесь бот без image_prompt форсирует
+    именно fallback-путь.
+    """
+
+    async def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("vision LLM не должен вызываться без image_prompt")
+
+    monkeypatch.setattr(consumer_module, "complete_with_image", fail_if_called)
+    fake_celery = _FakeCeleryApp()
+    monkeypatch.setattr(consumer_module, "celery_app", fake_celery)
+
+    # image_prompt не задан (None по умолчанию) — форсирует fallback-путь
+    bot_id = await _make_bot(session_factory, reminder_enabled=True)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(
+            _inbound_image_payload(bot_id),
+            redis,
+            session_factory,
+            _FakeStorage(data=b"fake-jpeg-bytes"),
+        )
         assert fake_celery.calls == []
     finally:
         await redis.aclose()

@@ -143,6 +143,33 @@ async def test_uses_default_message_when_not_configured(
         await redis.aclose()
 
 
+async def test_uses_default_message_when_configured_empty(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """bots.settings — свободный JSONB без схемы (db.bots.update_bot мержит
+    патч как есть): будущий UI настроек или ручная правка может выставить
+    reminder_message="" — падать с ValidationError на OutboundText(min_length=1)
+    нельзя, должен сработать дефолт.
+    """
+    from tasks.followup import DEFAULT_REMINDER_MESSAGE, _send_reminder_async
+
+    bot_id, contact_id = await _make_bot_and_contact(session_factory, reminder_message="")
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+        out_entries = await redis.xrange("wa:out")
+        assert len(out_entries) == 2
+        assert DEFAULT_REMINDER_MESSAGE in out_entries[1][1]["payload"]
+    finally:
+        await redis.aclose()
+
+
 async def test_skips_when_customer_already_replied(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -164,6 +191,79 @@ async def test_skips_when_customer_already_replied(
             redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
         )
         assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
+async def test_skips_when_manager_replied(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Gate 4 расширен с role='user' на любое более новое сообщение
+    (FEATURES.md 5.5, разбор controller): ответ менеджера логируется как
+    role='assistant' (см. _handle_manager_message в consumer.py) — раньше
+    напоминание всё равно уходило клиенту поверх уже решённого вопроса.
+    """
+    from tasks.followup import _send_reminder_async
+
+    bot_id, contact_id = await _make_bot_and_contact(session_factory)
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ бота")
+        await session.commit()
+    async with session_factory() as session:
+        await insert_outgoing(session, bot_id, contact_id, "[Ответ менеджера] решили вопрос")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+        assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
+async def test_duplicate_delivery_sends_reminder_only_once(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Redis-брокер может доставить ETA-задачу повторно (visibility_timeout,
+    см. celery_app.py) — симулируем это прямым повторным вызовом
+    _send_reminder_async с идентичными аргументами и тем же redis.
+    """
+    from tasks.followup import DEFAULT_REMINDER_MESSAGE, _send_reminder_async
+
+    bot_id, contact_id = await _make_bot_and_contact(session_factory)
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ бота")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+
+        out_entries = await redis.xrange("wa:out")
+        assert len(out_entries) == 2  # ровно один typing + один text, не два раза
+
+        async with session_factory() as session:
+            reminders = (
+                (
+                    await session.execute(
+                        select(Message).where(
+                            Message.contact_id == contact_id,
+                            Message.role == "assistant",
+                            Message.content == DEFAULT_REMINDER_MESSAGE,
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(reminders) == 1  # не два — вторая доставка не должна была дописать строку
     finally:
         await redis.aclose()
 

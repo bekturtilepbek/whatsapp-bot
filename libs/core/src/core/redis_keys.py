@@ -19,3 +19,13 @@ def wa_sent_key(client_msg_id: str) -> str:
 def handoff_key(bot_id: str, chat_id: str) -> str:
     """Пока ключ жив — worker молчит на этот чат, отвечает менеджер вручную."""
     return f"handoff:{bot_id}:{chat_id}"
+
+
+def followup_sent_key(contact_id: str, after_seq: int) -> str:
+    """Идемпотентность отправки напоминания (FEATURES.md 5.5): Redis-брокер
+    может доставить ETA-задачу повторно (см. scheduling/celery_app.py про
+    visibility_timeout) — эта пометка не даёт напоминание уйти дважды даже
+    при повторной доставке. Проверка и пометка — атомарно, до публикации
+    (тот же принцип "дедуп до любого await", что и pipeline/dedup.py).
+    """
+    return f"followup:sent:{contact_id}:{after_seq}"

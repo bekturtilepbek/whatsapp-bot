@@ -96,6 +96,6 @@ async def _run(bot_id: str, contact_id: str, chat_id: str, after_seq: int) -> No
         await engine.dispose()
 
 
-@celery_app.task(name=FOLLOW_UP_REMINDER)
+@celery_app.task(name=FOLLOW_UP_REMINDER)  # type: ignore[untyped-decorator]  # celery не публикует py.typed — декоратор неизбежно нетипизирован
 def send_reminder(bot_id: str, contact_id: str, chat_id: str, after_seq: int) -> None:
     asyncio.run(_run(bot_id, contact_id, chat_id, after_seq))

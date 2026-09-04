@@ -29,6 +29,10 @@ ignore_missing_imports = true
 module = "mypy_boto3_s3.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "celery.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["libs", "services/worker", "services/api", "services/celery"]

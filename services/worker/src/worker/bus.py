@@ -11,7 +11,10 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, cast
 
-from core.bus import IN_STREAM, OUT_STREAM, make_redis, publish  # noqa: F401
+from core.bus import IN_STREAM as IN_STREAM
+from core.bus import OUT_STREAM as OUT_STREAM
+from core.bus import make_redis as make_redis
+from core.bus import publish as publish
 from redis.asyncio import Redis
 
 

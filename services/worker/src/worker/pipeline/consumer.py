@@ -1,19 +1,21 @@
 """Реальный пайплайн диалога — заменяет временный echo (Блок 1).
 
-Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.1.5+2.1): дедуп → фильтры (группы) →
+Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.1.5+2.1+2.4): дедуп → фильтры (группы) →
 from_me? handoff-ветка : чёрный список → contact → запись входящего →
 enabled → handoff активен? молчим : батчинг
 (debounce) → лок диалога → фото с настроенным image_prompt? vision-ответ (один
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
-прочее медиа? заглушка без LLM : история → LLM → typing → ответ → запись
-ответа → usage_events (LLM-ветки, включая vision).
+PDF с настроенным pdf_prompt? PDF-ответ (текст извлекается ДО LLM, обычный
+complete(), pdf_prompt как system prompt) : прочее медиа? заглушка без LLM :
+история → LLM → typing → ответ → запись ответа → usage_events (LLM-ветки,
+включая vision и PDF).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
 снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE). Исключение:
-сбой именно vision-вызова (storage/LLM/таймаут) не проваливается наружу —
-_reply_with_vision сама деградирует в _reply_with_media_fallback, чтобы
-клиент не остался без ответа из-за временной недоступности OpenAI vision
-или хранилища.
+сбой именно vision- или PDF-вызова (storage/извлечение текста/LLM/таймаут)
+не проваливается наружу — _reply_with_vision/_reply_with_pdf сами
+деградируют в _reply_with_media_fallback, чтобы клиент не остался без
+ответа из-за временной недоступности OpenAI/хранилища.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ from . import batching, handoff, lock
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
+from .pdf_extract import extract_pdf_text
 
 GROUP = "worker"
 
@@ -59,6 +62,8 @@ DEFAULT_AUTO_RELEASE_MINUTES = 12
 STORAGE_READ_TIMEOUT_SECONDS = 20.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
+# Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
+PDF_TEXT_MAX_CHARS = 15000
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -164,6 +169,13 @@ async def _process_entry(
     try:
         if event.media_type == "image" and event.storage_key is not None and bot.image_prompt:
             await _reply_with_vision(event, bot, contact.id, redis, session_factory, storage)
+        elif (
+            event.media_type == "document"
+            and event.mime_type == "application/pdf"
+            and event.storage_key is not None
+            and bot.pdf_prompt
+        ):
+            await _reply_with_pdf(event, bot, contact.id, redis, session_factory, storage)
         elif event.media_type is not None:
             await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
         else:
@@ -344,6 +356,77 @@ async def _reply_with_vision(
     except Exception:
         logger.warning(
             "vision reply failed, falling back to media placeholder",
+            bot_id=str(event.bot_id),
+            chat_id=event.chat_id,
+            exc_info=True,
+        )
+        await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
+        return
+
+    await _send_reply(event, redis, result.text)
+
+    cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
+    async with session_factory() as session:
+        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, result.text)
+        await record_usage(
+            session, event.bot_id, result.model, result.tokens_in, result.tokens_out, cost
+        )
+        await session.commit()
+    await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
+
+
+async def _reply_with_pdf(
+    event: InboundText,
+    bot: Bot,
+    contact_id: uuid.UUID,
+    redis: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
+) -> None:
+    """FEATURES.md 2.4: текст PDF извлекается ДО вызова LLM — в отличие от
+    vision, мультимодальный вызов не нужен, используем обычный complete()
+    (документ уже стал обычным текстом). pdf_prompt бота — system prompt,
+    ответ модели уходит клиенту напрямую (та же однопроходная архитектура,
+    что и у vision, сознательно отличается от V1: там был второй LLM-проход
+    поверх результата analyzePdf).
+
+    Любой сбой на этом пути (storage, извлечение текста, сам вызов LLM,
+    пустой ответ) — НЕ бросаем наружу: тихо деградируем в
+    _reply_with_media_fallback, тот же принцип, что и у _reply_with_vision.
+    """
+    try:
+        async with session_factory() as session:
+            history_rows = await fetch_recent_history(session, contact_id)
+        # Последняя строка — плейсхолдер текущего документа ("[документ]"),
+        # уже вставленный insert_incoming выше по _process_entry; текущий
+        # ход собирается заново из извлечённого текста, а не из плейсхолдера.
+        history = [
+            HistoryMessage(role=m.role, content=m.content) for m in history_rows[:-1]
+        ]
+
+        assert event.storage_key is not None  # гарантировано веткой в _process_entry
+        pdf_bytes = await asyncio.wait_for(
+            storage.get(event.storage_key), timeout=STORAGE_READ_TIMEOUT_SECONDS
+        )
+        pdf_text = extract_pdf_text(pdf_bytes)[:PDF_TEXT_MAX_CHARS]
+
+        assert bot.pdf_prompt is not None  # гарантировано веткой в _process_entry
+        system_prompt = f"{bot.pdf_prompt}\n\n{time_context(bot.timezone)}"
+        current_turn = f"Текст документа:\n{pdf_text}"
+        if event.text:
+            current_turn = f"{event.text}\n\n{current_turn}"
+        history.append(HistoryMessage(role="user", content=current_turn))
+
+        result = await complete(system_prompt, history)
+        if not result.text.strip():
+            logger.warning(
+                "pdf LLM returned empty text, falling back", bot_id=str(event.bot_id)
+            )
+            await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
+            return
+    except Exception:
+        logger.warning(
+            "pdf reply failed, falling back to media placeholder",
             bot_id=str(event.bot_id),
             chat_id=event.chat_id,
             exc_info=True,

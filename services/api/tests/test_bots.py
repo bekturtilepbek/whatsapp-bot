@@ -173,7 +173,9 @@ async def test_patch_bot_updates_pdf_prompt(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    response = await client.patch(f"/bots/{bot_id}", json={"pdf_prompt": "Изучи документ и ответь клиенту."})
+    response = await client.patch(
+        f"/bots/{bot_id}", json={"pdf_prompt": "Изучи документ и ответь клиенту."}
+    )
     assert response.status_code == 200
     assert response.json()["pdf_prompt"] == "Изучи документ и ответь клиенту."
 

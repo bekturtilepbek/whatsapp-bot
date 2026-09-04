@@ -85,13 +85,17 @@ class _FakeCeleryApp:
 
 
 async def _make_bot(
-    session_factory: async_sessionmaker[AsyncSession], **settings: object
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    pdf_prompt: str | None = None,
+    **settings: object,
 ) -> uuid.UUID:
     async with session_factory() as session:
         bot = Bot(
             name="test-bot",
             enabled=True,
             system_prompt="Ты — ассистент.",
+            pdf_prompt=pdf_prompt,
             timezone="Asia/Bishkek",
             settings={"batch_timeout_seconds": 0.02, **settings},
         )
@@ -129,6 +133,67 @@ def _inbound_image_payload(bot_id: uuid.UUID) -> dict[str, object]:
         "size_bytes": 12345,
         "ts": 1756900000000,
     }
+
+
+def _inbound_pdf_payload(bot_id: uuid.UUID) -> dict[str, object]:
+    return {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-pdf-1",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "",
+        "media_type": "document",
+        "storage_key": f"bots/{bot_id}/media/wamsg-pdf-1",
+        "mime_type": "application/pdf",
+        "size_bytes": 12345,
+        "ts": 1756900000000,
+    }
+
+
+async def test_reminder_scheduled_after_pdf_reply_when_enabled(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 2.4 — PDF-ответ (_reply_with_pdf) тоже настоящий
+    LLM-ответ, follow-up планируется так же, как после vision/текста.
+    """
+    fixture_pdf = (
+        Path(__file__).parent / "fixtures" / "sample.pdf"
+    ).read_bytes()
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(
+            text="В документе указан срок аренды.", tokens_in=10, tokens_out=5, model="gpt-4o-mini"
+        )
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+    fake_celery = _FakeCeleryApp()
+    monkeypatch.setattr(consumer_module, "celery_app", fake_celery)
+
+    bot_id = await _make_bot(
+        session_factory,
+        pdf_prompt="Изучи документ.",
+        reminder_enabled=True,
+        reminder_delay_minutes=45,
+    )
+    redis = FakeRedis(decode_responses=True)
+    try:
+        before = datetime.now(UTC)
+        await _process_entry(
+            _inbound_pdf_payload(bot_id), redis, session_factory, _FakeStorage(data=fixture_pdf)
+        )
+
+        assert len(fake_celery.calls) == 1
+        call = fake_celery.calls[0]
+        assert call["name"] == "tasks.followup.send_reminder"
+        eta = call["eta"]
+        assert isinstance(eta, datetime)
+        expected = before + timedelta(minutes=45)
+        assert abs((eta - expected).total_seconds()) < 5
+    finally:
+        await redis.aclose()
 
 
 async def test_reminder_scheduled_after_llm_reply_when_enabled(

@@ -117,6 +117,8 @@ async def _call_and_extract(
 
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:
+            # kwargs — dict[str, object], mypy теряет типизацию по отдельным полям
+            # и не может подобрать нужную перегрузку create()
             response = await active_client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
             break
         except _RETRYABLE_EXCEPTIONS:

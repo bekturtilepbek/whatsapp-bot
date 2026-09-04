@@ -338,6 +338,10 @@ def _tool_specs_for_bindings(bindings: list[ToolBinding]) -> list[ToolSpec]:
     for binding in bindings:
         tool = get_tool(binding.tool_name)
         if tool is None:
+            logger.warning(
+                "tool binding references unknown tool, skipping",
+                tool_name=binding.tool_name,
+            )
             continue
         specs.append(
             ToolSpec(

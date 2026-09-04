@@ -153,7 +153,7 @@ async def test_bot_with_image_prompt_sends_vision_reply_and_records_usage(
             messages = (
                 (
                     await session.execute(
-                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
                     )
                 )
                 .scalars()

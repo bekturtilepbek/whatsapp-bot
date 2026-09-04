@@ -79,10 +79,10 @@ async def fetch_recent_history(
     stmt = (
         select(Message)
         .where(Message.contact_id == contact_id, Message.ts >= since)
-        .order_by(Message.ts.desc())
+        .order_by(Message.seq.desc())
         .limit(limit)
     )
     result = await session.execute(stmt)
     rows = list(result.scalars().all())
-    rows.reverse()  # выбрали DESC (последние N), отдаём в хронологическом порядке
+    rows.reverse()  # выбрали DESC (последние N по seq), отдаём в порядке вставки
     return rows

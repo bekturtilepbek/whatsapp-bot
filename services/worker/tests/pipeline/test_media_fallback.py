@@ -124,7 +124,7 @@ async def test_media_message_gets_fallback_reply_without_llm(
             messages = (
                 (
                     await session.execute(
-                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
                     )
                 )
                 .scalars()
@@ -198,7 +198,7 @@ async def test_media_message_with_storage_key_persists_media_ref(
             messages = (
                 (
                     await session.execute(
-                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
                     )
                 )
                 .scalars()

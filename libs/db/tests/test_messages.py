@@ -117,6 +117,34 @@ async def test_history_includes_both_user_and_assistant_messages_in_order(
     assert [(m.role, m.content) for m in history] == [("user", "вопрос"), ("assistant", "ответ")]
 
 
+async def test_history_orders_by_insertion_even_when_ts_precision_is_inverted(
+    session: AsyncSession,
+) -> None:
+    """Регрессия: insert_outgoing пишет datetime.now(UTC) с полной точностью,
+    insert_incoming — ts из события (у реального WhatsApp это целые секунды,
+    в тестах — иногда целые миллисекунды). Два сообщения, вставленные почти
+    одновременно, но с "грубым" ts у второго, легко дают ts2 < ts1, хотя
+    вставлено оно позже — сортировка по ts инвертирует историю. Порядок
+    должен идти по факту вставки, а не по точности переданного ts.
+    """
+    bot_id, contact_id = await _make_contact(session)
+    await insert_outgoing(session, bot_id, contact_id, "первое сообщение")
+    # Захватываем "now" ПОСЛЕ вставки исходящего (гарантированно >= его
+    # реального ts) и намеренно отступаем на 100мс назад — имитирует
+    # огрубление точности события (реальный WhatsApp messageTimestamp —
+    # целые секунды) большим, заведомым разрывом, а не пограничным случаем:
+    # проверяем сам факт, что сортировка по ts не спасает при инверсии, а не
+    # ловим микросекундную гонку живых часов.
+    now_after_outgoing = datetime.now(UTC)
+    inverted_ts = now_after_outgoing - timedelta(milliseconds=100)
+    await insert_incoming(
+        session, bot_id, contact_id, "второе сообщение", "wamsg-inverted-ts", inverted_ts
+    )
+
+    history = await fetch_recent_history(session, contact_id)
+    assert [m.content for m in history] == ["первое сообщение", "второе сообщение"]
+
+
 async def test_insert_incoming_persists_media_ref(session: AsyncSession) -> None:
     bot_id, contact_id = await _make_contact(session)
     media_ref = {

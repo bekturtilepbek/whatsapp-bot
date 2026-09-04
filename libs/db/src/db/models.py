@@ -12,9 +12,11 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -115,17 +117,27 @@ class Message(Base):
     """История диалога. wa_msg_id — только у сообщений клиента (role=user);
     у ответов ассистента NULL (свой client_msg_id живёт в Redis-идемпотентности
     gateway, не здесь) — UNIQUE(bot_id, wa_msg_id) NULL с NULL не конфликтует.
+
+    seq — монотонный порядок вставки (Postgres IDENTITY), источник истины для
+    сортировки истории. ts НЕ годится сам по себе: insert_outgoing пишет
+    datetime.now(UTC) с полной точностью, insert_incoming — ts из события
+    (у реального WhatsApp это целые секунды) — при вставках впритык друг к
+    другу более грубый ts может оказаться МЕНЬШЕ уже сохранённого точного,
+    хотя запись сделана позже, и сортировка по ts переставляет историю
+    местами. seq не подвержен этому — id не подходит на его место (UUID
+    случайный, не монотонный).
     """
 
     __tablename__ = "messages"
     __table_args__ = (
         UniqueConstraint("bot_id", "wa_msg_id", name="uq_messages_bot_wa_msg_id"),
-        Index("ix_messages_contact_id_ts", "contact_id", "ts"),
+        Index("ix_messages_contact_id_seq", "contact_id", "seq"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False, unique=True)
     bot_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
     )

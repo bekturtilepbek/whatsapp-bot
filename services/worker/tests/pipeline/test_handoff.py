@@ -133,7 +133,7 @@ async def _messages(
 ) -> list[Message]:
     async with session_factory() as session:
         result = await session.execute(
-            select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+            select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
         )
         return list(result.scalars().all())
 

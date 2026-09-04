@@ -131,7 +131,7 @@ async def test_inbound_text_produces_reply_history_and_usage(
             messages = (
                 (
                     await session.execute(
-                        select(Message).where(Message.bot_id == bot_id).order_by(Message.ts)
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
                     )
                 )
                 .scalars()

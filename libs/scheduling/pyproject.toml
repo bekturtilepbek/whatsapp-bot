@@ -1,0 +1,15 @@
+[project]
+name = "scheduling"
+version = "0.1.0"
+description = "Celery-приложение (конфиг) и имена задач — общее между services/worker (постановка) и services/celery (исполнение)"
+requires-python = ">=3.12"
+dependencies = [
+    "celery[redis]>=5.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

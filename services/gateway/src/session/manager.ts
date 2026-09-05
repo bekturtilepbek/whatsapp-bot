@@ -136,6 +136,22 @@ export class SessionManager {
     await this.activeSocket(botId).sendPresenceUpdate("composing", chatId);
   }
 
+  /** Аналогично sendText — messageId=clientMsgId для той же связки с
+   * идемпотентностью/handoff-echo-детектом (wa:sent:{client_msg_id}). */
+  async sendImage(
+    botId: string,
+    chatId: string,
+    image: Buffer,
+    mimeType: string,
+    clientMsgId: string,
+  ): Promise<void> {
+    await this.activeSocket(botId).sendMessage(
+      chatId,
+      { image, mimetype: mimeType },
+      { messageId: clientMsgId },
+    );
+  }
+
   async stopAll(): Promise<void> {
     for (const [botId, session] of this.sessions) {
       session.stopping = true;

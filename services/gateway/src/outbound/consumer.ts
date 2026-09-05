@@ -1,13 +1,14 @@
-// Consumer group на wa:out: outbound.text / outbound.typing -> отправка через
-// Baileys. Идемпотентность по client_msg_id (SET NX EX 3600) ДО отправки —
-// ретрай worker'а не должен породить дубль сообщения клиенту (CLAUDE.md,
-// "Исходящие идемпотентны"). Ошибка отправки — лог + ACK, без ретраев
-// (ретраи с backoff — Волна 1, вне скоупа Блока 1).
+// Consumer group на wa:out: outbound.text / outbound.typing / outbound.image ->
+// отправка через Baileys. Идемпотентность по client_msg_id (SET NX EX 3600) ДО
+// отправки — ретрай worker'а не должен породить дубль сообщения клиенту
+// (CLAUDE.md, "Исходящие идемпотентны"). Ошибка отправки — лог + ACK, без
+// ретраев (ретраи с backoff — Волна 1, вне скоупа Блока 1).
 import type { Redis } from "ioredis";
 
 import { Event } from "../contracts/events.js";
 import type { SessionManager } from "../session/manager.js";
 import type { TransportLogger } from "../logger.js";
+import type { Storage } from "../storage/types.js";
 import { withTimeout } from "../utils/timeout.js";
 
 const OUT_STREAM = "wa:out";
@@ -34,6 +35,7 @@ export class OutboundConsumer {
     private readonly redis: Redis,
     private readonly sessions: SessionManager,
     private readonly logger: TransportLogger,
+    private readonly storage: Storage,
   ) {}
 
   async start(): Promise<void> {
@@ -91,7 +93,11 @@ export class OutboundConsumer {
     try {
       if (!raw) throw new Error("entry has no 'payload' field");
       const event = Event.parse(JSON.parse(raw));
-      if (event.type === "outbound.text" || event.type === "outbound.typing") {
+      if (
+        event.type === "outbound.text" ||
+        event.type === "outbound.typing" ||
+        event.type === "outbound.image"
+      ) {
         await this.handleOutbound(event);
       } else {
         this.logger.warn({ id, type: event.type }, "unexpected event type on wa:out, skipping");
@@ -104,7 +110,7 @@ export class OutboundConsumer {
   }
 
   private async handleOutbound(
-    event: Extract<Event, { type: "outbound.text" | "outbound.typing" }>,
+    event: Extract<Event, { type: "outbound.text" | "outbound.typing" | "outbound.image" }>,
   ): Promise<void> {
     // Формат ключа задокументирован и переиспользуется в libs/core/src/core/redis_keys.py
     // (worker, api) — Блок 3 detect'ит по нему свой echo для handoff. Меняешь тут — меняй и там.
@@ -122,11 +128,18 @@ export class OutboundConsumer {
           SEND_TIMEOUT_MS,
           "sendText",
         );
-      } else {
+      } else if (event.type === "outbound.typing") {
         await withTimeout(
           this.sessions.sendTyping(event.bot_id, event.chat_id),
           SEND_TIMEOUT_MS,
           "sendTyping",
+        );
+      } else {
+        const image = await this.storage.get(event.storage_key);
+        await withTimeout(
+          this.sessions.sendImage(event.bot_id, event.chat_id, image, event.mime_type, event.client_msg_id),
+          SEND_TIMEOUT_MS,
+          "sendImage",
         );
       }
     } catch (err) {

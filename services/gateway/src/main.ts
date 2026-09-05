@@ -15,7 +15,7 @@ const pool = getPool();
 const redis = getRedis();
 const storage = createStorage();
 const sessions = new SessionManager(pool, redis, app.log, storage);
-const outbound = new OutboundConsumer(redis, sessions, app.log);
+const outbound = new OutboundConsumer(redis, sessions, app.log, storage);
 
 app.get("/health", async () => ({ status: "ok" }));
 

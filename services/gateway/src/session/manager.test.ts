@@ -90,6 +90,20 @@ describe("SessionManager.sendText / sendTyping", () => {
 
     expect(sendPresenceUpdateMock).toHaveBeenCalledWith("composing", "996700000000@s.whatsapp.net");
   });
+
+  it("sendImage passes clientMsgId as Baileys messageId with image+mimetype", async () => {
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    const image = Buffer.from("fake-jpeg-bytes");
+    await sessions.sendImage("bot-1", "996700000000@s.whatsapp.net", image, "image/jpeg", "img-msg-1");
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "996700000000@s.whatsapp.net",
+      { image, mimetype: "image/jpeg" },
+      { messageId: "img-msg-1" },
+    );
+  });
 });
 
 // Fix 2 (финальный review): gateway не должен скачивать/заливать медиа,

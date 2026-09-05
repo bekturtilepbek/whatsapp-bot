@@ -1,6 +1,5 @@
-"""Реестр тулз (FEATURES.md 4.13): get_tool/all_tool_names. Пуст в
-продакшн-коде на этой итерации — тесты monkeypatch'ят _REGISTRY напрямую,
-не полагаясь ни на одну настоящую тулзу.
+"""Реестр тулз (FEATURES.md 4.13): get_tool/all_tool_names/register.
+Первая настоящая тулза — search_products (FEATURES.md 4.1/4.2).
 """
 
 from __future__ import annotations
@@ -9,6 +8,7 @@ from typing import ClassVar
 
 import pytest
 from tools import registry
+from tools.product_search import ProductSearchTool
 
 
 class _DummyTool:
@@ -24,10 +24,27 @@ def test_get_tool_returns_none_for_unregistered_name() -> None:
     assert registry.get_tool("does_not_exist") is None
 
 
-def test_all_tool_names_empty_by_default() -> None:
-    """Реестр пуст в этой итерации (инфраструктура без тулз) — первая
-    настоящая тулза (следующая итерация, 4.1) обновит этот тест."""
-    assert registry.all_tool_names() == []
+def test_all_tool_names_includes_search_products() -> None:
+    """Первая настоящая тулза (FEATURES.md 4.1) — реестр больше не пуст."""
+    assert "search_products" in registry.all_tool_names()
+
+
+def test_production_registry_resolves_search_products_to_the_real_tool() -> None:
+    tool = registry.get_tool("search_products")
+    assert isinstance(tool, ProductSearchTool)
+    assert tool.name == "search_products"
+
+
+def test_register_stores_under_tool_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Подменяем сам объект словаря на его копию, чтобы не мутировать
+    # реальный продакшн-реестр (уже содержит search_products) — monkeypatch
+    # откатывает подмену после теста, без ручной очистки.
+    monkeypatch.setattr(registry, "_REGISTRY", dict(registry._REGISTRY))
+    dummy = _DummyTool()
+    registry.register(dummy)
+
+    assert registry.get_tool("dummy") is dummy
+    assert "dummy" in registry.all_tool_names()
 
 
 def test_get_tool_and_all_tool_names_reflect_registered_entry(
@@ -37,4 +54,4 @@ def test_get_tool_and_all_tool_names_reflect_registered_entry(
     monkeypatch.setitem(registry._REGISTRY, "dummy", dummy)
 
     assert registry.get_tool("dummy") is dummy
-    assert registry.all_tool_names() == ["dummy"]
+    assert "dummy" in registry.all_tool_names()

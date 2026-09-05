@@ -78,9 +78,15 @@ async def test_list_product_images_ordered_by_position(session: AsyncSession) ->
     product_id = await _make_product(session)
     session.add_all(
         [
-            ProductImage(product_id=product_id, storage_key="img-2", mime_type="image/jpeg", position=2),
-            ProductImage(product_id=product_id, storage_key="img-0", mime_type="image/jpeg", position=0),
-            ProductImage(product_id=product_id, storage_key="img-1", mime_type="image/jpeg", position=1),
+            ProductImage(
+                product_id=product_id, storage_key="img-2", mime_type="image/jpeg", position=2
+            ),
+            ProductImage(
+                product_id=product_id, storage_key="img-0", mime_type="image/jpeg", position=0
+            ),
+            ProductImage(
+                product_id=product_id, storage_key="img-1", mime_type="image/jpeg", position=1
+            ),
         ]
     )
     await session.flush()
@@ -94,8 +100,12 @@ async def test_list_product_images_scoped_per_product(session: AsyncSession) -> 
     product_b = await _make_product(session)
     session.add_all(
         [
-            ProductImage(product_id=product_a, storage_key="img-a", mime_type="image/jpeg", position=0),
-            ProductImage(product_id=product_b, storage_key="img-b", mime_type="image/jpeg", position=0),
+            ProductImage(
+                product_id=product_a, storage_key="img-a", mime_type="image/jpeg", position=0
+            ),
+            ProductImage(
+                product_id=product_b, storage_key="img-b", mime_type="image/jpeg", position=0
+            ),
         ]
     )
     await session.flush()

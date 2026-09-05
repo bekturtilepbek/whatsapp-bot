@@ -38,7 +38,10 @@ class ProductSearchTool:
     parameters_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Название или описание товара, которое ищет клиент"}
+            "query": {
+                "type": "string",
+                "description": "Название или описание товара, которое ищет клиент",
+            }
         },
         "required": ["query"],
     }
@@ -60,7 +63,9 @@ class ProductSearchTool:
             embedding = await generate_embedding(query, timeout_seconds=EMBEDDING_TIMEOUT_SECONDS)
             async with ctx.session_factory() as session:
                 product = await find_product_by_embedding(session, ctx.bot.id, embedding)
-                images = await list_product_images(session, product.id) if product is not None else []
+                images = (
+                    await list_product_images(session, product.id) if product is not None else []
+                )
 
         if product is None:
             return ToolExecutionResult(content="[]")
@@ -77,5 +82,7 @@ class ProductSearchTool:
             # не считает [] и () равными), а дефолт ToolExecutionResult.media
             # — именно (). tuple() на пустом images даёт (), совпадает с
             # дефолтом и с ожиданием теста "без фото".
-            media=tuple(MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type) for i in images),
+            media=tuple(
+                MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type) for i in images
+            ),
         )

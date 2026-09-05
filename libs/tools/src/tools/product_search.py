@@ -39,8 +39,10 @@ class ProductSearchTool:
         query = str(arguments.get("query", ""))
         async with ctx.session_factory() as session:
             product = await find_product_by_exact_name(session, ctx.bot.id, query)
-            if product is None:
-                embedding = await generate_embedding(query)
+
+        if product is None:
+            embedding = await generate_embedding(query)
+            async with ctx.session_factory() as session:
                 product = await find_product_by_embedding(session, ctx.bot.id, embedding)
 
         if product is None:

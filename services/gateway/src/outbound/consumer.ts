@@ -135,7 +135,11 @@ export class OutboundConsumer {
           "sendTyping",
         );
       } else {
-        const image = await this.storage.get(event.storage_key);
+        const image = await withTimeout(
+          this.storage.get(event.storage_key),
+          SEND_TIMEOUT_MS,
+          "storageGet",
+        );
         await withTimeout(
           this.sessions.sendImage(event.bot_id, event.chat_id, image, event.mime_type, event.client_msg_id),
           SEND_TIMEOUT_MS,

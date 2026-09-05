@@ -168,6 +168,45 @@ describe("OutboundConsumer idempotency and routing", () => {
     expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
   });
 
+  it("bounds a hanging storage.get with the send timeout instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const { redis, sessions, logger, storage } = makeMocks();
+      // storage.get никогда не резолвится — имитация зависшего S3/диска
+      (storage.get as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(() => {}));
+      const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+      const event = {
+        type: "outbound.image",
+        bot_id: BOT_ID,
+        chat_id: "996700000000@s.whatsapp.net",
+        storage_key: "bots/bot-1/products/img-hang.jpg",
+        mime_type: "image/jpeg",
+        client_msg_id: "img-hang",
+      };
+
+      const entryPromise = (
+        consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> }
+      ).processEntry("1-0", payloadFields(event));
+
+      // Продвигаем таймеры на SEND_TIMEOUT_MS (20с) без реального ожидания —
+      // withTimeout должен отклонить raceующий storage.get, не дожидаясь sendImage.
+      await vi.advanceTimersByTimeAsync(20_000);
+      await entryPromise;
+
+      expect(sessions.sendImage).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.objectContaining({ message: "storageGet timed out after 20000ms" }),
+        }),
+        "failed to send outbound event",
+      );
+      // ACK всё равно происходит — зависший storage не должен вешать очередь остальным ботам
+      expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips a duplicate outbound.image client_msg_id but still ACKs", async () => {
     const { redis, sessions, logger, storage } = makeMocks();
     const consumer = new OutboundConsumer(redis, sessions, logger, storage);

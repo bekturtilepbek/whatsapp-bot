@@ -27,11 +27,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from core.events import Event, InboundText, OutboundText, OutboundTyping
+from core.events import Event, InboundText, OutboundImage, OutboundText, OutboundTyping
 from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
@@ -50,7 +51,7 @@ from redis.asyncio import Redis
 from scheduling.celery_app import celery_app
 from scheduling.task_names import FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from tools.base import ToolContext
+from tools.base import MediaToSend, ToolContext, ToolExecutionResult
 from tools.registry import get_tool
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
@@ -254,6 +255,32 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
+async def _send_card(
+    event: InboundText, redis: Redis, text: str, media: Sequence[MediaToSend]
+) -> None:
+    """FEATURES.md 4.3/4.4: карточка товара — typing, затем фото (одно или
+    несколько, в порядке media), затем текст карточки. client_msg_id — новый
+    .hex на КАЖДОЕ исходящее событие, как и в _send_reply (идемпотентность
+    gateway ключуется по нему одинаково для любого типа исходящего)."""
+    typing_event = OutboundTyping(
+        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
+    )
+    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
+    for item in media:
+        image_event = OutboundImage(
+            bot_id=event.bot_id,
+            chat_id=event.chat_id,
+            storage_key=item.storage_key,
+            mime_type=item.mime_type,
+            client_msg_id=uuid.uuid4().hex,
+        )
+        await publish(redis, OUT_STREAM, image_event.model_dump(mode="json"))
+    text_event = OutboundText(
+        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=uuid.uuid4().hex
+    )
+    await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+
+
 async def _schedule_follow_up(
     bot: Bot,
     chat_id: str,
@@ -334,15 +361,22 @@ async def _reply(
         complete_fn=complete,
         complete_with_tools_fn=complete_with_tools,
     )
-    if not loop_result.text.strip():
-        logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
-        return
-
-    await _send_reply(event, redis, loop_result.text)
+    if loop_result.override_reply_text is not None:
+        # FEATURES.md 4.3/4.4: тулза нашла товар — клиенту уходит ТОЛЬКО
+        # карточка, собственный текст LLM в этом ходе отбрасывается
+        # (подтверждено пользователем, эталон V1).
+        reply_text = loop_result.override_reply_text
+        await _send_card(event, redis, reply_text, loop_result.media)
+    else:
+        if not loop_result.text.strip():
+            logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
+            return
+        reply_text = loop_result.text
+        await _send_reply(event, redis, reply_text)
 
     cost = compute_cost(loop_result.model, loop_result.tokens_in, loop_result.tokens_out)
     async with session_factory() as session:
-        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, loop_result.text)
+        outgoing_seq = await insert_outgoing(session, event.bot_id, contact_id, reply_text)
         await record_usage(
             session,
             event.bot_id,
@@ -388,7 +422,7 @@ def _make_tool_executor(
 ) -> ToolExecutor:
     config_by_name = {binding.tool_name: binding.config for binding in bindings}
 
-    async def executor(name: str, arguments: dict[str, Any]) -> str:
+    async def executor(name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
         tool = get_tool(name)
         if tool is None:
             raise LookupError(f"tool not in registry: {name}")

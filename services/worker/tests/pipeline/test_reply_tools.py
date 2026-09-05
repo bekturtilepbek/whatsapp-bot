@@ -7,6 +7,7 @@ test_reply_smoke.py).
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -26,7 +27,7 @@ from llm.client import LLMResult, ToolCall, ToolResultTurn
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from tools import registry as tools_registry
-from tools.base import ToolContext
+from tools.base import MediaToSend, ToolContext, ToolExecutionResult
 from worker.pipeline import consumer as consumer_module
 from worker.pipeline.consumer import _process_entry
 
@@ -165,9 +166,9 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
         description = "тестовая тулза"
         parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
 
-        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> str:
+        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> ToolExecutionResult:
             captured_contexts.append(ctx)
-            return "найдено: тестовый товар"
+            return ToolExecutionResult(content="найдено: тестовый товар")
 
     monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeSearchTool())
 
@@ -223,5 +224,69 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
         ]
         assert len(tool_results) == 1
         assert tool_results[0].content == "найдено: тестовый товар"
+    finally:
+        await redis.aclose()
+
+
+async def test_tool_override_reply_sends_media_and_override_text_instead_of_llm_text(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.3/4.4: если тулза вернула override_reply_text —
+    клиенту уходит typing + карточка (фото + текст карточки), а не текст
+    LLM."""
+
+    class _FakeCardTool:
+        name = "search"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> ToolExecutionResult:
+            return ToolExecutionResult(
+                content='[{"name": "Nike Air"}]',
+                override_reply_text="*Nike Air*\nЦена: 5000",
+                media=[MediaToSend(storage_key="bots/x/products/img-1.jpg", mime_type="image/jpeg")],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeCardTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="search", arguments_json="{}")],
+            )
+        return LLMResult(
+            text="этот текст LLM не должен уйти клиенту",
+            tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "search", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        # typing, outbound.image, outbound.text — три события, текст LLM среди них нет
+        assert len(out_entries) == 3
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[0]["type"] == "outbound.typing"
+        assert payloads[1]["type"] == "outbound.image"
+        assert payloads[1]["storage_key"] == "bots/x/products/img-1.jpg"
+        assert payloads[2]["type"] == "outbound.text"
+        assert payloads[2]["text"] == "*Nike Air*\nЦена: 5000"
+        assert not any("этот текст LLM" in p.get("text", "") for p in payloads)
     finally:
         await redis.aclose()

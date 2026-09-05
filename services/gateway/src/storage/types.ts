@@ -3,4 +3,5 @@
 // на Python-стороне). Ключ объекта: bots/{bot_id}/media/{wa_msg_id}.
 export interface Storage {
   put(key: string, bytes: Buffer, mimeType: string): Promise<void>;
+  get(key: string): Promise<Buffer>;
 }

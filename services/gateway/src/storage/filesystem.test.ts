@@ -40,4 +40,19 @@ describe("FilesystemStorage", () => {
     await expect(storage.put("../evil-sibling", Buffer.from("evil"), "text/plain")).rejects.toThrow();
     await expect(stat(resolve(root, "..", "evil-sibling"))).rejects.toThrow();
   });
+
+  it("reads back bytes written by put", async () => {
+    const storage = new FilesystemStorage(root);
+    await storage.put("bots/bot-1/media/msg-1", Buffer.from("hello"), "text/plain");
+
+    const bytes = await storage.get("bots/bot-1/media/msg-1");
+    expect(bytes.toString()).toBe("hello");
+  });
+
+  it("throws when the key attempts path traversal via nested dots", async () => {
+    const storage = new FilesystemStorage(root);
+    const key = "bots/x/media/../../../../../etc/cron.d/evil";
+
+    await expect(storage.get(key)).rejects.toThrow();
+  });
 });

@@ -43,6 +43,20 @@
       },
       "required": ["type", "bot_id", "chat_id", "text", "client_msg_id"]
     },
+    "outboundImage": {
+      "type": "object",
+      "description": "Исходящее изображение в wa:out (FEATURES.md 4.3/4.4 — карточка товара).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.image" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "storage_key": { "type": "string", "minLength": 1 },
+        "mime_type": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "storage_key", "mime_type", "client_msg_id"]
+    },
     "outboundTyping": {
       "type": "object",
       "description": "Индикатор \"печатает\" в wa:out.",
@@ -74,6 +88,7 @@
   "oneOf": [
     { "$ref": "#/definitions/inboundText" },
     { "$ref": "#/definitions/outboundText" },
+    { "$ref": "#/definitions/outboundImage" },
     { "$ref": "#/definitions/outboundTyping" },
     { "$ref": "#/definitions/sessionStatus" }
   ]

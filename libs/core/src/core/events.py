@@ -42,6 +42,17 @@ class OutboundText(BaseModel):
     client_msg_id: str = Field(min_length=1)
 
 
+class OutboundImage(BaseModel):
+    """Исходящее изображение в wa:out (FEATURES.md 4.3/4.4 — карточка товара)."""
+
+    type: Literal["outbound.image"] = "outbound.image"
+    bot_id: UUID
+    chat_id: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime_type: str = Field(min_length=1)
+    client_msg_id: str = Field(min_length=1)
+
+
 class OutboundTyping(BaseModel):
     """Индикатор "печатает" в wa:out."""
 
@@ -60,4 +71,4 @@ class SessionStatus(BaseModel):
     ts: int
 
 
-Event = InboundText | OutboundText | OutboundTyping | SessionStatus
+Event = InboundText | OutboundText | OutboundImage | OutboundTyping | SessionStatus

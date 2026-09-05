@@ -3,7 +3,9 @@
 Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.1.5+2.1+2.4): дедуп → фильтры (группы) →
 from_me? handoff-ветка : чёрный список → contact → запись входящего →
 enabled → handoff активен? молчим : батчинг
-(debounce) → лок диалога → фото с настроенным image_prompt? vision-ответ (один
+(debounce) → лок диалога (продлевается в фоне на время ветки ниже —
+lock.keep_alive, иначе ретраи LLM/цикл тулз могут пережить TTL лока) →
+фото с настроенным image_prompt? vision-ответ (один
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
 PDF с настроенным pdf_prompt? PDF-ответ (текст извлекается ДО LLM, обычный
 complete(), pdf_prompt как system prompt) : прочее медиа? заглушка без LLM :
@@ -172,19 +174,20 @@ async def _process_entry(
         return
 
     try:
-        if event.media_type == "image" and event.storage_key is not None and bot.image_prompt:
-            await _reply_with_vision(event, bot, contact.id, redis, session_factory, storage)
-        elif (
-            event.media_type == "document"
-            and event.mime_type == "application/pdf"
-            and event.storage_key is not None
-            and bot.pdf_prompt
-        ):
-            await _reply_with_pdf(event, bot, contact.id, redis, session_factory, storage)
-        elif event.media_type is not None:
-            await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
-        else:
-            await _reply(event, bot, contact.id, redis, session_factory, storage)
+        async with lock.keep_alive(redis, bot_id_str, event.chat_id):
+            if event.media_type == "image" and event.storage_key is not None and bot.image_prompt:
+                await _reply_with_vision(event, bot, contact.id, redis, session_factory, storage)
+            elif (
+                event.media_type == "document"
+                and event.mime_type == "application/pdf"
+                and event.storage_key is not None
+                and bot.pdf_prompt
+            ):
+                await _reply_with_pdf(event, bot, contact.id, redis, session_factory, storage)
+            elif event.media_type is not None:
+                await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
+            else:
+                await _reply(event, bot, contact.id, redis, session_factory, storage)
     except Exception:
         # "Любой внешний вызов — с таймаутом" не спасает от сбоя самого
         # вызова (LLM/Redis/БД) — здесь лог и тихий отказ, без ретрая

@@ -296,3 +296,80 @@ async def test_tool_override_reply_sends_media_and_override_text_instead_of_llm_
         assert not any("этот текст LLM" in p.get("text", "") for p in payloads)
     finally:
         await redis.aclose()
+
+
+async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_photos(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.3/4.4: LLM находит два товара за один ход — уходят
+    ОБЕ карточки по очереди (найденная ранее не молча теряется), с
+    джиттером между фото (эталон V1, анти-бан) — джиттер подменён на 0,
+    чтобы тест не ждал реальные 1-1.5с."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeMultiCardTool:
+        name = "search"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+        calls = 0
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            type(self).calls += 1
+            n = type(self).calls
+            return ToolExecutionResult(
+                content=f'[{{"name": "Товар {n}"}}]',
+                override_reply_text=f"*Товар {n}*",
+                media=[MediaToSend(storage_key=f"img-{n}.jpg", mime_type="image/jpeg")],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeMultiCardTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[
+                    ToolCall(id="call_1", name="search", arguments_json="{}"),
+                    ToolCall(id="call_2", name="search", arguments_json="{}"),
+                ],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "search", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        # typing, image1, text1, image2, text2
+        assert len(out_entries) == 5
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[0]["type"] == "outbound.typing"
+        assert payloads[1]["type"] == "outbound.image"
+        assert payloads[1]["storage_key"] == "img-1.jpg"
+        assert payloads[2]["type"] == "outbound.text"
+        assert payloads[2]["text"] == "*Товар 1*"
+        assert payloads[3]["type"] == "outbound.image"
+        assert payloads[3]["storage_key"] == "img-2.jpg"
+        assert payloads[4]["type"] == "outbound.text"
+        assert payloads[4]["text"] == "*Товар 2*"
+        assert not any("текст LLM" in p.get("text", "") for p in payloads)
+    finally:
+        await redis.aclose()

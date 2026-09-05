@@ -43,16 +43,28 @@ _CompleteWithToolsFn = Callable[..., Awaitable[LLMResult]]
 
 
 @dataclass(frozen=True)
+class OverrideReply:
+    """Одна карточка товара — текст + её фото, готовые к отправке клиенту
+    ВМЕСТО ответа LLM (FEATURES.md 4.3/4.4). Несколько тулз-вызовов в
+    одном ходе (клиент спросил про несколько товаров сразу) — несколько
+    OverrideReply по порядку, ни один не перезаписывает другой (находка
+    финального ревью: прежнее "последний выигрывает" молча теряло более
+    ранние товары)."""
+
+    text: str
+    media: Sequence[MediaToSend] = ()
+
+
+@dataclass(frozen=True)
 class ToolLoopResult:
     text: str
     tokens_in: int
     tokens_out: int
     model: str
-    # Если задано — тулза решила, что клиенту нужно отправить не текст
-    # LLM, а карточку (FEATURES.md 4.3/4.4). "Последний выигрывает" —
-    # если тулз в ходе несколько, актуален только последний найденный товар.
-    override_reply_text: str | None = None
-    media: Sequence[MediaToSend] = ()
+    # Каждый tool-call в этом ходе, вернувший override, добавляет сюда
+    # свою карточку — порядок сохраняется, ни одна не теряется, даже если
+    # LLM спросила про несколько товаров за один раунд.
+    override_replies: Sequence[OverrideReply] = ()
 
 
 async def run_tool_loop(
@@ -78,8 +90,7 @@ async def run_tool_loop(
     tokens_in_total = 0
     tokens_out_total = 0
     model_name = ""
-    override_reply_text: str | None = None
-    media: Sequence[MediaToSend] = ()
+    override_replies: list[OverrideReply] = []
 
     for _ in range(max_rounds):
         result = await complete_with_tools_fn(system_prompt, history, tools, exchange)
@@ -93,8 +104,7 @@ async def run_tool_loop(
                 tokens_in=tokens_in_total,
                 tokens_out=tokens_out_total,
                 model=model_name,
-                override_reply_text=override_reply_text,
-                media=media,
+                override_replies=tuple(override_replies),
             )
 
         exchange.append(AssistantToolCallsTurn(result.tool_calls))
@@ -102,8 +112,9 @@ async def run_tool_loop(
             tool_result = await _run_one_tool(call, executor)
             exchange.append(ToolResultTurn(call.id, call.name, tool_result.content))
             if tool_result.override_reply_text is not None:
-                override_reply_text = tool_result.override_reply_text
-                media = tool_result.media
+                override_replies.append(
+                    OverrideReply(text=tool_result.override_reply_text, media=tool_result.media)
+                )
 
     logger.warning("tool loop reached max_rounds, forcing final text answer", max_rounds=max_rounds)
     result = await complete_with_tools_fn(system_prompt, history, tools, exchange, force_text=True)
@@ -114,8 +125,7 @@ async def run_tool_loop(
         tokens_in=tokens_in_total,
         tokens_out=tokens_out_total,
         model=result.model,
-        override_reply_text=override_reply_text,
-        media=media,
+        override_replies=tuple(override_replies),
     )
 
 

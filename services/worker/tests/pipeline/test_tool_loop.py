@@ -15,7 +15,7 @@ from llm.client import (
     ToolSpec,
 )
 from tools.base import MediaToSend, ToolExecutionResult
-from worker.pipeline.tool_loop import ToolLoopResult, run_tool_loop
+from worker.pipeline.tool_loop import OverrideReply, ToolLoopResult, run_tool_loop
 
 _SPEC = ToolSpec(name="search", description="ищет товар", parameters_schema={"type": "object"})
 
@@ -54,8 +54,7 @@ async def test_single_round_returns_text_when_no_tool_calls_requested() -> None:
     assert result.text == "готовый ответ"
     assert result.tokens_in == 20
     assert result.tokens_out == 8
-    assert result.override_reply_text is None
-    assert result.media == ()
+    assert result.override_replies == ()
 
 
 async def test_two_round_scenario_executes_tool_then_returns_final_text() -> None:
@@ -139,8 +138,11 @@ async def test_tool_result_with_override_reply_text_propagates_to_loop_result() 
     )
 
     assert result.text == "текст LLM, будет отброшен"
-    assert result.override_reply_text == "*Nike Air*\nЦена: 5000"
-    assert [(m.storage_key, m.mime_type) for m in result.media] == [("img-1", "image/jpeg")]
+    assert len(result.override_replies) == 1
+    assert result.override_replies[0].text == "*Nike Air*\nЦена: 5000"
+    assert list(result.override_replies[0].media) == [
+        MediaToSend(storage_key="img-1", mime_type="image/jpeg")
+    ]
 
 
 async def test_invalid_json_arguments_returns_error_turn_without_calling_executor() -> None:
@@ -223,3 +225,42 @@ async def test_max_rounds_exhausted_forces_final_text_call() -> None:
     )
     assert result.text == "итоговый ответ по тому, что успел узнать"
     assert call_count == 3  # 2 обычных раунда + 1 форсированный текстовый
+
+
+async def test_two_tool_calls_in_one_round_both_produce_cards_in_order() -> None:
+    """FEATURES.md 4.3/4.4: LLM находит два товара за один ход (два
+    tool_calls в одном раунде) — обе карточки сохраняются по порядку,
+    ни одна не теряется ("последний выигрывает" терял более раннюю —
+    находка финального ревью)."""
+
+    async def complete_with_tools_fn(
+        system_prompt: str, history: list[HistoryMessage], tools: list[ToolSpec], exchange: object,
+        *, force_text: bool = False,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="m",
+                tool_calls=[
+                    ToolCall(id="call_1", name="search", arguments_json='{"q": "nike"}'),
+                    ToolCall(id="call_2", name="search", arguments_json='{"q": "adidas"}'),
+                ],
+            )
+        return LLMResult(text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="m")
+
+    async def executor(name: str, arguments: dict[str, object]) -> ToolExecutionResult:
+        query = arguments["q"]
+        return ToolExecutionResult(
+            content=f'[{{"name": "{query}"}}]',
+            override_reply_text=f"*{query}*",
+            media=[MediaToSend(storage_key=f"img-{query}", mime_type="image/jpeg")],
+        )
+
+    result = await run_tool_loop(
+        "SYS", [], [_SPEC], executor, complete_with_tools_fn=complete_with_tools_fn
+    )
+
+    assert len(result.override_replies) == 2
+    assert isinstance(result.override_replies[0], OverrideReply)
+    assert result.override_replies[0].text == "*nike*"
+    assert result.override_replies[1].text == "*adidas*"

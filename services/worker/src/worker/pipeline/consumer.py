@@ -26,6 +26,7 @@ usage_events (LLM-ветки, включая vision и PDF).
 from __future__ import annotations
 
 import asyncio
+import random
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -51,7 +52,7 @@ from redis.asyncio import Redis
 from scheduling.celery_app import celery_app
 from scheduling.task_names import FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from tools.base import MediaToSend, ToolContext, ToolExecutionResult
+from tools.base import ToolContext, ToolExecutionResult
 from tools.registry import get_tool
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
@@ -60,7 +61,7 @@ from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
 from .pdf_extract import extract_pdf_text
-from .tool_loop import ToolExecutor, run_tool_loop
+from .tool_loop import OverrideReply, ToolExecutor, run_tool_loop
 
 GROUP = "worker"
 
@@ -71,6 +72,10 @@ _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
 DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 DEFAULT_AUTO_RELEASE_MINUTES = 12
+# Эталон V1 (FEATURES.md 4.3) — джиттер между отправляемыми медиа,
+# анти-бан дисциплина (CLAUDE.md §7): не пачка фото залпом.
+PHOTO_JITTER_MIN_SECONDS = 1.0
+PHOTO_JITTER_MAX_SECONDS = 1.5
 STORAGE_READ_TIMEOUT_SECONDS = 20.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
@@ -255,30 +260,43 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
-async def _send_card(
-    event: InboundText, redis: Redis, text: str, media: Sequence[MediaToSend]
+async def _send_cards(
+    event: InboundText, redis: Redis, replies: Sequence[OverrideReply]
 ) -> None:
-    """FEATURES.md 4.3/4.4: карточка товара — typing, затем фото (одно или
-    несколько, в порядке media), затем текст карточки. client_msg_id — новый
-    .hex на КАЖДОЕ исходящее событие, как и в _send_reply (идемпотентность
-    gateway ключуется по нему одинаково для любого типа исходящего)."""
+    """FEATURES.md 4.3/4.4: карточки товара — typing один раз, затем для
+    каждой найденной карточки её фото и текст, по порядку. Джиттер
+    1000-1500 мс перед КАЖДЫМ фото, кроме самого первого в этом ходе
+    (включая между карточками разных товаров) — эталон V1, анти-бан
+    дисциплина. client_msg_id — новый .hex на КАЖДОЕ исходящее событие,
+    как и в _send_reply."""
     typing_event = OutboundTyping(
         bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
     )
     await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
-    for item in media:
-        image_event = OutboundImage(
+
+    sent_media = False
+    for reply in replies:
+        for item in reply.media:
+            if sent_media:
+                await asyncio.sleep(
+                    random.uniform(PHOTO_JITTER_MIN_SECONDS, PHOTO_JITTER_MAX_SECONDS)
+                )
+            image_event = OutboundImage(
+                bot_id=event.bot_id,
+                chat_id=event.chat_id,
+                storage_key=item.storage_key,
+                mime_type=item.mime_type,
+                client_msg_id=uuid.uuid4().hex,
+            )
+            await publish(redis, OUT_STREAM, image_event.model_dump(mode="json"))
+            sent_media = True
+        text_event = OutboundText(
             bot_id=event.bot_id,
             chat_id=event.chat_id,
-            storage_key=item.storage_key,
-            mime_type=item.mime_type,
+            text=reply.text,
             client_msg_id=uuid.uuid4().hex,
         )
-        await publish(redis, OUT_STREAM, image_event.model_dump(mode="json"))
-    text_event = OutboundText(
-        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=uuid.uuid4().hex
-    )
-    await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+        await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
 async def _schedule_follow_up(
@@ -361,12 +379,15 @@ async def _reply(
         complete_fn=complete,
         complete_with_tools_fn=complete_with_tools,
     )
-    if loop_result.override_reply_text is not None:
-        # FEATURES.md 4.3/4.4: тулза нашла товар — клиенту уходит ТОЛЬКО
-        # карточка, собственный текст LLM в этом ходе отбрасывается
-        # (подтверждено пользователем, эталон V1).
-        reply_text = loop_result.override_reply_text
-        await _send_card(event, redis, reply_text, loop_result.media)
+    if loop_result.override_replies:
+        # FEATURES.md 4.3/4.4: тулза(ы) нашли товар(ы) — клиенту уходят
+        # ТОЛЬКО карточки, собственный текст LLM в этом ходе отбрасывается
+        # (подтверждено пользователем, эталон V1). Несколько товаров в
+        # одном ходе — несколько карточек по очереди, ни одна не теряется
+        # (находка финального ревью — прежнее "последний выигрывает"
+        # молча теряло более ранние товары).
+        reply_text = "\n\n".join(reply.text for reply in loop_result.override_replies)
+        await _send_cards(event, redis, loop_result.override_replies)
     else:
         if not loop_result.text.strip():
             logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))

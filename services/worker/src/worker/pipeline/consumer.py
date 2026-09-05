@@ -9,8 +9,10 @@ lock.keep_alive, иначе ретраи LLM/цикл тулз могут пер
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
 PDF с настроенным pdf_prompt? PDF-ответ (текст извлекается ДО LLM, обычный
 complete(), pdf_prompt как system prompt) : прочее медиа? заглушка без LLM :
-история → тулзы бота (LLM↔tool-calls, FEATURES.md 4.13; реестр пуст — как
-раньше, просто complete()) → typing → ответ → запись ответа →
+история → каталог товаров в system prompt (FEATURES.md 3.4, только
+текстовый путь — vision/PDF его не получают, как в V1) → тулзы бота
+(LLM↔tool-calls, FEATURES.md 4.13; реестр пуст — как раньше, просто
+complete()) → typing → ответ → запись ответа →
 usage_events (LLM-ветки, включая vision и PDF).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
@@ -35,9 +37,11 @@ from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot, ToolBinding
+from db.products import list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
+from llm.catalog_context import ProductInfo, catalog_context
 from llm.client import HistoryMessage, ToolSpec, complete, complete_with_image, complete_with_tools
 from llm.pricing import compute_cost
 from llm.time_context import time_context
@@ -71,6 +75,10 @@ DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
 # Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
 PDF_TEXT_MAX_CHARS = 15000
+# Мультитенантная платформа на одной БД — бот с огромным каталогом не
+# должен сажать токены/стоимость всем остальным (V1 такого лимита не
+# имел — сознательное отличие, FEATURES.md 3.4).
+PRODUCT_CATALOG_LIMIT = 200
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -297,9 +305,23 @@ async def _reply(
     async with session_factory() as session:
         history_rows = await fetch_recent_history(session, contact_id)
         bindings = await list_enabled_tool_bindings(session, bot.id)
+        products = await list_products(session, bot.id, limit=PRODUCT_CATALOG_LIMIT)
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
-    system_prompt = f"{bot.system_prompt}\n\n{time_context(bot.timezone)}"
+    catalog = catalog_context(
+        [
+            ProductInfo(
+                name=p.name,
+                price=str(p.price) if p.price is not None else None,
+                description=p.description,
+            )
+            for p in products
+        ]
+    )
+    # Порядок — как в V1 (agentInstructions + catalogContext + timeContext):
+    # только основной текстовый путь, vision/PDF (image_prompt/pdf_prompt)
+    # каталог не получают — эталон V1 (analyzeImage/analyzePdf) тоже.
+    system_prompt = f"{bot.system_prompt}\n\n{catalog}\n\n{time_context(bot.timezone)}"
 
     tool_specs = _tool_specs_for_bindings(bindings)
     executor = _make_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)

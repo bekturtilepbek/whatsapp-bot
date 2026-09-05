@@ -125,7 +125,10 @@ async def _run_one_tool(call: ToolCall, executor: ToolExecutor) -> ToolExecution
     except json.JSONDecodeError:
         logger.warning("tool call arguments are not valid json", tool_name=call.name)
         return ToolExecutionResult(
-            content="Ошибка: не удалось разобрать аргументы как JSON. Повтори вызов с корректным JSON."
+            content=(
+                "Ошибка: не удалось разобрать аргументы как JSON. "
+                "Повтори вызов с корректным JSON."
+            )
         )
 
     try:
@@ -135,5 +138,8 @@ async def _run_one_tool(call: ToolCall, executor: ToolExecutor) -> ToolExecution
     except Exception:
         logger.warning("tool execution failed", tool_name=call.name, exc_info=True)
         return ToolExecutionResult(
-            content="Ошибка при вызове инструмента. Продолжай без этого результата или попробуй иначе."
+            content=(
+                "Ошибка при вызове инструмента. "
+                "Продолжай без этого результата или попробуй иначе."
+            )
         )

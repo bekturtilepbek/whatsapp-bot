@@ -166,7 +166,9 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
         description = "тестовая тулза"
         parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
 
-        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> ToolExecutionResult:
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
             captured_contexts.append(ctx)
             return ToolExecutionResult(content="найдено: тестовый товар")
 
@@ -240,11 +242,15 @@ async def test_tool_override_reply_sends_media_and_override_text_instead_of_llm_
         description = "тестовая тулза"
         parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
 
-        async def execute(self, arguments: dict[str, object], ctx: ToolContext) -> ToolExecutionResult:
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
             return ToolExecutionResult(
                 content='[{"name": "Nike Air"}]',
                 override_reply_text="*Nike Air*\nЦена: 5000",
-                media=[MediaToSend(storage_key="bots/x/products/img-1.jpg", mime_type="image/jpeg")],
+                media=[
+                    MediaToSend(storage_key="bots/x/products/img-1.jpg", mime_type="image/jpeg")
+                ],
             )
 
     monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeCardTool())

@@ -226,3 +226,34 @@ class ToolBinding(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Product(Base):
+    """Каталог товаров бота (FEATURES.md 3.4/4.1-4.6). На этой итерации —
+    только сам каталог для контекста LLM (3.4); product_images/
+    product_embeddings и pgvector-расширение — отдельными миграциями,
+    когда появятся 4.3 (карточки) и 4.1 (векторный поиск), не раньше.
+
+    display_custom — переопределение вывода на конкретном товаре
+    (FEATURES.md 4.6), не используется до этой фичи — JSONB с дефолтом
+    '{}', чтобы не понадобилась ещё одна миграция под будущие поля.
+    """
+
+    __tablename__ = "products"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    sku: Mapped[str | None] = mapped_column(String, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    display_custom: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

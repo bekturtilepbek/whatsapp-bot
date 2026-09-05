@@ -2332,6 +2332,412 @@ Expected: успешная сборка (по паттерну этой волн
 
 ---
 
+---
+
+## Task 8: Джиттер между фото + карточки всех найденных товаров (пост-финальный ревью)
+
+**Контекст**: финальный whole-branch ревью (после Task 1-7) нашёл два
+расхождения с эталоном V1, не входившие в список исключений, одобренных
+пользователем в начале итерации:
+
+1. FEATURES.md 4.3 называет задержку 1000–1500 мс между отправляемыми
+   медиа (анти-бан, эталон V1) — в реализации Task 6 её не было вообще.
+2. Если LLM находит два товара за один ход (`search_products` вызван
+   дважды), `tool_loop.py`'s "последний выигрывает" отправлял клиенту
+   ТОЛЬКО карточку последнего товара — карточка первого (фото+текст)
+   молча терялась, и текст LLM тоже не уходил.
+
+Пользователь подтвердил оба фикса: добавить джиттер, отправлять карточки
+ВСЕХ найденных товаров по очереди (не суммировать в одну, не терять
+более ранние).
+
+**Files:**
+- Modify: `services/worker/src/worker/pipeline/tool_loop.py`
+- Modify: `services/worker/tests/pipeline/test_tool_loop.py`
+- Modify: `services/worker/src/worker/pipeline/consumer.py`
+- Modify: `services/worker/tests/pipeline/test_reply_tools.py`
+
+**Interfaces:**
+- Produces: `OverrideReply(text: str, media: Sequence[MediaToSend] = ())` —
+  новый dataclass в `tool_loop.py`. `ToolLoopResult.override_replies:
+  Sequence[OverrideReply] = ()` заменяет прежние
+  `override_reply_text`/`media` (одно значение → список, накапливается,
+  не перезаписывается). `tools/base.py`/`ProductSearchTool` (Task 5) **не
+  меняются** — один вызов тулзы по-прежнему возвращает один
+  `ToolExecutionResult`; накопление нескольких карточек в ходе — забота
+  `tool_loop.py`, не тулзы.
+
+- [ ] **Step 1: Обновить `test_tool_loop.py`**
+
+Импорт `OverrideReply` добавить в блок импортов из `worker.pipeline.tool_loop`:
+```python
+from worker.pipeline.tool_loop import OverrideReply, ToolLoopResult, run_tool_loop
+```
+
+В `test_single_round_returns_text_when_no_tool_calls_requested` заменить
+хвост теста:
+```python
+    assert result.text == "готовый ответ"
+    assert result.tokens_in == 20
+    assert result.tokens_out == 8
+    assert result.override_replies == ()
+```
+
+В `test_tool_result_with_override_reply_text_propagates_to_loop_result`
+заменить последние 3 строки (`assert result.text ==`, `override_reply_text`, `media`):
+```python
+    assert result.text == "текст LLM, будет отброшен"
+    assert len(result.override_replies) == 1
+    assert result.override_replies[0].text == "*Nike Air*\nЦена: 5000"
+    assert list(result.override_replies[0].media) == [
+        MediaToSend(storage_key="img-1", mime_type="image/jpeg")
+    ]
+```
+
+Добавить новый тест в конец файла:
+```python
+async def test_two_tool_calls_in_one_round_both_produce_cards_in_order() -> None:
+    """FEATURES.md 4.3/4.4: LLM находит два товара за один ход (два
+    tool_calls в одном раунде) — обе карточки сохраняются по порядку,
+    ни одна не теряется ("последний выигрывает" терял более раннюю —
+    находка финального ревью)."""
+
+    async def complete_with_tools_fn(
+        system_prompt: str, history: list[HistoryMessage], tools: list[ToolSpec], exchange: object,
+        *, force_text: bool = False,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="m",
+                tool_calls=[
+                    ToolCall(id="call_1", name="search", arguments_json='{"q": "nike"}'),
+                    ToolCall(id="call_2", name="search", arguments_json='{"q": "adidas"}'),
+                ],
+            )
+        return LLMResult(text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="m")
+
+    async def executor(name: str, arguments: dict[str, object]) -> ToolExecutionResult:
+        query = arguments["q"]
+        return ToolExecutionResult(
+            content=f'[{{"name": "{query}"}}]',
+            override_reply_text=f"*{query}*",
+            media=[MediaToSend(storage_key=f"img-{query}", mime_type="image/jpeg")],
+        )
+
+    result = await run_tool_loop(
+        "SYS", [], [_SPEC], executor, complete_with_tools_fn=complete_with_tools_fn
+    )
+
+    assert len(result.override_replies) == 2
+    assert result.override_replies[0].text == "*nike*"
+    assert result.override_replies[1].text == "*adidas*"
+```
+
+This test needs `ToolExecutionResult`/`MediaToSend` imports, already present
+from Task 6's edit to this file (`from tools.base import MediaToSend,
+ToolExecutionResult`).
+
+- [ ] **Step 2: Запустить — RED**
+
+Run: `cd services/worker && ../../.venv/Scripts/python.exe -m pytest tests/pipeline/test_tool_loop.py -v`
+Expected: FAIL — `ToolLoopResult`/`run_tool_loop` ещё не знают про
+`override_replies`/`OverrideReply`.
+
+- [ ] **Step 3: Обновить `tool_loop.py`**
+
+Заменить дословно строки 45-119 (от `@dataclass(frozen=True)\nclass
+ToolLoopResult:` до конца `run_tool_loop`) на:
+
+```python
+@dataclass(frozen=True)
+class OverrideReply:
+    """Одна карточка товара — текст + её фото, готовые к отправке клиенту
+    ВМЕСТО ответа LLM (FEATURES.md 4.3/4.4). Несколько тулз-вызовов в
+    одном ходе (клиент спросил про несколько товаров сразу) — несколько
+    OverrideReply по порядку, ни один не перезаписывает другой (находка
+    финального ревью: прежнее "последний выигрывает" молча теряло более
+    ранние товары)."""
+
+    text: str
+    media: Sequence[MediaToSend] = ()
+
+
+@dataclass(frozen=True)
+class ToolLoopResult:
+    text: str
+    tokens_in: int
+    tokens_out: int
+    model: str
+    # Каждый tool-call в этом ходе, вернувший override, добавляет сюда
+    # свою карточку — порядок сохраняется, ни одна не теряется, даже если
+    # LLM спросила про несколько товаров за один раунд.
+    override_replies: Sequence[OverrideReply] = ()
+
+
+async def run_tool_loop(
+    system_prompt: str,
+    history: list[HistoryMessage],
+    tools: list[ToolSpec],
+    executor: ToolExecutor,
+    *,
+    max_rounds: int = MAX_TOOL_ROUNDS,
+    complete_fn: _CompleteFn = _default_complete,
+    complete_with_tools_fn: _CompleteWithToolsFn = _default_complete_with_tools,
+) -> ToolLoopResult:
+    if not tools:
+        result = await complete_fn(system_prompt, history)
+        return ToolLoopResult(
+            text=result.text,
+            tokens_in=result.tokens_in,
+            tokens_out=result.tokens_out,
+            model=result.model,
+        )
+
+    exchange: list[ToolExchangeTurn] = []
+    tokens_in_total = 0
+    tokens_out_total = 0
+    model_name = ""
+    override_replies: list[OverrideReply] = []
+
+    for _ in range(max_rounds):
+        result = await complete_with_tools_fn(system_prompt, history, tools, exchange)
+        tokens_in_total += result.tokens_in
+        tokens_out_total += result.tokens_out
+        model_name = result.model
+
+        if not result.tool_calls:
+            return ToolLoopResult(
+                text=result.text,
+                tokens_in=tokens_in_total,
+                tokens_out=tokens_out_total,
+                model=model_name,
+                override_replies=tuple(override_replies),
+            )
+
+        exchange.append(AssistantToolCallsTurn(result.tool_calls))
+        for call in result.tool_calls:
+            tool_result = await _run_one_tool(call, executor)
+            exchange.append(ToolResultTurn(call.id, call.name, tool_result.content))
+            if tool_result.override_reply_text is not None:
+                override_replies.append(
+                    OverrideReply(text=tool_result.override_reply_text, media=tool_result.media)
+                )
+
+    logger.warning("tool loop reached max_rounds, forcing final text answer", max_rounds=max_rounds)
+    result = await complete_with_tools_fn(system_prompt, history, tools, exchange, force_text=True)
+    tokens_in_total += result.tokens_in
+    tokens_out_total += result.tokens_out
+    return ToolLoopResult(
+        text=result.text,
+        tokens_in=tokens_in_total,
+        tokens_out=tokens_out_total,
+        model=result.model,
+        override_replies=tuple(override_replies),
+    )
+```
+
+`_run_one_tool` (below this in the same file) is unchanged.
+
+- [ ] **Step 4: Запустить — GREEN**
+
+Run: `cd services/worker && ../../.venv/Scripts/python.exe -m pytest tests/pipeline/test_tool_loop.py -v`
+Expected: PASS (8 тестов).
+
+- [ ] **Step 5: Обновить `consumer.py`**
+
+1. В блоке импортов добавить `import random` между `import asyncio` и
+   `import uuid` (алфавитный порядок plain-import среди уже
+   существующих):
+```python
+import asyncio
+import random
+import uuid
+```
+
+2. Заменить строку `from .tool_loop import ToolExecutor, run_tool_loop` на:
+```python
+from .tool_loop import OverrideReply, ToolExecutor, run_tool_loop
+```
+
+3. Добавить константы рядом с `STORAGE_READ_TIMEOUT_SECONDS` (после
+   `DEFAULT_AUTO_RELEASE_MINUTES = 12`):
+```python
+# Эталон V1 (FEATURES.md 4.3) — джиттер между отправляемыми медиа,
+# анти-бан дисциплина (CLAUDE.md §7): не пачка фото залпом.
+PHOTO_JITTER_MIN_SECONDS = 1.0
+PHOTO_JITTER_MAX_SECONDS = 1.5
+```
+
+4. Заменить функцию `_send_card` (текущие строки 258-281) целиком на:
+```python
+async def _send_cards(
+    event: InboundText, redis: Redis, replies: Sequence[OverrideReply]
+) -> None:
+    """FEATURES.md 4.3/4.4: карточки товара — typing один раз, затем для
+    каждой найденной карточки её фото и текст, по порядку. Джиттер
+    1000-1500 мс перед КАЖДЫМ фото, кроме самого первого в этом ходе
+    (включая между карточками разных товаров) — эталон V1, анти-бан
+    дисциплина. client_msg_id — новый .hex на КАЖДОЕ исходящее событие,
+    как и в _send_reply."""
+    typing_event = OutboundTyping(
+        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
+    )
+    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
+
+    sent_media = False
+    for reply in replies:
+        for item in reply.media:
+            if sent_media:
+                await asyncio.sleep(
+                    random.uniform(PHOTO_JITTER_MIN_SECONDS, PHOTO_JITTER_MAX_SECONDS)
+                )
+            image_event = OutboundImage(
+                bot_id=event.bot_id,
+                chat_id=event.chat_id,
+                storage_key=item.storage_key,
+                mime_type=item.mime_type,
+                client_msg_id=uuid.uuid4().hex,
+            )
+            await publish(redis, OUT_STREAM, image_event.model_dump(mode="json"))
+            sent_media = True
+        text_event = OutboundText(
+            bot_id=event.bot_id, chat_id=event.chat_id, text=reply.text, client_msg_id=uuid.uuid4().hex
+        )
+        await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+```
+
+5. В `_reply()` заменить блок:
+```python
+    if loop_result.override_reply_text is not None:
+        # FEATURES.md 4.3/4.4: тулза нашла товар — клиенту уходит ТОЛЬКО
+        # карточка, собственный текст LLM в этом ходе отбрасывается
+        # (подтверждено пользователем, эталон V1).
+        reply_text = loop_result.override_reply_text
+        await _send_card(event, redis, reply_text, loop_result.media)
+    else:
+```
+на:
+```python
+    if loop_result.override_replies:
+        # FEATURES.md 4.3/4.4: тулза(ы) нашли товар(ы) — клиенту уходят
+        # ТОЛЬКО карточки, собственный текст LLM в этом ходе отбрасывается
+        # (подтверждено пользователем, эталон V1). Несколько товаров в
+        # одном ходе — несколько карточек по очереди, ни одна не теряется
+        # (находка финального ревью — прежнее "последний выигрывает"
+        # молча теряло более ранние товары).
+        reply_text = "\n\n".join(reply.text for reply in loop_result.override_replies)
+        await _send_cards(event, redis, loop_result.override_replies)
+    else:
+```
+
+- [ ] **Step 6: Обновить `test_reply_tools.py` — добавить тест на несколько товаров с джиттером**
+
+Добавить в конец файла:
+```python
+
+
+async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_photos(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.3/4.4: LLM находит два товара за один ход — уходят
+    ОБЕ карточки по очереди (найденная ранее не молча теряется), с
+    джиттером между фото (эталон V1, анти-бан) — джиттер подменён на 0,
+    чтобы тест не ждал реальные 1-1.5с."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeMultiCardTool:
+        name = "search"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+        calls = 0
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            type(self).calls += 1
+            n = type(self).calls
+            return ToolExecutionResult(
+                content=f'[{{"name": "Товар {n}"}}]',
+                override_reply_text=f"*Товар {n}*",
+                media=[MediaToSend(storage_key=f"img-{n}.jpg", mime_type="image/jpeg")],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "search", _FakeMultiCardTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[
+                    ToolCall(id="call_1", name="search", arguments_json="{}"),
+                    ToolCall(id="call_2", name="search", arguments_json="{}"),
+                ],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "search", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        # typing, image1, text1, image2, text2
+        assert len(out_entries) == 5
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[0]["type"] == "outbound.typing"
+        assert payloads[1]["type"] == "outbound.image"
+        assert payloads[1]["storage_key"] == "img-1.jpg"
+        assert payloads[2]["type"] == "outbound.text"
+        assert payloads[2]["text"] == "*Товар 1*"
+        assert payloads[3]["type"] == "outbound.image"
+        assert payloads[3]["storage_key"] == "img-2.jpg"
+        assert payloads[4]["type"] == "outbound.text"
+        assert payloads[4]["text"] == "*Товар 2*"
+        assert not any("текст LLM" in p.get("text", "") for p in payloads)
+    finally:
+        await redis.aclose()
+```
+
+- [ ] **Step 7: Запустить — RED, затем GREEN**
+
+Run: `cd services/worker && ../../.venv/Scripts/python.exe -m pytest tests/pipeline/test_reply_tools.py tests/pipeline/test_tool_loop.py -v`
+Expected: RED first (before Step 5's consumer.py edit lands — if applying
+steps in strict order, this file's new test fails because `_send_card`/
+`override_reply_text` no longer match); PASS after Step 5's edits (12
+tests: existing 11 + this new one).
+
+- [ ] **Step 8: Полный прогон + линт**
+
+Run: `cd services/worker && ../../.venv/Scripts/python.exe -m pytest -v`
+Run: `../../.venv/Scripts/python.exe -m mypy --strict src` (from
+`services/worker`, or `.venv/Scripts/python.exe -m mypy --strict
+services/worker/src` from repo root)
+Run (from repo root): `.venv/Scripts/python.exe -m ruff check .`
+Expected: all green/clean.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add services/worker/src/worker/pipeline/tool_loop.py services/worker/tests/pipeline/test_tool_loop.py services/worker/src/worker/pipeline/consumer.py services/worker/tests/pipeline/test_reply_tools.py
+git commit -m "feat(worker): send all found products' cards with jitter between photos"
+```
+
 ## Самопроверка плана (для исполнителя перед стартом)
 
 - **Покрытие спеки**: контракт (Task 1) → Storage.get (Task 2) →

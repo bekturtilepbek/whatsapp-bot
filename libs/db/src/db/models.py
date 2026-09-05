@@ -272,3 +272,27 @@ class ProductEmbedding(Base):
         UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), primary_key=True
     )
     embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+
+
+class ProductImage(Base):
+    """Фото товара, одно или несколько, порядок — position (FEATURES.md
+    4.3/4.4). Загрузка (значит, и заполнение этой таблицы) — Волна 3
+    (6.8), здесь только хранение и чтение."""
+
+    __tablename__ = "product_images"
+    __table_args__ = (
+        UniqueConstraint("product_id", "position", name="uq_product_images_product_position"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    storage_key: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

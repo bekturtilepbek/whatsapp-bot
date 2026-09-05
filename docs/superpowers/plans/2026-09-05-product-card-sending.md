@@ -1577,7 +1577,11 @@ class ProductSearchTool:
         return ToolExecutionResult(
             content=content,
             override_reply_text=_format_card_text(product.name, product.description, price),
-            media=[MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type) for i in images],
+            # tuple(), не список: пустой список != () при сравнении (Python
+            # не считает [] и () равными), а дефолт ToolExecutionResult.media
+            # — именно (). tuple() на пустом images даёт (), совпадает с
+            # дефолтом и с ожиданием теста "без фото".
+            media=tuple(MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type) for i in images),
         )
 ```
 

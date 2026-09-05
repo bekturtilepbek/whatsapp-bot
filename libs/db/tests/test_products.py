@@ -17,7 +17,7 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product
-from db.products import list_products
+from db.products import find_product_by_exact_name, list_products
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
 
@@ -148,3 +148,32 @@ async def test_list_products_limit_caps_the_number_of_rows(session: AsyncSession
 
     products = await list_products(session, bot_id, limit=2)
     assert len(products) == 2
+
+
+async def test_find_product_by_exact_name_matches_case_and_whitespace_insensitively(
+    session: AsyncSession,
+) -> None:
+    bot_id = await _make_bot(session)
+    session.add(Product(bot_id=bot_id, name="Кроссовки Nike Air"))
+    await session.flush()
+
+    found = await find_product_by_exact_name(session, bot_id, "  кроссовки NIKE air  ")
+    assert found is not None
+    assert found.name == "Кроссовки Nike Air"
+
+
+async def test_find_product_by_exact_name_returns_none_when_not_found(
+    session: AsyncSession,
+) -> None:
+    bot_id = await _make_bot(session)
+    assert await find_product_by_exact_name(session, bot_id, "Нет такого") is None
+
+
+async def test_find_product_by_exact_name_scoped_per_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    session.add(Product(bot_id=bot_a, name="Только у А"))
+    await session.flush()
+
+    assert await find_product_by_exact_name(session, bot_a, "Только у А") is not None
+    assert await find_product_by_exact_name(session, bot_b, "Только у А") is None

@@ -11,6 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -257,3 +258,17 @@ class Product(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ProductEmbedding(Base):
+    """Эмбеддинг товара для pgvector-поиска (FEATURES.md 4.1) — 1:1 с
+    товаром (как BotSession.bot_id). Кто считает эмбеддинг и когда —
+    Волна 3 (CRUD, create/update товара); здесь только хранение и чтение.
+    """
+
+    __tablename__ = "product_embeddings"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"), primary_key=True
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)

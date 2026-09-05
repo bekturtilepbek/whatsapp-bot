@@ -8,6 +8,7 @@ from typing import ClassVar
 
 import pytest
 from tools import registry
+from tools.base import ToolExecutionResult
 from tools.product_search import ProductSearchTool
 
 
@@ -16,8 +17,8 @@ class _DummyTool:
     description = "тестовая тулза"
     parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
 
-    async def execute(self, arguments: dict[str, object], ctx: object) -> str:
-        return "ok"
+    async def execute(self, arguments: dict[str, object], ctx: object) -> ToolExecutionResult:
+        return ToolExecutionResult(content="ok")
 
 
 def test_get_tool_returns_none_for_unregistered_name() -> None:

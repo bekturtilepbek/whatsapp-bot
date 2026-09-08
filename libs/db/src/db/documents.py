@@ -12,8 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import Document
 
 
-async def list_documents(session: AsyncSession, bot_id: uuid.UUID) -> list[Document]:
-    stmt = select(Document).where(Document.bot_id == bot_id).order_by(Document.filename)
+async def list_documents(
+    session: AsyncSession, bot_id: uuid.UUID, *, limit: int = 200
+) -> list[Document]:
+    stmt = (
+        select(Document)
+        .where(Document.bot_id == bot_id)
+        .order_by(Document.filename)
+        .limit(limit)
+    )
     result = await session.execute(stmt)
     return list(result.scalars().all())
 

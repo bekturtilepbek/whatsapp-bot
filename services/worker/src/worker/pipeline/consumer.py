@@ -95,6 +95,11 @@ PDF_TEXT_MAX_CHARS = 15000
 # должен сажать токены/стоимость всем остальным (V1 такого лимита не
 # имел — сознательное отличие, FEATURES.md 3.4).
 PRODUCT_CATALOG_LIMIT = 200
+# Тот же принцип, что PRODUCT_CATALOG_LIMIT — see Fix 1 of the 4.8/4.9
+# retroactive review: list_documents() ран без лимита на каждый ответ,
+# безвредно пока таблицу заполняют вручную, но Волна 3 (6.7, загрузка
+# через UI) сделает это реальной проблемой.
+DOCUMENTS_LIMIT = 200
 
 
 def _to_datetime(ts_ms: int) -> datetime:
@@ -382,7 +387,7 @@ async def _reply(
         history_rows = await fetch_recent_history(session, contact_id)
         bindings = await list_enabled_tool_bindings(session, bot.id)
         products = await list_products(session, bot.id, limit=PRODUCT_CATALOG_LIMIT)
-        documents = await list_documents(session, bot.id)
+        documents = await list_documents(session, bot.id, limit=DOCUMENTS_LIMIT)
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
     catalog = catalog_context(

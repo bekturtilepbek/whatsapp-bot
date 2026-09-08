@@ -95,6 +95,23 @@ async def test_list_documents_ordered_by_filename(session: AsyncSession) -> None
     assert [d.filename for d in documents] == ["a-contract.docx", "b-catalog.pdf", "c-price.pdf"]
 
 
+async def test_list_documents_limit_caps_the_number_of_rows(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    session.add_all(
+        [
+            Document(
+                bot_id=bot_id, filename=f"file-{i}.pdf", storage_key=f"k{i}",
+                mime_type="application/pdf",
+            )
+            for i in range(3)
+        ]
+    )
+    await session.flush()
+
+    documents = await list_documents(session, bot_id, limit=2)
+    assert len(documents) == 2
+
+
 async def test_list_documents_scoped_per_bot(session: AsyncSession) -> None:
     bot_a = await _make_bot(session)
     bot_b = await _make_bot(session)

@@ -61,3 +61,8 @@ def test_get_tool_and_all_tool_names_reflect_registered_entry(
 def test_all_tool_names_includes_send_telegram_lead() -> None:
     """Вторая настоящая тулза (FEATURES.md 4.7)."""
     assert "send_telegram_lead" in registry.all_tool_names()
+
+
+def test_all_tool_names_includes_send_document() -> None:
+    """Третья настоящая тулза (FEATURES.md 4.8/4.9)."""
+    assert "send_document" in registry.all_tool_names()

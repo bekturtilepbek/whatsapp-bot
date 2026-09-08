@@ -84,7 +84,8 @@ async def test_list_documents_ordered_by_filename(session: AsyncSession) -> None
                 mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ),
             Document(
-                bot_id=bot_id, filename="b-catalog.pdf", storage_key="k3", mime_type="application/pdf"
+                bot_id=bot_id, filename="b-catalog.pdf", storage_key="k3",
+                mime_type="application/pdf",
             ),
         ]
     )

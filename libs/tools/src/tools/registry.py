@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from .base import Tool
 from .product_search import ProductSearchTool
+from .send_document import SendDocumentTool
 from .telegram_lead import TelegramLeadTool
 
 _REGISTRY: dict[str, Tool] = {}
@@ -30,3 +31,4 @@ def all_tool_names() -> list[str]:
 
 register(ProductSearchTool())
 register(TelegramLeadTool())
+register(SendDocumentTool())

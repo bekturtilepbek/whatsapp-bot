@@ -39,6 +39,7 @@ class ToolContext:
 class MediaToSend:
     storage_key: str
     mime_type: str
+    filename: str | None = None  # только для outbound.document (Baileys требует fileName)
 
 
 @dataclass(frozen=True)

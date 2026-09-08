@@ -1,0 +1,8 @@
+{
+  "type": "outbound.video",
+  "bot_id": "00000000-0000-0000-0000-000000000001",
+  "chat_id": "996700000000@s.whatsapp.net",
+  "storage_key": "bots/00000000-0000-0000-0000-000000000001/documents/tour.mp4",
+  "mime_type": "video/mp4",
+  "client_msg_id": "af3e9c1a4b2d4e119f0a1234567890ab"
+}

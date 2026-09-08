@@ -46,6 +46,31 @@ export const OutboundImage = z
   .strict();
 export type OutboundImage = z.infer<typeof OutboundImage>;
 
+export const OutboundDocument = z
+  .object({
+    type: z.literal("outbound.document"),
+    bot_id: z.string().uuid(),
+    chat_id: z.string().min(1),
+    storage_key: z.string().min(1),
+    mime_type: z.string().min(1),
+    filename: z.string().min(1),
+    client_msg_id: z.string().min(1),
+  })
+  .strict();
+export type OutboundDocument = z.infer<typeof OutboundDocument>;
+
+export const OutboundVideo = z
+  .object({
+    type: z.literal("outbound.video"),
+    bot_id: z.string().uuid(),
+    chat_id: z.string().min(1),
+    storage_key: z.string().min(1),
+    mime_type: z.string().min(1),
+    client_msg_id: z.string().min(1),
+  })
+  .strict();
+export type OutboundVideo = z.infer<typeof OutboundVideo>;
+
 export const OutboundTyping = z
   .object({
     type: z.literal("outbound.typing"),
@@ -70,6 +95,8 @@ export const Event = z.discriminatedUnion("type", [
   InboundText,
   OutboundText,
   OutboundImage,
+  OutboundDocument,
+  OutboundVideo,
   OutboundTyping,
   SessionStatus,
 ]);

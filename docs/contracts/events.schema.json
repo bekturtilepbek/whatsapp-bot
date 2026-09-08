@@ -57,6 +57,35 @@
       },
       "required": ["type", "bot_id", "chat_id", "storage_key", "mime_type", "client_msg_id"]
     },
+    "outboundDocument": {
+      "type": "object",
+      "description": "Исходящий файл в wa:out (FEATURES.md 4.8).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.document" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "storage_key": { "type": "string", "minLength": 1 },
+        "mime_type": { "type": "string", "minLength": 1 },
+        "filename": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "storage_key", "mime_type", "filename", "client_msg_id"]
+    },
+    "outboundVideo": {
+      "type": "object",
+      "description": "Исходящее видео в wa:out (FEATURES.md 4.9).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.video" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "storage_key": { "type": "string", "minLength": 1 },
+        "mime_type": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "storage_key", "mime_type", "client_msg_id"]
+    },
     "outboundTyping": {
       "type": "object",
       "description": "Индикатор \"печатает\" в wa:out.",
@@ -89,6 +118,8 @@
     { "$ref": "#/definitions/inboundText" },
     { "$ref": "#/definitions/outboundText" },
     { "$ref": "#/definitions/outboundImage" },
+    { "$ref": "#/definitions/outboundDocument" },
+    { "$ref": "#/definitions/outboundVideo" },
     { "$ref": "#/definitions/outboundTyping" },
     { "$ref": "#/definitions/sessionStatus" }
   ]

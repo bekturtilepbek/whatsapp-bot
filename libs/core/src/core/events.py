@@ -53,6 +53,29 @@ class OutboundImage(BaseModel):
     client_msg_id: str = Field(min_length=1)
 
 
+class OutboundDocument(BaseModel):
+    """Исходящий файл в wa:out (FEATURES.md 4.8)."""
+
+    type: Literal["outbound.document"] = "outbound.document"
+    bot_id: UUID
+    chat_id: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime_type: str = Field(min_length=1)
+    filename: str = Field(min_length=1)
+    client_msg_id: str = Field(min_length=1)
+
+
+class OutboundVideo(BaseModel):
+    """Исходящее видео в wa:out (FEATURES.md 4.9)."""
+
+    type: Literal["outbound.video"] = "outbound.video"
+    bot_id: UUID
+    chat_id: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime_type: str = Field(min_length=1)
+    client_msg_id: str = Field(min_length=1)
+
+
 class OutboundTyping(BaseModel):
     """Индикатор "печатает" в wa:out."""
 
@@ -71,4 +94,12 @@ class SessionStatus(BaseModel):
     ts: int
 
 
-Event = InboundText | OutboundText | OutboundImage | OutboundTyping | SessionStatus
+Event = (
+    InboundText
+    | OutboundText
+    | OutboundImage
+    | OutboundDocument
+    | OutboundVideo
+    | OutboundTyping
+    | SessionStatus
+)

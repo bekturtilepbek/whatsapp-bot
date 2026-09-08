@@ -23,6 +23,8 @@ function makeMocks() {
     sendText: vi.fn(async () => undefined),
     sendTyping: vi.fn(async () => undefined),
     sendImage: vi.fn(async () => undefined),
+    sendDocument: vi.fn(async () => undefined),
+    sendVideo: vi.fn(async () => undefined),
   } as unknown as SessionManager;
 
   const logger = {
@@ -225,5 +227,59 @@ describe("OutboundConsumer idempotency and routing", () => {
     await entry.call(consumer, "2-0", payloadFields(event));
 
     expect(sessions.sendImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads bytes from storage and sends outbound.document via sendDocument with filename", async () => {
+    const { redis, sessions, logger, storage } = makeMocks();
+    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+    const event = {
+      type: "outbound.document",
+      bot_id: BOT_ID,
+      chat_id: "996700000000@s.whatsapp.net",
+      storage_key: "bots/bot-1/documents/price-list.pdf",
+      mime_type: "application/pdf",
+      filename: "price-list.pdf",
+      client_msg_id: "doc-1",
+    };
+
+    await (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
+      .processEntry("1-0", payloadFields(event));
+
+    expect(storage.get).toHaveBeenCalledWith("bots/bot-1/documents/price-list.pdf");
+    expect(sessions.sendDocument).toHaveBeenCalledWith(
+      BOT_ID,
+      "996700000000@s.whatsapp.net",
+      Buffer.from("fake-image-bytes"),
+      "application/pdf",
+      "price-list.pdf",
+      "doc-1",
+    );
+    expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+  });
+
+  it("reads bytes from storage and sends outbound.video via sendVideo", async () => {
+    const { redis, sessions, logger, storage } = makeMocks();
+    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+    const event = {
+      type: "outbound.video",
+      bot_id: BOT_ID,
+      chat_id: "996700000000@s.whatsapp.net",
+      storage_key: "bots/bot-1/documents/tour.mp4",
+      mime_type: "video/mp4",
+      client_msg_id: "video-1",
+    };
+
+    await (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
+      .processEntry("1-0", payloadFields(event));
+
+    expect(storage.get).toHaveBeenCalledWith("bots/bot-1/documents/tour.mp4");
+    expect(sessions.sendVideo).toHaveBeenCalledWith(
+      BOT_ID,
+      "996700000000@s.whatsapp.net",
+      Buffer.from("fake-image-bytes"),
+      "video/mp4",
+      "video-1",
+    );
+    expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
   });
 });

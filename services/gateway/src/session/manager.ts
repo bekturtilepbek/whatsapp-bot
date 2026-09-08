@@ -152,6 +152,39 @@ export class SessionManager {
     );
   }
 
+  /** Аналогично sendImage — messageId=clientMsgId, плюс fileName: Baileys
+   * (и сам WhatsApp) требует его, иначе клиент не увидит имя файла. */
+  async sendDocument(
+    botId: string,
+    chatId: string,
+    document: Buffer,
+    mimeType: string,
+    filename: string,
+    clientMsgId: string,
+  ): Promise<void> {
+    await this.activeSocket(botId).sendMessage(
+      chatId,
+      { document, mimetype: mimeType, fileName: filename },
+      { messageId: clientMsgId },
+    );
+  }
+
+  /** Аналогично sendImage — нативное video-сообщение (плеер в чате),
+   * fileName не нужен. */
+  async sendVideo(
+    botId: string,
+    chatId: string,
+    video: Buffer,
+    mimeType: string,
+    clientMsgId: string,
+  ): Promise<void> {
+    await this.activeSocket(botId).sendMessage(
+      chatId,
+      { video, mimetype: mimeType },
+      { messageId: clientMsgId },
+    );
+  }
+
   async stopAll(): Promise<void> {
     for (const [botId, session] of this.sessions) {
       session.stopping = true;

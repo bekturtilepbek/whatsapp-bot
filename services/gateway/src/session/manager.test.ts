@@ -104,6 +104,36 @@ describe("SessionManager.sendText / sendTyping", () => {
       { messageId: "img-msg-1" },
     );
   });
+
+  it("sendDocument passes clientMsgId as Baileys messageId with document+mimetype+fileName", async () => {
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    const document = Buffer.from("fake-pdf-bytes");
+    await sessions.sendDocument(
+      "bot-1", "996700000000@s.whatsapp.net", document, "application/pdf", "price-list.pdf", "doc-msg-1",
+    );
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "996700000000@s.whatsapp.net",
+      { document, mimetype: "application/pdf", fileName: "price-list.pdf" },
+      { messageId: "doc-msg-1" },
+    );
+  });
+
+  it("sendVideo passes clientMsgId as Baileys messageId with video+mimetype", async () => {
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    const video = Buffer.from("fake-mp4-bytes");
+    await sessions.sendVideo("bot-1", "996700000000@s.whatsapp.net", video, "video/mp4", "video-msg-1");
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "996700000000@s.whatsapp.net",
+      { video, mimetype: "video/mp4" },
+      { messageId: "video-msg-1" },
+    );
+  });
 });
 
 // Fix 2 (финальный review): gateway не должен скачивать/заливать медиа,

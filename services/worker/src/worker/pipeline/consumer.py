@@ -403,7 +403,16 @@ async def _reply(
         history_rows = await fetch_recent_history(session, contact_id)
         bindings = await list_enabled_tool_bindings(session, bot.id)
         products = await list_products(session, bot.id, limit=PRODUCT_CATALOG_LIMIT)
-        documents = await list_documents(session, bot.id, limit=DOCUMENTS_LIMIT)
+        # documents_context инструктирует LLM звать send_document — грузить
+        # список файлов и показывать эту инструкцию боту, которому тулза не
+        # привязана, бессмысленно и вводит модель в заблуждение (находка
+        # финального ревью, Fix 6).
+        bound_tool_names = {binding.tool_name for binding in bindings}
+        documents = (
+            await list_documents(session, bot.id, limit=DOCUMENTS_LIMIT)
+            if "send_document" in bound_tool_names
+            else []
+        )
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
     catalog = catalog_context(
@@ -416,12 +425,20 @@ async def _reply(
             for p in products
         ]
     )
-    docs_ctx = documents_context([DocumentInfo(filename=d.filename) for d in documents])
+    docs_ctx = (
+        documents_context([DocumentInfo(filename=d.filename) for d in documents])
+        if "send_document" in bound_tool_names
+        else ""
+    )
     # Порядок — как в V1 (agentInstructions + catalogContext + timeContext):
     # только основной текстовый путь, vision/PDF (image_prompt/pdf_prompt)
     # каталог/файлы не получают — эталон V1 (analyzeImage/analyzePdf) тоже.
     time_ctx = time_context(bot.timezone)
-    system_prompt = f"{bot.system_prompt}\n\n{catalog}\n\n{docs_ctx}\n\n{time_ctx}"
+    # Пустые секции (docs_ctx == "" без send_document) пропускаются целиком,
+    # а не вставляются как пустая строка — иначе в промпте остаются лишние
+    # пустые строки подряд.
+    sections = [bot.system_prompt, catalog, docs_ctx, time_ctx]
+    system_prompt = "\n\n".join(section for section in sections if section)
 
     tool_specs = _tool_specs_for_bindings(bindings)
     executor = _make_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)

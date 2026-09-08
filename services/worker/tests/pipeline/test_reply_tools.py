@@ -373,3 +373,142 @@ async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_
         assert not any("текст LLM" in p.get("text", "") for p in payloads)
     finally:
         await redis.aclose()
+
+
+async def test_document_media_dispatches_to_outbound_document_with_filename(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.8: media с не-image/не-video mime_type уходит как
+    outbound.document с filename (Baileys требует его для показа имени
+    файла клиенту)."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeDocumentTool:
+        name = "send_document"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            return ToolExecutionResult(
+                content="Файл price-list.pdf успешно отправлен.",
+                override_reply_text="Файл price-list.pdf отправлен.",
+                media=[
+                    MediaToSend(
+                        storage_key="bots/x/documents/price-list.pdf",
+                        mime_type="application/pdf",
+                        filename="price-list.pdf",
+                    )
+                ],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "send_document", _FakeDocumentTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="send_document", arguments_json="{}")],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        # typing, document, text
+        assert len(out_entries) == 3
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[0]["type"] == "outbound.typing"
+        assert payloads[1]["type"] == "outbound.document"
+        assert payloads[1]["storage_key"] == "bots/x/documents/price-list.pdf"
+        assert payloads[1]["filename"] == "price-list.pdf"
+        assert payloads[2]["type"] == "outbound.text"
+        assert payloads[2]["text"] == "Файл price-list.pdf отправлен."
+    finally:
+        await redis.aclose()
+
+
+async def test_video_media_dispatches_to_outbound_video(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.9: media с video/* mime_type уходит как outbound.video
+    (нативный плеер), не outbound.document."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeVideoTool:
+        name = "send_document"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            return ToolExecutionResult(
+                content="Файл tour.mp4 успешно отправлен.",
+                override_reply_text="Файл tour.mp4 отправлен.",
+                media=[
+                    MediaToSend(
+                        storage_key="bots/x/documents/tour.mp4",
+                        mime_type="video/mp4",
+                        filename="tour.mp4",
+                    )
+                ],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "send_document", _FakeVideoTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="send_document", arguments_json="{}")],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        assert len(out_entries) == 3
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[1]["type"] == "outbound.video"
+        assert payloads[1]["storage_key"] == "bots/x/documents/tour.mp4"
+        assert "filename" not in payloads[1]
+    finally:
+        await redis.aclose()

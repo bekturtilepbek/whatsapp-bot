@@ -33,10 +33,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from core.events import Event, InboundText, OutboundImage, OutboundText, OutboundTyping
+from core.events import (
+    Event,
+    InboundText,
+    OutboundDocument,
+    OutboundImage,
+    OutboundText,
+    OutboundTyping,
+    OutboundVideo,
+)
 from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
+from db.documents import list_documents
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot, ToolBinding
 from db.products import list_products
@@ -45,6 +54,7 @@ from db.usage import record_usage
 from integrations.storage import Storage
 from llm.catalog_context import ProductInfo, catalog_context
 from llm.client import HistoryMessage, ToolSpec, complete, complete_with_image, complete_with_tools
+from llm.documents_context import DocumentInfo, documents_context
 from llm.pricing import compute_cost
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
@@ -263,12 +273,14 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
 async def _send_cards(
     event: InboundText, redis: Redis, replies: Sequence[OverrideReply]
 ) -> None:
-    """FEATURES.md 4.3/4.4: карточки товара — typing один раз, затем для
-    каждой найденной карточки её фото и текст, по порядку. Джиттер
-    1000-1500 мс перед КАЖДЫМ фото, кроме самого первого в этом ходе
-    (включая между карточками разных товаров) — эталон V1, анти-бан
-    дисциплина. client_msg_id — новый .hex на КАЖДОЕ исходящее событие,
-    как и в _send_reply."""
+    """FEATURES.md 4.3/4.4/4.8/4.9: карточки товара и файлы/видео —
+    typing один раз, затем для каждой карточки её медиа (диспетчеризация
+    по mime_type: image/* -> outbound.image, video/* -> outbound.video,
+    остальное -> outbound.document) и текст, по порядку. Джиттер
+    1000-1500 мс перед КАЖДЫМ медиа, кроме самого первого в этом ходе
+    (включая между карточками/файлами) — эталон V1, анти-бан дисциплина.
+    client_msg_id — новый .hex на КАЖДОЕ исходящее событие, как и в
+    _send_reply."""
     typing_event = OutboundTyping(
         bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
     )
@@ -281,14 +293,33 @@ async def _send_cards(
                 await asyncio.sleep(
                     random.uniform(PHOTO_JITTER_MIN_SECONDS, PHOTO_JITTER_MAX_SECONDS)
                 )
-            image_event = OutboundImage(
-                bot_id=event.bot_id,
-                chat_id=event.chat_id,
-                storage_key=item.storage_key,
-                mime_type=item.mime_type,
-                client_msg_id=uuid.uuid4().hex,
-            )
-            await publish(redis, OUT_STREAM, image_event.model_dump(mode="json"))
+            media_event: OutboundImage | OutboundVideo | OutboundDocument
+            if item.mime_type.startswith("video/"):
+                media_event = OutboundVideo(
+                    bot_id=event.bot_id,
+                    chat_id=event.chat_id,
+                    storage_key=item.storage_key,
+                    mime_type=item.mime_type,
+                    client_msg_id=uuid.uuid4().hex,
+                )
+            elif item.mime_type.startswith("image/"):
+                media_event = OutboundImage(
+                    bot_id=event.bot_id,
+                    chat_id=event.chat_id,
+                    storage_key=item.storage_key,
+                    mime_type=item.mime_type,
+                    client_msg_id=uuid.uuid4().hex,
+                )
+            else:
+                media_event = OutboundDocument(
+                    bot_id=event.bot_id,
+                    chat_id=event.chat_id,
+                    storage_key=item.storage_key,
+                    mime_type=item.mime_type,
+                    filename=item.filename or "file",
+                    client_msg_id=uuid.uuid4().hex,
+                )
+            await publish(redis, OUT_STREAM, media_event.model_dump(mode="json"))
             sent_media = True
         text_event = OutboundText(
             bot_id=event.bot_id,
@@ -351,6 +382,7 @@ async def _reply(
         history_rows = await fetch_recent_history(session, contact_id)
         bindings = await list_enabled_tool_bindings(session, bot.id)
         products = await list_products(session, bot.id, limit=PRODUCT_CATALOG_LIMIT)
+        documents = await list_documents(session, bot.id)
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
     catalog = catalog_context(
@@ -363,10 +395,12 @@ async def _reply(
             for p in products
         ]
     )
+    docs_ctx = documents_context([DocumentInfo(filename=d.filename) for d in documents])
     # Порядок — как в V1 (agentInstructions + catalogContext + timeContext):
     # только основной текстовый путь, vision/PDF (image_prompt/pdf_prompt)
-    # каталог не получают — эталон V1 (analyzeImage/analyzePdf) тоже.
-    system_prompt = f"{bot.system_prompt}\n\n{catalog}\n\n{time_context(bot.timezone)}"
+    # каталог/файлы не получают — эталон V1 (analyzeImage/analyzePdf) тоже.
+    time_ctx = time_context(bot.timezone)
+    system_prompt = f"{bot.system_prompt}\n\n{catalog}\n\n{docs_ctx}\n\n{time_ctx}"
 
     tool_specs = _tool_specs_for_bindings(bindings)
     executor = _make_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)

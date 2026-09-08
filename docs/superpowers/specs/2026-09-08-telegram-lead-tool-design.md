@@ -123,16 +123,18 @@ _MISSING_CHAT_ID_ERROR = "Лиды в Telegram не настроены для э
 _NOT_CONFIGURED_ERROR = "Лиды в Telegram не настроены на платформе (нет TELEGRAM_BOT_TOKEN)."
 
 
-def _format_lead_message(client_name: str, phone: str, details: str, wa_link: str) -> str:
+def _format_lead_message(client_name: str, phone: str, details: str, wa_link: str | None) -> str:
     """Эталон V1 (sendToTelegramGroup) — нейтральный текст, не привязанный
-    к нише клиента (в архиве было под конкретный бизнес каждой копии)."""
-    return (
-        f"*Новая заявка*\n\n"
-        f"*Клиент:* {client_name}\n"
-        f"*Телефон:* `{phone}`\n"
-        f"*Детали:* {details}\n\n"
-        f"[Написать в WhatsApp]({wa_link})"
-    )
+    к нише клиента (в архиве было под конкретный бизнес каждой копии).
+    wa_link=None (контакт без wa_id — редкий LID-only случай, FEATURES.md
+    9.2) — строка ссылки просто опускается, не рендерим невалидный URL."""
+    parts = [
+        "*Новая заявка*", "",
+        f"*Клиент:* {client_name}", f"*Телефон:* `{phone}`", f"*Детали:* {details}",
+    ]
+    if wa_link:
+        parts += ["", f"[Написать в WhatsApp]({wa_link})"]
+    return "\n".join(parts)
 
 
 class TelegramLeadTool:
@@ -169,7 +171,7 @@ class TelegramLeadTool:
         phone = str(arguments.get("phone_number") or wa_id or "не указан")
         client_name = str(arguments.get("client_name", ""))
         details = str(arguments.get("details", ""))
-        wa_link = f"https://wa.me/{wa_id}" if wa_id else "не указана"
+        wa_link = f"https://wa.me/{wa_id}" if wa_id else None
 
         message = _format_lead_message(client_name, phone, details, wa_link)
 

@@ -96,12 +96,12 @@ async def test_found_document_returns_override_and_media_with_filename(
         {"file_name": "price-list.pdf"}, _make_ctx(bot, session_factory)
     )
 
-    assert result.override_reply_text == "Файл price-list.pdf отправлен."
+    assert result.override_reply_text == "Отправляю файл price-list.pdf."
     assert len(result.media) == 1
     assert result.media[0].storage_key == "bots/x/documents/price-list.pdf"
     assert result.media[0].mime_type == "application/pdf"
     assert result.media[0].filename == "price-list.pdf"
-    assert result.content == "Файл price-list.pdf успешно отправлен."
+    assert result.content == "Файл price-list.pdf поставлен в очередь на отправку."
 
 
 async def test_found_video_returns_override_and_media(
@@ -121,7 +121,7 @@ async def test_found_video_returns_override_and_media(
         {"file_name": "tour.mp4"}, _make_ctx(bot, session_factory)
     )
 
-    assert result.override_reply_text == "Файл tour.mp4 отправлен."
+    assert result.override_reply_text == "Отправляю файл tour.mp4."
     assert result.media[0].mime_type == "video/mp4"
     assert result.media[0].filename == "tour.mp4"
 

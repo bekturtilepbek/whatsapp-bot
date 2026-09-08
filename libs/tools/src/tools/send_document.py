@@ -48,7 +48,7 @@ class SendDocumentTool:
             filename=document.filename,
         )
         return ToolExecutionResult(
-            content=f"Файл {filename} успешно отправлен.",
-            override_reply_text=f"Файл {filename} отправлен.",
+            content=f"Файл {filename} поставлен в очередь на отправку.",
+            override_reply_text=f"Отправляю файл {filename}.",
             media=(media,),
         )

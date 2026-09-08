@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
+from structlog.testing import capture_logs
 
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
@@ -582,5 +583,83 @@ async def test_mixed_case_mime_type_dispatches_case_insensitively(
         assert payloads[1]["storage_key"] == "bots/x/documents/photo.jpg"
         # диспетчеризация регистронезависима, но написание в самом событии — нет
         assert payloads[1]["mime_type"] == "Image/JPEG"
+    finally:
+        await redis.aclose()
+
+
+async def test_missing_filename_fallback_logs_a_warning(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.8/4.9 review Fix 5: сегодня `item.filename or "file"`
+    недостижим через реальные тулзы (SendDocumentTool всегда ставит
+    filename; ProductSearchTool — всегда image/*). Если когда-нибудь
+    появится тулза без filename для не-image/не-video медиа — это должно
+    попасть в логи, а не тихо назвать файл "file"."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeNoFilenameTool:
+        name = "send_document"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            return ToolExecutionResult(
+                content="ok",
+                override_reply_text="Отправляю файл.",
+                media=[
+                    MediaToSend(
+                        storage_key="bots/x/documents/mystery",
+                        mime_type="application/pdf",
+                        filename=None,
+                    )
+                ],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "send_document", _FakeNoFilenameTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="send_document", arguments_json="{}")],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        with capture_logs() as logs:
+            await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+
+        warnings = [
+            entry for entry in logs
+            if entry["log_level"] == "warning"
+            and entry["event"] == "media reply missing filename, using fallback"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0]["mime_type"] == "application/pdf"
+
+        out_entries = await redis.xrange("wa:out")
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[1]["type"] == "outbound.document"
+        assert payloads[1]["filename"] == "file"
     finally:
         await redis.aclose()

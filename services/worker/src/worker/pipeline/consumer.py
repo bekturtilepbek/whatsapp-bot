@@ -322,6 +322,16 @@ async def _send_cards(
                     client_msg_id=uuid.uuid4().hex,
                 )
             else:
+                if not item.filename:
+                    # Сегодня недостижимо через реальные тулзы
+                    # (SendDocumentTool всегда ставит filename;
+                    # ProductSearchTool — только image/*) — лог на случай,
+                    # если будущая тулза вернёт немедийный файл без имени.
+                    logger.warning(
+                        "media reply missing filename, using fallback",
+                        bot_id=str(event.bot_id),
+                        mime_type=item.mime_type,
+                    )
                 media_event = OutboundDocument(
                     bot_id=event.bot_id,
                     chat_id=event.chat_id,

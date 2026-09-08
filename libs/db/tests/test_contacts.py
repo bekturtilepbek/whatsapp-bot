@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("testcontainers.postgres")
-from db.contacts import match_or_create_contact
+from db.contacts import get_contact, match_or_create_contact
 from db.engine import make_engine, make_session_factory
 from db.models import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,3 +106,18 @@ async def test_different_bots_do_not_share_contacts(session: AsyncSession) -> No
     a = await match_or_create_contact(session, bot_a, wa_id="996700000005", lid=None)
     b = await match_or_create_contact(session, bot_b, wa_id="996700000005", lid=None)
     assert a.id != b.id
+
+
+async def test_get_contact_returns_contact_by_id(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    created = await match_or_create_contact(session, bot_id, wa_id="996700000099", lid=None)
+
+    found = await get_contact(session, created.id)
+
+    assert found is not None
+    assert found.id == created.id
+    assert found.wa_id == "996700000099"
+
+
+async def test_get_contact_returns_none_for_unknown_id(session: AsyncSession) -> None:
+    assert await get_contact(session, uuid.uuid4()) is None

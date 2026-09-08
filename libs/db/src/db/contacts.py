@@ -85,3 +85,7 @@ async def _find_existing(
     stmt = stmt.where(conditions[0] if len(conditions) == 1 else or_(*conditions))
     result = await session.execute(stmt)
     return result.scalars().first()
+
+
+async def get_contact(session: AsyncSession, contact_id: uuid.UUID) -> Contact | None:
+    return await session.get(Contact, contact_id)

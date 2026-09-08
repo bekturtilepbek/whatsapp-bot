@@ -1,7 +1,8 @@
 """Поиск товара — первая настоящая тулза (FEATURES.md 4.1/4.2); при
-находке дополнительно собирает карточку (FEATURES.md 4.3/4.4 — эталон V1,
-vectorProductSearch + formatProductText). Точное совпадение по имени
-сначала, векторный поиск — только если точного нет.
+находке дополнительно собирает карточку (FEATURES.md 4.3/4.4/4.5/4.6 —
+эталон V1, vectorProductSearch + formatProductText + resolveProductDisplay).
+Точное совпадение по имени сначала, векторный поиск — только если точного
+нет.
 """
 
 from __future__ import annotations
@@ -18,17 +19,40 @@ from .base import MediaToSend, ToolContext, ToolExecutionResult
 
 _NOT_SPECIFIED_PRICE = "Не указана"
 EMBEDDING_TIMEOUT_SECONDS = 5.0
+_DISPLAY_KEYS = ("show_name", "show_description", "show_price")
 
 
-def _format_card_text(name: str, description: str | None, price: str) -> str:
-    """Эталон V1 (formatProductText) при дефолтных глобальных настройках
-    вывода (show_name/show_description/show_price всегда true) — сами
-    переключатели ещё не реализованы (FEATURES.md 4.5/4.6, следующая
-    итерация); когда появятся — эта функция получит параметр displayCfg."""
-    parts = [f"*{name}*"]
-    if description:
+def _resolve_display_config(
+    bot_settings: dict[str, Any], product_display_custom: dict[str, Any]
+) -> dict[str, bool]:
+    """Эталон V1 (resolveProductDisplay): «всё или ничего» — если на
+    товаре задан display_custom (непустой словарь), он используется
+    ЦЕЛИКОМ вместо глобальных настроек бота (bots.settings["product_display"]),
+    даже если внутри задан только один ключ. Отсутствующий ключ внутри
+    выбранного источника — дефолт true (в V1 такой возможности не было,
+    его колонки show_* были NOT NULL с явным значением всегда)."""
+    if product_display_custom:
+        source = product_display_custom
+    else:
+        source = bot_settings.get("product_display", {})
+    return {key: bool(source.get(key, True)) for key in _DISPLAY_KEYS}
+
+
+def _format_card_text(
+    name: str, description: str | None, price: str, display_cfg: dict[str, bool]
+) -> str:
+    """Эталон V1 (formatProductText) с учётом переключателей вывода
+    (FEATURES.md 4.5/4.6). Отличие от V1: show_price у нас всегда
+    показывает строку цены (с фоллбэком "Не указана"), не скрывает её
+    целиком при отсутствующей цене — уже согласованное поведение 4.3/4.4,
+    переключатель этого не меняет."""
+    parts = []
+    if display_cfg["show_name"]:
+        parts.append(f"*{name}*")
+    if display_cfg["show_description"] and description:
         parts.append(description)
-    parts.append(f"Цена: {price}")
+    if display_cfg["show_price"]:
+        parts.append(f"Цена: {price}")
     return "\n".join(parts)
 
 
@@ -75,9 +99,12 @@ class ProductSearchTool:
             [{"name": product.name, "description": product.description or "", "price": price}],
             ensure_ascii=False,
         )
+        display_cfg = _resolve_display_config(ctx.bot.settings, product.display_custom)
         return ToolExecutionResult(
             content=content,
-            override_reply_text=_format_card_text(product.name, product.description, price),
+            override_reply_text=_format_card_text(
+                product.name, product.description, price, display_cfg
+            ),
             # tuple(), не список: пустой список != () при сравнении (Python
             # не считает [] и () равными), а дефолт ToolExecutionResult.media
             # — именно (). tuple() на пустом images даёт (), совпадает с

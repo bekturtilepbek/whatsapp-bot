@@ -296,3 +296,28 @@ class ProductImage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Document(Base):
+    """Файл бота (FEATURES.md 4.8/4.9) — любой тип; video/* отправляется
+    нативным video-сообщением, остальное — документом (решает тулза по
+    mime_type, см. libs/tools/send_document.py). Загрузка (заполнение
+    этой таблицы) — Волна 3 (6.7), здесь только хранение и чтение."""
+
+    __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("bot_id", "filename", name="uq_documents_bot_filename"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    storage_key: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

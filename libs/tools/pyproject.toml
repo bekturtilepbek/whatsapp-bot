@@ -8,6 +8,7 @@ dependencies = [
     "integrations",
     "llm",
     "redis>=5.0",
+    "structlog>=24.4",
 ]
 
 [build-system]

@@ -6,8 +6,10 @@ per bot (tool_bindings.config), токен — платформенный (integ
 
 from __future__ import annotations
 
+import html
 from typing import Any, ClassVar
 
+import structlog
 from db.contacts import get_contact
 from integrations.telegram import TelegramNotConfiguredError, send_message
 
@@ -18,22 +20,30 @@ _NOT_CONFIGURED_ERROR = "Лиды в Telegram не настроены на пл�
 _SEND_FAILED_ERROR = "Не удалось отправить заявку в Telegram."
 _SUCCESS_MESSAGE = "Заявка отправлена менеджерам."
 
+logger = structlog.get_logger("tools.telegram_lead")
+
 
 def _format_lead_message(client_name: str, phone: str, details: str, wa_link: str | None) -> str:
     """Эталон V1 (sendToTelegramGroup) — нейтральный текст, не привязанный
     к нише клиента (в архиве было под конкретный бизнес каждой копии).
+    HTML parse_mode + html.escape() на всех интерполируемых полях — client_name/
+    details это свободный текст, который LLM извлекает из сообщения клиента;
+    Telegram legacy Markdown-режим ломает ВСЮ отправку на несбалансированном
+    *_`[ в этом тексте (эталон V1 такого экранирования не делал и был подвержен
+    этому классу сбоев — найдено финальным ревью этой ветки).
     wa_link — None только если у контакта почему-то нет wa_id (LID-only,
-    редкий переходный случай FEATURES.md 9.2) — тогда строку ссылки не
-    добавляем вовсе, а не рендерим невалидный Markdown-URL."""
+    переходный случай FEATURES.md 9.2, где wa_id может оказаться LID-номером,
+    а не телефоном, — тогда строку ссылки не добавляем вовсе, а не рендерим
+    невалидный URL)."""
     parts = [
-        "*Новая заявка*",
+        "<b>Новая заявка</b>",
         "",
-        f"*Клиент:* {client_name}",
-        f"*Телефон:* `{phone}`",
-        f"*Детали:* {details}",
+        f"<b>Клиент:</b> {html.escape(client_name)}",
+        f"<b>Телефон:</b> <code>{html.escape(phone)}</code>",
+        f"<b>Детали:</b> {html.escape(details)}",
     ]
     if wa_link:
-        parts += ["", f"[Написать в WhatsApp]({wa_link})"]
+        parts += ["", f'<a href="{html.escape(wa_link)}">Написать в WhatsApp</a>']
     return "\n".join(parts)
 
 
@@ -80,6 +90,12 @@ class TelegramLeadTool:
         except TelegramNotConfiguredError:
             return ToolExecutionResult(content=_NOT_CONFIGURED_ERROR)
         except Exception:
+            logger.warning(
+                "telegram lead send failed",
+                bot_id=str(ctx.bot.id),
+                chat_id=str(chat_id),
+                exc_info=True,
+            )
             return ToolExecutionResult(content=_SEND_FAILED_ERROR)
 
         return ToolExecutionResult(content=_SUCCESS_MESSAGE)

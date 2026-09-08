@@ -10,6 +10,9 @@
    `.env.example` и `compose/docker-compose.prod.yml` (там, где
    `${VAR:?...}`, деплой откажется стартовать без неё): `POSTGRES_USER`,
    `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OPENAI_API_KEY`.
+   Опционально — `TELEGRAM_BOT_TOKEN` (только если у бота включена тулза
+   `send_telegram_lead`, FEATURES.md 4.7); без неё тулза возвращает боту
+   текст ошибки, деплой не ломается.
 2. `docker compose -f compose/docker-compose.prod.yml up -d --build`.
 3. Миграции — из любого контейнера с установленным `db` (например,
    `worker`): `docker compose -f compose/docker-compose.prod.yml exec worker

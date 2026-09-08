@@ -67,6 +67,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       WORKER_HEALTH_PORT: "8081"
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY не задан в .env}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT не задан в .env}

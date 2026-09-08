@@ -35,7 +35,7 @@ async def test_send_message_posts_chat_id_and_text_to_telegram_api(
     assert captured["body"] == {
         "chat_id": "12345",
         "text": "Новая заявка",
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
 

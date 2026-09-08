@@ -63,6 +63,7 @@ services:
       WORKER_HEALTH_PORT: "8081"
       # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       STORAGE_DRIVER: fs
       STORAGE_FS_ROOT: /data/media

@@ -163,8 +163,8 @@ async def test_explicit_phone_number_overrides_contact_wa_id(
     )
 
     # Явный номер клиента идёт в поле "Телефон:"...
-    assert "*Телефон:* `996555000000`" in str(captured["text"])
-    assert "*Телефон:* `996700000012`" not in str(captured["text"])
+    assert "<b>Телефон:</b> <code>996555000000</code>" in str(captured["text"])
+    assert "<b>Телефон:</b> <code>996700000012</code>" not in str(captured["text"])
     # ...но ссылка "Написать в WhatsApp" всегда ведёт на реальный wa_id
     # контакта (design doc 2026-09-08-telegram-lead-tool-design.md) —
     # LLM-номер может быть телефоном другого человека, а не тем чатом,
@@ -208,3 +208,31 @@ async def test_network_failure_returns_error_text_without_raising(
     )
 
     assert result.content == "Не удалось отправить заявку в Telegram."
+
+
+async def test_details_with_special_characters_are_html_escaped(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.7: свободный текст от клиента экранируется для Telegram
+    HTML-режима — символы <, >, & в тексте не должны ломать отправку целиком
+    (найдено финальным ревью: V1's Markdown-режим такого экранирования не
+    делал и был подвержен этому классу сбоев)."""
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000015")
+
+    await TelegramLeadTool().execute(
+        {"client_name": "<script>", "details": "Бюджет < 5000 & > 1000"},
+        _make_ctx(bot, contact_id, session_factory, config={"chat_id": "-100999"}),
+    )
+
+    text = str(captured["text"])
+    assert "<script>" not in text
+    assert "&lt;script&gt;" in text
+    assert "5000 &amp; &gt; 1000" in text

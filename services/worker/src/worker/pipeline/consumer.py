@@ -298,8 +298,14 @@ async def _send_cards(
                 await asyncio.sleep(
                     random.uniform(PHOTO_JITTER_MIN_SECONDS, PHOTO_JITTER_MAX_SECONDS)
                 )
+            # MIME-типы регистронезависимы (RFC 2045); Document.mime_type и
+            # ProductImage-эквивалент — не ограниченные CHECK'ом String,
+            # заполняются вручную SQL. Регистр нормализуем только для
+            # диспетчеризации — оригинальное написание item.mime_type
+            # уходит на wire как есть (см. mime_type= ниже).
+            mime_type = item.mime_type.lower()
             media_event: OutboundImage | OutboundVideo | OutboundDocument
-            if item.mime_type.startswith("video/"):
+            if mime_type.startswith("video/"):
                 media_event = OutboundVideo(
                     bot_id=event.bot_id,
                     chat_id=event.chat_id,
@@ -307,7 +313,7 @@ async def _send_cards(
                     mime_type=item.mime_type,
                     client_msg_id=uuid.uuid4().hex,
                 )
-            elif item.mime_type.startswith("image/"):
+            elif mime_type.startswith("image/"):
                 media_event = OutboundImage(
                     bot_id=event.bot_id,
                     chat_id=event.chat_id,

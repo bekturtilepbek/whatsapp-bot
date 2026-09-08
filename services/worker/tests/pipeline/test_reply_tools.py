@@ -512,3 +512,75 @@ async def test_video_media_dispatches_to_outbound_video(
         assert "filename" not in payloads[1]
     finally:
         await redis.aclose()
+
+
+async def test_mixed_case_mime_type_dispatches_case_insensitively(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FEATURES.md 4.8/4.9 review Fix 4: MIME-типы регистронезависимы (RFC
+    2045). `mime_type="Image/JPEG"` (смешанный регистр — реалистично, т.к.
+    Document.mime_type сейчас вручную вбивается в SQL) должен уйти как
+    outbound.image, не outbound.document — но исходное написание сохраняется
+    в самом поле mime_type события (регистронезависимость касается только
+    решения о диспетчеризации)."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+
+    class _FakeMixedCaseImageTool:
+        name = "send_document"
+        description = "тестовая тулза"
+        parameters_schema: ClassVar[dict[str, object]] = {"type": "object", "properties": {}}
+
+        async def execute(
+            self, arguments: dict[str, object], ctx: ToolContext
+        ) -> ToolExecutionResult:
+            return ToolExecutionResult(
+                content="Файл photo.jpg поставлен в очередь на отправку.",
+                override_reply_text="Отправляю файл photo.jpg.",
+                media=[
+                    MediaToSend(
+                        storage_key="bots/x/documents/photo.jpg",
+                        mime_type="Image/JPEG",
+                        filename="photo.jpg",
+                    )
+                ],
+            )
+
+    monkeypatch.setitem(tools_registry._REGISTRY, "send_document", _FakeMixedCaseImageTool())
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[ToolCall(id="call_1", name="send_document", arguments_json="{}")],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        assert len(out_entries) == 3
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[1]["type"] == "outbound.image"
+        assert payloads[1]["storage_key"] == "bots/x/documents/photo.jpg"
+        # диспетчеризация регистронезависима, но написание в самом событии — нет
+        assert payloads[1]["mime_type"] == "Image/JPEG"
+    finally:
+        await redis.aclose()

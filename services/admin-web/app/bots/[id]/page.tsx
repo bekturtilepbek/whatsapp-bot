@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QrPanel } from "@/components/QrPanel";
 import { fetchBot } from "@/lib/api";
@@ -19,6 +20,9 @@ export default async function BotPage({
   return (
     <main>
       <h1>{bot.name}</h1>
+      <p>
+        <Link href={`/bots/${bot.id}/prompts`}>Промпты и история →</Link>
+      </p>
       <QrPanel initialBot={bot} apiBaseUrl={API_PUBLIC_URL} />
     </main>
   );

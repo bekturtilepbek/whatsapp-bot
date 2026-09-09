@@ -11,6 +11,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -20,7 +21,7 @@ pytest.importorskip("testcontainers.postgres")
 from api.db import get_session
 from api.main import app
 from db.engine import make_engine, make_session_factory
-from db.models import Bot
+from db.models import Bot, BotSession
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
@@ -205,3 +206,35 @@ async def test_patch_empty_body_is_a_noop(
     body = response.json()
     assert body["enabled"] is True
     assert body["system_prompt"] == "исходный промпт"
+
+
+async def test_list_bots_includes_created_bots(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    linked_id = await _make_bot(session_factory, name="linked-bot")
+    unlinked_id = await _make_bot(session_factory, name="unlinked-bot")
+
+    async with session_factory() as session:
+        session.add(
+            BotSession(bot_id=linked_id, phone="996700000000", linked_at=datetime.now(UTC))
+        )
+        await session.commit()
+
+    response = await client.get("/bots")
+    assert response.status_code == 200
+    by_id = {b["id"]: b for b in response.json()}
+
+    assert by_id[str(linked_id)]["phone"] == "996700000000"
+    assert by_id[str(linked_id)]["linked_at"] is not None
+    assert by_id[str(unlinked_id)]["phone"] is None
+    assert by_id[str(unlinked_id)]["linked_at"] is None
+
+
+async def test_get_bot_includes_phone_and_linked_at(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.get(f"/bots/{bot_id}")
+    body = response.json()
+    assert body["phone"] is None
+    assert body["linked_at"] is None

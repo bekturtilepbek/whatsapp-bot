@@ -3,17 +3,28 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import cast, update
+from sqlalchemy import cast, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .models import Bot
 
 
 async def get_bot(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
-    return await session.get(Bot, bot_id)
+    """options=selectinload(Bot.session) — иначе Bot.phone/linked_at (свойства
+    выше) упадут на ленивой подгрузке relationship вне текущего await-контекста."""
+    return await session.get(Bot, bot_id, options=[selectinload(Bot.session)])
+
+
+async def list_bots(session: AsyncSession) -> Sequence[Bot]:
+    result = await session.execute(
+        select(Bot).options(selectinload(Bot.session)).order_by(Bot.created_at)
+    )
+    return result.scalars().all()
 
 
 async def update_bot(

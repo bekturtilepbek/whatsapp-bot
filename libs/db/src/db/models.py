@@ -72,6 +72,18 @@ class Bot(Base):
         back_populates="bot", uselist=False, cascade="all, delete-orphan"
     )
 
+    @property
+    def phone(self) -> str | None:
+        """Номер, если бот когда-либо был привязан — иначе None.
+        Требует, чтобы .session был eager-loaded (см. get_bot/list_bots)."""
+        return self.session.phone if self.session else None
+
+    @property
+    def linked_at(self) -> datetime | None:
+        """Момент привязки; None — бот не привязан или был явно отключён
+        (clearSession в gateway обнуляет это поле, см. services/gateway/src/db/bots.ts)."""
+        return self.session.linked_at if self.session else None
+
 
 class BotSession(Base):
     """Auth-state сессии Baileys — в Postgres (ADR-006), не в памяти процесса.

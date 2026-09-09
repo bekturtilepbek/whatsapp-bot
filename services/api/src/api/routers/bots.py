@@ -12,7 +12,7 @@ import uuid
 import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
-from db.bots import get_bot, update_bot
+from db.bots import get_bot, list_bots, update_bot
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
@@ -27,6 +27,12 @@ from ..schemas.bots import BotOut, BotPatch
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 
 router = APIRouter(prefix="/bots", tags=["bots"])
+
+
+@router.get("", response_model=list[BotOut])
+async def list_all_bots(session: SessionDep) -> list[BotOut]:
+    bots = await list_bots(session)
+    return [BotOut.model_validate(bot) for bot in bots]
 
 
 async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) -> Response:

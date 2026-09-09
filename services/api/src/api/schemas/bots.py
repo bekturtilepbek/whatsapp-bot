@@ -15,6 +15,8 @@ class BotOut(BaseModel):
     id: UUID
     name: str
     enabled: bool
+    phone: str | None
+    linked_at: datetime | None
     system_prompt: str
     image_prompt: str | None
     pdf_prompt: str | None

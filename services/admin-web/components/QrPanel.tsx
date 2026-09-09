@@ -13,7 +13,7 @@ interface QrPanelProps {
 
 export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPanelProps) {
   const [bot, setBot] = useState<Bot>(initialBot);
-  const [qrUrl, setQrUrl] = useState<string>(() => qrImageUrl(apiBaseUrl, initialBot.id));
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -32,6 +32,12 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     }, pollIntervalMs);
     return () => clearInterval(timer);
   }, [refresh, pollIntervalMs]);
+
+  // Инициализировать QR-код только на клиенте после монтирования,
+  // чтобы избежать гидрацион-mismatch между SSR и клиентом.
+  useEffect(() => {
+    setQrUrl(qrImageUrl(apiBaseUrl, initialBot.id));
+  }, [apiBaseUrl, initialBot.id]);
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -57,8 +63,10 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   return (
     <div>
       <p>Отсканируйте QR в WhatsApp на телефоне</p>
-      {/* eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js */}
-      <img src={qrUrl} alt="QR-код для подключения WhatsApp" width={300} height={300} />
+      {qrUrl && (
+        // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
+        <img src={qrUrl} alt="QR-код для подключения WhatsApp" width={300} height={300} />
+      )}
     </div>
   );
 }

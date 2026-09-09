@@ -15,9 +15,27 @@ from .models import Bot
 
 
 async def get_bot(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
-    """options=selectinload(Bot.session) — иначе Bot.phone/linked_at (свойства
-    выше) упадут на ленивой подгрузке relationship вне текущего await-контекста."""
-    return await session.get(Bot, bot_id, options=[selectinload(Bot.session)])
+    """Без eager-load .session — горячий путь (worker/celery на каждое
+    сообщение/follow-up), им не нужны Bot.phone/Bot.linked_at. Не добавлять
+    сюда options=selectinload(Bot.session): это тянет bot_sessions.auth_state
+    (Signal-ключи Baileys, большой и растущий JSONB) на каждый вызов —
+    см. get_bot_with_session ниже для admin-роутов, которым он нужен.
+    """
+    return await session.get(Bot, bot_id)
+
+
+async def get_bot_with_session(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
+    """Как get_bot, но с eager-loaded .session — для admin-роутов, которым
+    нужны Bot.phone/Bot.linked_at (см. models.py). НЕ использовать в
+    горячем пути (worker/celery) — тянет весь bot_sessions.auth_state
+    (Signal-ключи Baileys), там он не нужен и дорог.
+    select() вместо session.get() — иначе eager-load молча пропускается,
+    если Bot уже в identity map текущей сессии (session.get() не
+    применяет options в этом случае)."""
+    result = await session.execute(
+        select(Bot).options(selectinload(Bot.session)).where(Bot.id == bot_id)
+    )
+    return result.scalars().first()
 
 
 async def list_bots(session: AsyncSession) -> Sequence[Bot]:
@@ -60,8 +78,8 @@ async def update_bot(
         await session.execute(update(Bot).where(Bot.id == bot_id).values(**values))
         await session.flush()
         # Bulk UPDATE (Core) не обновляет уже загруженный в identity map
-        # объект сам по себе — без expire get_bot() ниже мог бы вернуть
-        # объект с полями до PATCH, если бот уже был загружен в этой сессии.
+        # объект сам по себе — без expire get_bot_with_session() ниже мог бы
+        # вернуть объект с полями до PATCH, если бот уже был загружен в этой сессии.
         session.expire_all()
 
-    return await get_bot(session, bot_id)
+    return await get_bot_with_session(session, bot_id)

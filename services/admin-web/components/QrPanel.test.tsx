@@ -56,3 +56,28 @@ it("logs out and returns to the QR view", async () => {
     expect(screen.getByRole("img", { name: /qr/i })).toBeInTheDocument();
   });
 });
+
+it("shows an error when a poll fails", async () => {
+  vi.mocked(api.fetchBot).mockRejectedValue(new Error("network error"));
+  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={20} />);
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/network error/i);
+  });
+});
+
+it("shows an error when logout fails", async () => {
+  // fetchBot тоже отклоняется тем же сообщением — иначе refresh() внутри
+  // handleLogout (вызывается всегда, даже при неудачном logout) успешно
+  // отрабатывает и тут же чистит error через setError(null), и тест ловит
+  // гонку между "ошибка выставлена" и "ошибка сразу очищена".
+  vi.mocked(api.logoutBot).mockRejectedValue(new Error("gateway unreachable"));
+  vi.mocked(api.fetchBot).mockRejectedValue(new Error("gateway unreachable"));
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /отключить/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/gateway unreachable/i);
+  });
+});

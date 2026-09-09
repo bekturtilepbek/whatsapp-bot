@@ -11,8 +11,16 @@ export interface Bot {
   linked_at: string | null;
 }
 
+/** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/
+ * API_INTERNAL_URL в прод .env с хвостовым слэшем, иначе получаем двойной
+ * слэш в пути (`http://host:8000//bots`). Не экспортируется — деталь модуля. */
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "");
+}
+
 export async function fetchBots(baseUrl: string): Promise<Bot[]> {
-  const res = await fetch(`${baseUrl}/bots`, { cache: "no-store" });
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`GET /bots failed: ${res.status}`);
   }
@@ -20,7 +28,8 @@ export async function fetchBots(baseUrl: string): Promise<Bot[]> {
 }
 
 export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null> {
-  const res = await fetch(`${baseUrl}/bots/${id}`, { cache: "no-store" });
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${id}`, { cache: "no-store" });
   if (res.status === 404) {
     return null;
   }
@@ -31,7 +40,8 @@ export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null>
 }
 
 export async function logoutBot(baseUrl: string, id: string): Promise<void> {
-  const res = await fetch(`${baseUrl}/bots/${id}/logout`, { method: "POST" });
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${id}/logout`, { method: "POST" });
   if (!res.ok) {
     throw new Error(`POST /bots/${id}/logout failed: ${res.status}`);
   }
@@ -40,5 +50,6 @@ export async function logoutBot(baseUrl: string, id: string): Promise<void> {
 /** Query-параметр — cache-busting: без него браузер закэширует PNG по URL и
  * не подхватит смену QR при ротации WhatsApp (~раз в 20с). */
 export function qrImageUrl(baseUrl: string, id: string): string {
-  return `${baseUrl}/bots/${id}/qr?t=${Date.now()}`;
+  const base = normalizeBaseUrl(baseUrl);
+  return `${base}/bots/${id}/qr?t=${Date.now()}`;
 }

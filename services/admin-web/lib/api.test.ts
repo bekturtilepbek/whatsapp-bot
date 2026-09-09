@@ -25,6 +25,15 @@ describe("fetchBots", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     await expect(fetchBots("http://api")).rejects.toThrow();
   });
+
+  it("normalizes a trailing slash in baseUrl to avoid a double slash", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchBots("http://api/");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots", { cache: "no-store" });
+  });
 });
 
 describe("fetchBot", () => {

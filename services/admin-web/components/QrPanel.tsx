@@ -15,14 +15,20 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   const [bot, setBot] = useState<Bot>(initialBot);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const updated = await fetchBot(apiBaseUrl, initialBot.id);
-    if (!updated) return;
-    setBot(updated);
-    if (!updated.linked_at) {
-      // Перегенерируем URL — cache-busting подхватывает ротацию QR (~20с).
-      setQrUrl(qrImageUrl(apiBaseUrl, initialBot.id));
+    try {
+      const updated = await fetchBot(apiBaseUrl, initialBot.id);
+      setError(null);
+      if (!updated) return;
+      setBot(updated);
+      if (!updated.linked_at) {
+        // Перегенерируем URL — cache-busting подхватывает ротацию QR (~20с).
+        setQrUrl(qrImageUrl(apiBaseUrl, initialBot.id));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось обновить статус");
     }
   }, [apiBaseUrl, initialBot.id]);
 
@@ -40,13 +46,18 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   }, [apiBaseUrl, initialBot.id]);
 
   const handleLogout = async () => {
+    setError(null);
     setLoggingOut(true);
     try {
       await logoutBot(apiBaseUrl, bot.id);
-      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось отключить номер");
     } finally {
       setLoggingOut(false);
     }
+    // refresh() безопасен всегда (сам ловит свои ошибки) — вызываем и при
+    // успехе, и при неудаче logout, чтобы показать актуальное состояние.
+    await refresh();
   };
 
   if (bot.linked_at) {
@@ -56,6 +67,11 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
         <button onClick={() => void handleLogout()} disabled={loggingOut}>
           {loggingOut ? "Отключаем…" : "Отключить"}
         </button>
+        {error && (
+          <p role="alert" style={{ color: "crimson" }}>
+            {error}
+          </p>
+        )}
       </div>
     );
   }
@@ -66,6 +82,11 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
       {qrUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
         <img src={qrUrl} alt="QR-код для подключения WhatsApp" width={300} height={300} />
+      )}
+      {error && (
+        <p role="alert" style={{ color: "crimson" }}>
+          {error}
+        </p>
       )}
     </div>
   );

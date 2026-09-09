@@ -12,7 +12,7 @@ import uuid
 import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
-from db.bots import get_bot, list_bots, update_bot
+from db.bots import get_bot_with_session, list_bots, update_bot
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
@@ -53,7 +53,7 @@ async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) 
 
 @router.get("/{bot_id}", response_model=BotOut)
 async def read_bot(bot_id: uuid.UUID, session: SessionDep) -> BotOut:
-    bot = await get_bot(session, bot_id)
+    bot = await get_bot_with_session(session, bot_id)
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
     return BotOut.model_validate(bot)

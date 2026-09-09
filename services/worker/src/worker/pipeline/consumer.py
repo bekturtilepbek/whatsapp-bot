@@ -680,7 +680,13 @@ async def _reply_with_media_fallback(
     """FEATURES.md 2.6: медиа вне текстового пайплайна — фиксированный ответ,
     без LLM и без usage_events (вызова LLM не было — нечего учитывать).
     """
-    text = bot.settings.get("media_fallback_text", DEFAULT_MEDIA_FALLBACK_TEXT)
+    # `or DEFAULT` — не просто .get(key, default): явная пустая строка в
+    # settings (например, сохранённая через форму настроек в admin-web)
+    # не должна давать text="" — OutboundText требует min_length=1, падать
+    # с ValidationError на реальном сообщении нельзя (найдено code review
+    # настроек бота, 2026-09-09). Тот же паттерн уже используется для
+    # reminder_message в services/celery/src/tasks/followup.py.
+    text = bot.settings.get("media_fallback_text") or DEFAULT_MEDIA_FALLBACK_TEXT
     await _send_reply(event, redis, text)
 
     async with session_factory() as session:

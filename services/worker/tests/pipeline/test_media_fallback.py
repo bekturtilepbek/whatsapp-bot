@@ -165,6 +165,31 @@ async def test_media_fallback_text_is_configurable_via_bot_settings(
         await redis.aclose()
 
 
+async def test_empty_media_fallback_text_falls_back_to_default(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Пустая строка в settings — не то же самое, что "ключ не задан", но
+    результат должен быть одинаковым: OutboundText требует min_length=1
+    (libs/core/src/core/events.py), падать с ValidationError на реальном
+    сообщении нельзя (найдено code review настроек бота, 2026-09-09)."""
+
+    async def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("LLM не должен вызываться для медиа-сообщения")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_if_called)
+
+    bot_id = await _make_bot(session_factory, settings={"media_fallback_text": ""})
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
+
+        out_entries = await redis.xrange("wa:out")
+        assert consumer_module.DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+    finally:
+        await redis.aclose()
+
+
 def _inbound_image_payload_with_storage(bot_id: uuid.UUID) -> dict[str, object]:
     payload = _inbound_image_payload(bot_id)
     payload.update(

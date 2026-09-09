@@ -19,3 +19,6 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# Worktrees сессий Claude Code (superpowers:using-git-worktrees)
+.worktrees/

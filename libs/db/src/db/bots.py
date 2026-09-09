@@ -70,6 +70,9 @@ async def update_bot(
     передал непустое значение, то же условие, что решает, попадёт ли поле
     в UPDATE bots.
     """
+    if await get_bot(session, bot_id) is None:
+        return None
+
     values: dict[str, Any] = {}
     if enabled is not None:
         values["enabled"] = enabled

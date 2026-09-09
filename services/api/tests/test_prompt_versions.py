@@ -175,3 +175,11 @@ async def test_unknown_kind_returns_422(
     bot_id = await _make_bot(session_factory)
     response = await client.get(f"/bots/{bot_id}/prompts/nonsense/versions")
     assert response.status_code == 422
+
+
+async def test_patch_unknown_bot_with_prompt_field_is_404(
+    client: httpx.AsyncClient,
+) -> None:
+    unknown_id = uuid.uuid4()
+    response = await client.patch(f"/bots/{unknown_id}", json={"system_prompt": "x"})
+    assert response.status_code == 404

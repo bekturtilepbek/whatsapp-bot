@@ -10,8 +10,20 @@ const bots: Bot[] = [
     enabled: true,
     phone: "996700000000",
     linked_at: "2026-09-09T00:00:00Z",
+    system_prompt: "промпт",
+    image_prompt: null,
+    pdf_prompt: null,
   },
-  { id: "2", name: "Не линкованный", enabled: true, phone: null, linked_at: null },
+  {
+    id: "2",
+    name: "Не линкованный",
+    enabled: true,
+    phone: null,
+    linked_at: null,
+    system_prompt: "промпт",
+    image_prompt: null,
+    pdf_prompt: null,
+  },
 ];
 
 it("shows status and phone for each bot", () => {

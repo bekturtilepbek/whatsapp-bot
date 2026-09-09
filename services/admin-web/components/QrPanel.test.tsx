@@ -13,13 +13,25 @@ vi.mock("@/lib/api", async () => {
   };
 });
 
-const unlinkedBot: Bot = { id: "1", name: "Bot", enabled: true, phone: null, linked_at: null };
+const unlinkedBot: Bot = {
+  id: "1",
+  name: "Bot",
+  enabled: true,
+  phone: null,
+  linked_at: null,
+  system_prompt: "промпт",
+  image_prompt: null,
+  pdf_prompt: null,
+};
 const linkedBot: Bot = {
   id: "1",
   name: "Bot",
   enabled: true,
   phone: "996700000000",
   linked_at: "2026-09-09T00:00:00Z",
+  system_prompt: "промпт",
+  image_prompt: null,
+  pdf_prompt: null,
 };
 
 afterEach(() => {

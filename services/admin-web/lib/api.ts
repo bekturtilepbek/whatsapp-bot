@@ -9,6 +9,9 @@ export interface Bot {
   enabled: boolean;
   phone: string | null;
   linked_at: string | null;
+  system_prompt: string;
+  image_prompt: string | null;
+  pdf_prompt: string | null;
 }
 
 /** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/
@@ -52,4 +55,51 @@ export async function logoutBot(baseUrl: string, id: string): Promise<void> {
 export function qrImageUrl(baseUrl: string, id: string): string {
   const base = normalizeBaseUrl(baseUrl);
   return `${base}/bots/${id}/qr?t=${Date.now()}`;
+}
+
+export type PromptKind = "main" | "image" | "pdf";
+
+export interface PromptVersion {
+  id: string;
+  body: string | null;
+  author: string;
+  created_at: string;
+}
+
+const PROMPT_FIELD_BY_KIND: Record<PromptKind, "system_prompt" | "image_prompt" | "pdf_prompt"> = {
+  main: "system_prompt",
+  image: "image_prompt",
+  pdf: "pdf_prompt",
+};
+
+export async function patchBotPrompt(
+  baseUrl: string,
+  id: string,
+  kind: PromptKind,
+  body: string,
+): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const field = PROMPT_FIELD_BY_KIND[kind];
+  const res = await fetch(`${base}/bots/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: body }),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
+export async function fetchPromptVersions(
+  baseUrl: string,
+  id: string,
+  kind: PromptKind,
+): Promise<PromptVersion[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${id}/prompts/${kind}/versions`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${id}/prompts/${kind}/versions failed: ${res.status}`);
+  }
+  return (await res.json()) as PromptVersion[];
 }

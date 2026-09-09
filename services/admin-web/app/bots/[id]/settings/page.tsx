@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { QrPanel } from "@/components/QrPanel";
-import { fetchBot } from "@/lib/api";
+import { BotSettingsForm } from "@/components/BotSettingsForm";
+import { DEFAULT_BOT_SETTINGS, fetchBot } from "@/lib/api";
 
 const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
 const API_PUBLIC_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-export default async function BotPage({
+export default async function BotSettingsPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -17,16 +17,15 @@ export default async function BotPage({
     notFound();
   }
 
+  const initialSettings = { ...DEFAULT_BOT_SETTINGS, ...bot.settings };
+
   return (
     <main>
-      <h1>{bot.name}</h1>
       <p>
-        <Link href={`/bots/${bot.id}/prompts`}>Промпты и история →</Link>
+        <Link href={`/bots/${id}`}>← Назад к боту</Link>
       </p>
-      <p>
-        <Link href={`/bots/${bot.id}/settings`}>Настройки →</Link>
-      </p>
-      <QrPanel initialBot={bot} apiBaseUrl={API_PUBLIC_URL} />
+      <h1>{bot.name} — настройки</h1>
+      <BotSettingsForm botId={id} apiBaseUrl={API_PUBLIC_URL} initialSettings={initialSettings} />
     </main>
   );
 }

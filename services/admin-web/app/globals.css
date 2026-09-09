@@ -42,3 +42,20 @@ li {
   padding: 0.5rem 0;
   border-bottom: 1px solid #ddd;
 }
+
+form label {
+  display: block;
+  margin-bottom: 1rem;
+}
+
+form input[type="number"],
+form input[type="text"] {
+  display: block;
+  margin-top: 0.25rem;
+  padding: 0.4rem;
+  font-size: 1rem;
+}
+
+form input[type="checkbox"] {
+  margin-right: 0.5rem;
+}

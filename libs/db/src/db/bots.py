@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import Bot
+from .prompt_versions import record_version_if_changed
 
 
 async def get_bot(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
@@ -61,6 +62,13 @@ async def update_bot(
     БД), а не Python-side read-modify-write — атомарно, без гонки двух
     параллельных PATCH на разные ключи settings. Правило CLAUDE.md:
     "настройки бота мержатся, не перезаписываются".
+
+    Промпты (system_prompt/image_prompt/pdf_prompt), если переданы,
+    дополнительно версионируются в prompt_versions (FEATURES.md 3.7/3.8) —
+    см. record_version_if_changed. NULL остаётся сигналом "не трогать это
+    поле" (как и раньше) — версия для kind пишется только когда вызывающий
+    передал непустое значение, то же условие, что решает, попадёт ли поле
+    в UPDATE bots.
     """
     values: dict[str, Any] = {}
     if enabled is not None:
@@ -73,6 +81,13 @@ async def update_bot(
         values["pdf_prompt"] = pdf_prompt
     if settings_patch is not None:
         values["settings"] = Bot.settings.op("||")(cast(settings_patch, JSONB))
+
+    if system_prompt is not None:
+        await record_version_if_changed(session, bot_id, "main", system_prompt)
+    if image_prompt is not None:
+        await record_version_if_changed(session, bot_id, "image", image_prompt)
+    if pdf_prompt is not None:
+        await record_version_if_changed(session, bot_id, "pdf", pdf_prompt)
 
     if values:
         await session.execute(update(Bot).where(Bot.id == bot_id).values(**values))

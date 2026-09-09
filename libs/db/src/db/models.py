@@ -106,6 +106,34 @@ class BotSession(Base):
     bot: Mapped[Bot] = relationship(back_populates="session")
 
 
+class PromptVersion(Base):
+    """История промптов бота (FEATURES.md 3.7/3.8) — только для отката/аудита.
+    Источник истины для ТЕКУЩЕГО промпта остаётся Bot.system_prompt/
+    image_prompt/pdf_prompt (см. db.bots.update_bot) — эта таблица ничего
+    не меняет в том, что читает worker для LLM-контекста.
+    """
+
+    __tablename__ = "prompt_versions"
+    __table_args__ = (
+        Index("ix_prompt_versions_bot_kind_created", "bot_id", "kind", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    # "main" | "image" | "pdf" — обычная строка (как Message.role,
+    # ToolBinding.tool_name), не Postgres ENUM: миграция на новый kind проще.
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'admin'"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Contact(Base):
     """Контакт = wa_id + lid (FEATURES.md 9.2): WhatsApp мигрирует на LID,
     без второго поля история человека раздваивается. Матчинг — по wa_id ИЛИ

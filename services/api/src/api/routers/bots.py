@@ -13,6 +13,7 @@ import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bots import get_bot_with_session, list_bots, update_bot
+from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
@@ -24,6 +25,7 @@ from ..gateway_client import GatewayClientDep
 from ..redis_client import RedisDep
 from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
 from ..schemas.bots import BotOut, BotPatch
+from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 
 router = APIRouter(prefix="/bots", tags=["bots"])
@@ -75,6 +77,14 @@ async def patch_bot(bot_id: uuid.UUID, patch: BotPatch, session: SessionDep) -> 
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
     return BotOut.model_validate(bot)
+
+
+@router.get("/{bot_id}/prompts/{kind}/versions", response_model=list[PromptVersionOut])
+async def list_prompt_versions(
+    bot_id: uuid.UUID, kind: PromptKind, session: SessionDep
+) -> list[PromptVersionOut]:
+    versions = await list_versions(session, bot_id, kind)
+    return [PromptVersionOut.model_validate(v) for v in versions]
 
 
 @router.get("/{bot_id}/qr")

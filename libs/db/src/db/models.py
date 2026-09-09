@@ -121,6 +121,12 @@ class PromptVersion(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    # Монотонный порядок вставки (тот же паттерн, что Message.seq выше) —
+    # created_at = func.now() фиксируется на начало ТРАНЗАКЦИИ в Postgres,
+    # а update_bot теперь может вставить baseline- и новую версию в одной
+    # транзакции (см. record_version_if_changed) — обе получили бы
+    # идентичный created_at, и "последняя версия" стала бы недетерминированной.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False, unique=True)
     bot_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
     )

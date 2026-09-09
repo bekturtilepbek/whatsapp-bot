@@ -70,7 +70,8 @@ async def update_bot(
     передал непустое значение, то же условие, что решает, попадёт ли поле
     в UPDATE bots.
     """
-    if await get_bot(session, bot_id) is None:
+    current = await get_bot(session, bot_id)
+    if current is None:
         return None
 
     values: dict[str, Any] = {}
@@ -86,11 +87,17 @@ async def update_bot(
         values["settings"] = Bot.settings.op("||")(cast(settings_patch, JSONB))
 
     if system_prompt is not None:
-        await record_version_if_changed(session, bot_id, "main", system_prompt)
+        await record_version_if_changed(
+            session, bot_id, "main", system_prompt, baseline=current.system_prompt
+        )
     if image_prompt is not None:
-        await record_version_if_changed(session, bot_id, "image", image_prompt)
+        await record_version_if_changed(
+            session, bot_id, "image", image_prompt, baseline=current.image_prompt
+        )
     if pdf_prompt is not None:
-        await record_version_if_changed(session, bot_id, "pdf", pdf_prompt)
+        await record_version_if_changed(
+            session, bot_id, "pdf", pdf_prompt, baseline=current.pdf_prompt
+        )
 
     if values:
         await session.execute(update(Bot).where(Bot.id == bot_id).values(**values))

@@ -1,6 +1,8 @@
 """GET /bots/{id}/prompts/{kind}/versions + версионирование через PATCH
 (FEATURES.md 3.7/3.8): новая версия при реальном изменении, без дублей на
-no-op, откат = обычный PATCH со старым текстом поверх истории.
+no-op, откат = обычный PATCH со старым текстом поверх истории, первая
+правка бэкаппит то, что уже лежало в bots.* (без этого "откат" на первой
+же правке был бы no-op — ради этого сценария 3.8 и заведён).
 
 Требует Docker (testcontainers-postgres). Без него — skip, не fail.
 """
@@ -90,6 +92,36 @@ async def _make_bot(session_factory: async_sessionmaker[AsyncSession]) -> uuid.U
         return bot.id
 
 
+async def test_first_edit_captures_prior_value_as_baseline_version(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """FEATURES.md 3.8: бот заведён (например, SQL-инсертом — онбординга из
+    UI ещё нет, 6.20) с системным промптом, который никогда не проходил
+    через PATCH. Первая правка через admin-web не должна тихо терять то,
+    что было ДО неё — иначе "откат" на первой же правке был бы no-op.
+    """
+    bot_id = await _make_bot(session_factory)  # system_prompt="исходный промпт"
+    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
+    assert response.status_code == 200
+
+    versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
+    body = versions.json()
+    assert len(body) == 2
+    assert body[0]["body"] == "новый промпт"
+    assert body[1]["body"] == "исходный промпт"
+
+
+async def test_first_save_matching_existing_value_creates_no_version(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)  # system_prompt="исходный промпт"
+    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "исходный промпт"})
+    assert response.status_code == 200
+
+    versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
+    assert versions.json() == []
+
+
 async def test_patch_changing_prompt_creates_version(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -100,9 +132,10 @@ async def test_patch_changing_prompt_creates_version(
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
     assert versions.status_code == 200
     body = versions.json()
-    assert len(body) == 1
+    assert len(body) == 2  # новая версия + baseline ("исходный промпт")
     assert body[0]["body"] == "новый промпт"
     assert body[0]["author"] == "admin"
+    assert body[1]["body"] == "исходный промпт"
 
 
 async def test_patch_with_same_text_does_not_duplicate_version(
@@ -114,7 +147,7 @@ async def test_patch_with_same_text_does_not_duplicate_version(
     assert response.status_code == 200
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
-    assert len(versions.json()) == 1
+    assert len(versions.json()) == 2  # первый PATCH: baseline + новая; второй PATCH — no-op
 
 
 async def test_versions_returned_newest_first(
@@ -126,9 +159,10 @@ async def test_versions_returned_newest_first(
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
     body = versions.json()
-    assert len(body) == 2
+    assert len(body) == 3
     assert body[0]["body"] == "версия 2"
     assert body[1]["body"] == "версия 1"
+    assert body[2]["body"] == "исходный промпт"  # baseline от первого PATCH
 
 
 async def test_rollback_via_patch_appends_new_version_without_losing_history(
@@ -145,10 +179,11 @@ async def test_rollback_via_patch_appends_new_version_without_losing_history(
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
     body = versions.json()
-    assert len(body) == 3  # история не укоротилась
-    assert body[0]["body"] == "версия 1"  # новая запись сверху
+    assert len(body) == 4  # история не укоротилась (baseline + 3 реальных сохранения)
+    assert body[0]["body"] == "версия 1"  # новая запись сверху (откат)
     assert body[1]["body"] == "версия 2"
-    assert body[2]["body"] == "версия 1"
+    assert body[2]["body"] == "версия 1"  # исходная вторая правка
+    assert body[3]["body"] == "исходный промпт"  # baseline
 
 
 async def test_image_and_pdf_prompts_version_independently(
@@ -163,6 +198,8 @@ async def test_image_and_pdf_prompts_version_independently(
     pdf_versions = await client.get(f"/bots/{bot_id}/prompts/pdf/versions")
 
     assert main_versions.json() == []
+    # image_prompt/pdf_prompt были NULL до этого PATCH — baseline is None,
+    # backfill не срабатывает (нечего бэкаппить), только новая версия.
     assert len(image_versions.json()) == 1
     assert image_versions.json()[0]["body"] == "опиши фото"
     assert len(pdf_versions.json()) == 1

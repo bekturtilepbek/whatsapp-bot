@@ -12,7 +12,36 @@ export interface Bot {
   system_prompt: string;
   image_prompt: string | null;
   pdf_prompt: string | null;
+  // Опционально (не как остальные поля выше) — bots.settings свободный dict
+  // на бэкенде, старые фикстуры в тестах его не заполняют и не обязаны.
+  settings?: BotSettings;
 }
+
+// FEATURES.md 6.11 — настройки бота. Все поля опциональны: bots.settings —
+// свободный JSONB-dict, отсутствующий ключ читается downstream-кодом с его
+// собственным дефолтом (см. DEFAULT_BOT_SETTINGS — та же логика, продублирована
+// здесь для формы настроек, значения см. в services/worker/src/worker/pipeline/
+// consumer.py, services/celery/src/tasks/followup.py, services/gateway/src/db/bots.ts).
+export interface BotSettings {
+  batch_timeout_seconds?: number;
+  auto_release_minutes?: number;
+  reminder_enabled?: boolean;
+  reminder_delay_minutes?: number;
+  reminder_message?: string;
+  media_fallback_text?: string;
+  media_max_size_bytes?: number;
+}
+
+export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
+  batch_timeout_seconds: 1,
+  auto_release_minutes: 12,
+  reminder_enabled: false,
+  reminder_delay_minutes: 60,
+  reminder_message:
+    "Здравствуйте! Подскажите, удалось ли ознакомиться с информацией? Если есть вопросы — я на связи!",
+  media_fallback_text: "Пока я умею отвечать только на текстовые сообщения",
+  media_max_size_bytes: 16 * 1024 * 1024,
+};
 
 /** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/
  * API_INTERNAL_URL в прод .env с хвостовым слэшем, иначе получаем двойной
@@ -102,4 +131,24 @@ export async function fetchPromptVersions(
     throw new Error(`GET /bots/${id}/prompts/${kind}/versions failed: ${res.status}`);
   }
   return (await res.json()) as PromptVersion[];
+}
+
+/** Шаллоу JSONB-merge на бэкенде (update_bot) — можно передавать только
+ * изменившиеся ключи, но форма настроек всегда шлёт весь объект целиком
+ * (см. components/BotSettingsForm.tsx). */
+export async function patchBotSettings(
+  baseUrl: string,
+  id: string,
+  settings: BotSettings,
+): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ settings }),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
 }

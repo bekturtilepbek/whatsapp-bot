@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchBot, fetchBots, fetchPromptVersions, logoutBot, patchBotPrompt, qrImageUrl } from "@/lib/api";
+import {
+  fetchBot,
+  fetchBots,
+  fetchPromptVersions,
+  logoutBot,
+  patchBotPrompt,
+  patchBotSettings,
+  qrImageUrl,
+} from "@/lib/api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -147,5 +155,37 @@ describe("fetchPromptVersions", () => {
   it("throws when the response is not ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     await expect(fetchPromptVersions("http://api", "1", "main")).rejects.toThrow();
+  });
+});
+
+describe("patchBotSettings", () => {
+  it("PATCHes the settings object as-is", async () => {
+    const bot = {
+      id: "1",
+      name: "Bot",
+      enabled: true,
+      phone: null,
+      linked_at: null,
+      system_prompt: "x",
+      image_prompt: null,
+      pdf_prompt: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => bot });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const settings = { batch_timeout_seconds: 2, reminder_enabled: true };
+    const result = await patchBotSettings("http://api", "1", settings);
+
+    expect(result).toEqual(bot);
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings }),
+    });
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400 }));
+    await expect(patchBotSettings("http://api", "1", {})).rejects.toThrow();
   });
 });

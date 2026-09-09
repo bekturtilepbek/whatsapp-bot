@@ -4,6 +4,73 @@ import { useState } from "react";
 import { patchBotSettings, type BotSettings } from "@/lib/api";
 
 const BYTES_PER_MB = 1024 * 1024;
+// Не «сколько разрешает WhatsApp» — свой предохранитель поверх лимита
+// входящего медиа (FEATURES.md 1.9), причина — OOM прошлой версии (CLAUDE.md).
+// Без потолка форма даёт вручную выставить произвольно большой лимит и
+// заново открыть тот же риск (найдено code review настроек бота, 2026-09-09).
+const MAX_MEDIA_MAX_SIZE_BYTES = 64 * BYTES_PER_MB;
+
+/** Сравнивает текущее состояние формы с последним известным сохранённым —
+ * возвращает только реально изменившиеся ключи. Бэкенд уже поддерживает
+ * частичный PATCH (шаллоу JSONB-merge, update_bot) — раньше форма всё
+ * равно слала весь объект целиком, что навсегда фиксировало в bots.settings
+ * дефолтные значения полей, которые администратор не трогал, и на двух
+ * параллельных вкладках второе сохранение затирало правки первой (найдено
+ * code review настроек бота, 2026-09-09). */
+function diffSettings(
+  baseline: Required<BotSettings>,
+  current: Required<BotSettings>,
+): BotSettings {
+  const changed: BotSettings = {};
+  if (current.batch_timeout_seconds !== baseline.batch_timeout_seconds) {
+    changed.batch_timeout_seconds = current.batch_timeout_seconds;
+  }
+  if (current.auto_release_minutes !== baseline.auto_release_minutes) {
+    changed.auto_release_minutes = current.auto_release_minutes;
+  }
+  if (current.reminder_enabled !== baseline.reminder_enabled) {
+    changed.reminder_enabled = current.reminder_enabled;
+  }
+  if (current.reminder_delay_minutes !== baseline.reminder_delay_minutes) {
+    changed.reminder_delay_minutes = current.reminder_delay_minutes;
+  }
+  if (current.reminder_message !== baseline.reminder_message) {
+    changed.reminder_message = current.reminder_message;
+  }
+  if (current.media_fallback_text !== baseline.media_fallback_text) {
+    changed.media_fallback_text = current.media_fallback_text;
+  }
+  if (current.media_max_size_bytes !== baseline.media_max_size_bytes) {
+    changed.media_max_size_bytes = current.media_max_size_bytes;
+  }
+  return changed;
+}
+
+/** Возвращает текст ошибки, если форму нельзя сохранять как есть, иначе null.
+ * HTML `min`/`max` на input — только подсказка, не защита (не мешает
+ * заполнить поле руками мимо спиннера) — реальная проверка здесь. */
+function validateSettings(settings: Required<BotSettings>): string | null {
+  if (!Number.isFinite(settings.batch_timeout_seconds) || settings.batch_timeout_seconds < 0) {
+    return "Таймаут батчинга должен быть числом не меньше 0";
+  }
+  if (!Number.isFinite(settings.auto_release_minutes) || settings.auto_release_minutes < 0) {
+    return "Авто-возврат должен быть числом не меньше 0";
+  }
+  if (!Number.isFinite(settings.reminder_delay_minutes) || settings.reminder_delay_minutes < 0) {
+    return "Задержка напоминания должна быть числом не меньше 0";
+  }
+  if (
+    !Number.isFinite(settings.media_max_size_bytes) ||
+    settings.media_max_size_bytes <= 0 ||
+    settings.media_max_size_bytes > MAX_MEDIA_MAX_SIZE_BYTES
+  ) {
+    return `Макс. размер медиа должен быть от 0 до ${MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB} МБ`;
+  }
+  if (settings.media_fallback_text.trim() === "") {
+    return "Заглушка на неподдерживаемое медиа не может быть пустой";
+  }
+  return null;
+}
 
 interface BotSettingsFormProps {
   botId: string;
@@ -12,18 +79,27 @@ interface BotSettingsFormProps {
 }
 
 export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSettingsFormProps) {
+  const [baseline, setBaseline] = useState<Required<BotSettings>>(initialSettings);
   const [settings, setSettings] = useState<Required<BotSettings>>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isDirty = Object.keys(diffSettings(baseline, settings)).length > 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const validationError = validateSettings(settings);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSaving(true);
     setSaved(false);
     setError(null);
     try {
-      await patchBotSettings(apiBaseUrl, botId, settings);
+      await patchBotSettings(apiBaseUrl, botId, diffSettings(baseline, settings));
+      setBaseline(settings);
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось сохранить");
@@ -33,7 +109,13 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
   };
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)}>
+    // noValidate — иначе браузерная HTML5-валидация (min/max) тихо блокирует
+    // submit ДО того, как выполнится validateSettings ниже: часть невалидных
+    // значений (за пределами min/max) вообще не дошла бы до нашего сообщения
+    // об ошибке, а показала бы (или не показала бы — зависит от браузера)
+    // нативный тултип, при этом другие поля без min/max (текстовые) шли бы
+    // через кастомную ошибку — несогласованно.
+    <form noValidate onSubmit={(e) => void handleSubmit(e)}>
       <section>
         <h2>Батчинг</h2>
         <label>
@@ -113,6 +195,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           <input
             type="number"
             min={0}
+            max={MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB}
             step={0.1}
             value={settings.media_max_size_bytes / BYTES_PER_MB}
             onChange={(e) =>
@@ -128,7 +211,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
       <button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </button>
-      {saved && !error && <p role="status">Сохранено</p>}
+      {saved && !isDirty && !error && <p role="status">Сохранено</p>}
       {error && (
         <p role="alert" style={{ color: "crimson" }}>
           {error}

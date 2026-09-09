@@ -2,9 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QrPanel } from "@/components/QrPanel";
 import { fetchBot } from "@/lib/api";
-
-const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
-const API_PUBLIC_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
 
 export default async function BotPage({
   params,

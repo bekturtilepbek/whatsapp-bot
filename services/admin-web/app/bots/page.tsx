@@ -1,7 +1,6 @@
 import { BotsTable } from "@/components/BotsTable";
 import { fetchBots } from "@/lib/api";
-
-const API_INTERNAL_URL = process.env.API_INTERNAL_URL ?? "http://localhost:8000";
+import { API_INTERNAL_URL } from "@/lib/env";
 
 export default async function BotsPage() {
   const bots = await fetchBots(API_INTERNAL_URL);

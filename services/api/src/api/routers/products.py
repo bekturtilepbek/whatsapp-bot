@@ -233,11 +233,12 @@ async def patch_product_route(
     assert product is not None  # проверено выше через before
     await session.commit()
 
+    product = await get_product(session, bot_id, product_id, with_images=True)
+    assert product is not None  # только что успешно обновили выше
+
     if product.name != old_name or product.description != old_description:
         await _recompute_embedding(session, product)
 
-    product = await get_product(session, bot_id, product_id, with_images=True)
-    assert product is not None  # только что успешно обновили выше
     return ProductOut.model_validate(product)
 
 

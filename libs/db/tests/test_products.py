@@ -17,7 +17,14 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product
-from db.products import find_product_by_exact_name, list_products
+from db.products import (
+    create_product,
+    delete_product,
+    find_product_by_exact_name,
+    get_product,
+    list_products,
+    update_product,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
 
@@ -177,3 +184,103 @@ async def test_find_product_by_exact_name_scoped_per_bot(session: AsyncSession) 
 
     assert await find_product_by_exact_name(session, bot_a, "Только у А") is not None
     assert await find_product_by_exact_name(session, bot_b, "Только у А") is None
+
+
+async def test_get_product_returns_none_when_missing(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    assert await get_product(session, bot_id, uuid.uuid4()) is None
+
+
+async def test_get_product_scoped_per_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    product = await create_product(session, bot_a, name="Только у А")
+
+    assert await get_product(session, bot_a, product.id) is not None
+    assert await get_product(session, bot_b, product.id) is None
+
+
+async def test_create_product_requires_only_name(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    product = await create_product(session, bot_id, name="Новый товар")
+
+    assert product.name == "Новый товар"
+    assert product.price is None
+    assert product.sku is None
+    assert product.description is None
+    assert product.display_custom == {}
+
+
+async def test_create_product_with_all_fields(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    product = await create_product(
+        session,
+        bot_id,
+        name="Кроссовки",
+        price=Decimal("5000.00"),
+        sku="NK-001",
+        description="Беговые",
+        display_custom={"show_price": False},
+    )
+
+    assert product.price == Decimal("5000.00")
+    assert product.sku == "NK-001"
+    assert product.description == "Беговые"
+    assert product.display_custom == {"show_price": False}
+
+
+async def test_update_product_changes_only_passed_fields(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    product = await create_product(
+        session, bot_id, name="Исходное имя", price=Decimal("100.00"), sku="SKU-1"
+    )
+
+    updated = await update_product(session, bot_id, product.id, price=Decimal("200.00"))
+
+    assert updated is not None
+    assert updated.name == "Исходное имя"  # не тронуто
+    assert updated.price == Decimal("200.00")
+    assert updated.sku == "SKU-1"  # не тронуто
+
+
+async def test_update_product_returns_none_when_missing(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    result = await update_product(session, bot_id, uuid.uuid4(), name="x")
+    assert result is None
+
+
+async def test_update_product_scoped_per_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    product = await create_product(session, bot_a, name="Товар А")
+
+    result = await update_product(session, bot_b, product.id, name="Чужое имя")
+    assert result is None
+
+    unchanged = await get_product(session, bot_a, product.id)
+    assert unchanged is not None
+    assert unchanged.name == "Товар А"
+
+
+async def test_delete_product_removes_row(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    product = await create_product(session, bot_id, name="На удаление")
+
+    deleted = await delete_product(session, bot_id, product.id)
+    assert deleted is True
+    assert await get_product(session, bot_id, product.id) is None
+
+
+async def test_delete_product_returns_false_when_missing(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    assert await delete_product(session, bot_id, uuid.uuid4()) is False
+
+
+async def test_delete_product_scoped_per_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    product = await create_product(session, bot_a, name="Товар А")
+
+    deleted = await delete_product(session, bot_b, product.id)
+    assert deleted is False
+    assert await get_product(session, bot_a, product.id) is not None

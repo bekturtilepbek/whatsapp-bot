@@ -305,6 +305,17 @@ class Product(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
+    # lazy="raise" — доступ к .photos без явного selectinload() кидает
+    # понятную ошибку сразу, а не MissingGreenlet где-то в сериализации:
+    # async SQLAlchemy не умеет лениво подгружать relationship вне активного
+    # await-контекста. db.products.get_product/list_products грузят photos
+    # явно только когда вызывающий передаёт with_images=True (api-роутер) —
+    # worker (контекст LLM, product_search) не платит лишним запросом за то,
+    # что не использует.
+    photos: Mapped[list[ProductImage]] = relationship(
+        order_by="ProductImage.position", lazy="raise"
+    )
+
 
 class ProductEmbedding(Base):
     """Эмбеддинг товара для pgvector-поиска (FEATURES.md 4.1) — 1:1 с

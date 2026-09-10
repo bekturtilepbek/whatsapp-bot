@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .models import Product
 
@@ -22,6 +23,7 @@ async def list_products(
     *,
     limit: int = DEFAULT_CATALOG_LIMIT,
     offset: int = 0,
+    with_images: bool = False,
 ) -> list[Product]:
     stmt = (
         select(Product)
@@ -30,6 +32,8 @@ async def list_products(
         .limit(limit)
         .offset(offset)
     )
+    if with_images:
+        stmt = stmt.options(selectinload(Product.photos))
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -49,11 +53,13 @@ async def find_product_by_exact_name(
 
 
 async def get_product(
-    session: AsyncSession, bot_id: uuid.UUID, product_id: uuid.UUID
+    session: AsyncSession, bot_id: uuid.UUID, product_id: uuid.UUID, *, with_images: bool = False
 ) -> Product | None:
     """Скоуп по bot_id И product_id вместе — товар чужого бота не должен
     быть виден даже как "существует, но 403", а просто не находится (404)."""
     stmt = select(Product).where(Product.bot_id == bot_id, Product.id == product_id)
+    if with_images:
+        stmt = stmt.options(selectinload(Product.photos))
     result = await session.execute(stmt)
     return result.scalars().first()
 

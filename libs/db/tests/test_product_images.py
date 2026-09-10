@@ -17,7 +17,13 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product, ProductImage
-from db.product_images import list_product_images
+from db.product_images import (
+    create_product_image,
+    delete_product_image,
+    get_product_image,
+    list_product_images,
+    next_position,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
 
@@ -112,3 +118,71 @@ async def test_list_product_images_scoped_per_product(session: AsyncSession) -> 
 
     images_a = await list_product_images(session, product_a)
     assert [i.storage_key for i in images_a] == ["img-a"]
+
+
+async def test_next_position_is_zero_when_no_images(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    assert await next_position(session, product_id) == 0
+
+
+async def test_next_position_is_max_plus_one(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    session.add_all(
+        [
+            ProductImage(
+                product_id=product_id, storage_key="img-0", mime_type="image/jpeg", position=0
+            ),
+            ProductImage(
+                product_id=product_id, storage_key="img-2", mime_type="image/jpeg", position=2
+            ),
+        ]
+    )
+    await session.flush()
+
+    # Позиция 1 пропущена (например, удалили) — следующая всё равно 3,
+    # не переиспользует дыру: next_position = max(position) + 1.
+    assert await next_position(session, product_id) == 3
+
+
+async def test_create_product_image_uses_given_id(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    photo_id = uuid.uuid4()
+
+    image = await create_product_image(
+        session, product_id, id=photo_id, storage_key="k", mime_type="image/jpeg", position=0
+    )
+
+    assert image.id == photo_id
+    assert image.storage_key == "k"
+
+
+async def test_get_product_image_returns_none_when_missing(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    assert await get_product_image(session, product_id, uuid.uuid4()) is None
+
+
+async def test_get_product_image_scoped_per_product(session: AsyncSession) -> None:
+    product_a = await _make_product(session)
+    product_b = await _make_product(session)
+    image = await create_product_image(
+        session, product_a, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
+    )
+
+    assert await get_product_image(session, product_a, image.id) is not None
+    assert await get_product_image(session, product_b, image.id) is None
+
+
+async def test_delete_product_image_removes_row(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    image = await create_product_image(
+        session, product_id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
+    )
+
+    deleted = await delete_product_image(session, product_id, image.id)
+    assert deleted is True
+    assert await get_product_image(session, product_id, image.id) is None
+
+
+async def test_delete_product_image_returns_false_when_missing(session: AsyncSession) -> None:
+    product_id = await _make_product(session)
+    assert await delete_product_image(session, product_id, uuid.uuid4()) is False

@@ -342,3 +342,68 @@ export function productPhotoUrl(
   const base = normalizeBaseUrl(baseUrl);
   return `${base}/bots/${botId}/products/${productId}/photos/${photoId}`;
 }
+
+// Чёрный список номеров (FEATURES.md 1.5/6.9).
+
+export interface BlockedNumber {
+  phone: string;
+}
+
+export interface FetchBlockedNumbersOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchBlockedNumbers(
+  baseUrl: string,
+  botId: string,
+  options?: FetchBlockedNumbersOptions,
+): Promise<BlockedNumber[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const query = new URLSearchParams();
+  if (options?.limit !== undefined) {
+    query.set("limit", String(options.limit));
+  }
+  if (options?.offset !== undefined) {
+    query.set("offset", String(options.offset));
+  }
+  const qs = query.toString();
+  const res = await fetch(`${base}/bots/${botId}/blocked-numbers${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${botId}/blocked-numbers failed: ${res.status}`);
+  }
+  return (await res.json()) as BlockedNumber[];
+}
+
+export async function addBlockedNumber(
+  baseUrl: string,
+  botId: string,
+  phone: string,
+): Promise<BlockedNumber> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/blocked-numbers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/blocked-numbers failed: ${res.status}`);
+  }
+  return (await res.json()) as BlockedNumber;
+}
+
+export async function deleteBlockedNumber(
+  baseUrl: string,
+  botId: string,
+  phone: string,
+): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/blocked-numbers/${phone}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`DELETE /bots/${botId}/blocked-numbers/${phone} failed: ${res.status}`);
+  }
+}

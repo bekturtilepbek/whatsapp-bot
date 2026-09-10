@@ -27,6 +27,9 @@ export default async function BotPage({
       <p>
         <Link href={`/bots/${bot.id}/products`}>Товары →</Link>
       </p>
+      <p>
+        <Link href={`/bots/${bot.id}/blocked-numbers`}>Чёрный список →</Link>
+      </p>
       <QrPanel initialBot={bot} apiBaseUrl={API_PUBLIC_URL} />
     </main>
   );

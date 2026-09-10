@@ -17,7 +17,7 @@ from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from tools.registry import all_tool_names
 
 from ..db import SessionDep
@@ -29,6 +29,13 @@ from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 
 router = APIRouter(prefix="/bots", tags=["bots"])
+
+# Пагинация чёрного списка (FEATURES.md 1.5/6.9) — тот же паттерн, что у
+# товаров (?limit=&offset=), но дефолт меньше: список номеров, в отличие от
+# каталога, не нужен целиком worker'у (у него отдельный is_blocked-чек по
+# одному номеру), это чисто витринный список для кабинета.
+BLOCKED_LIST_DEFAULT_LIMIT = 20
+BLOCKED_LIST_MAX_LIMIT = 100
 
 
 @router.get("", response_model=list[BotOut])
@@ -115,8 +122,13 @@ def _strip_non_digits(phone: str) -> str:
 
 
 @router.get("/{bot_id}/blocked-numbers", response_model=list[BlockedNumberOut])
-async def list_blocked(bot_id: uuid.UUID, session: SessionDep) -> list[BlockedNumberOut]:
-    phones = await list_blocked_numbers(session, bot_id)
+async def list_blocked(
+    bot_id: uuid.UUID,
+    session: SessionDep,
+    limit: int = Query(BLOCKED_LIST_DEFAULT_LIMIT, ge=1, le=BLOCKED_LIST_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+) -> list[BlockedNumberOut]:
+    phones = await list_blocked_numbers(session, bot_id, limit=limit, offset=offset)
     return [BlockedNumberOut(phone=p) for p in phones]
 
 

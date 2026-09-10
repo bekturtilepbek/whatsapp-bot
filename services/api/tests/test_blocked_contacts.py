@@ -143,3 +143,36 @@ async def test_list_scoped_to_bot(
 
     listing = await client.get(f"/bots/{bot_a}/blocked-numbers")
     assert [item["phone"] for item in listing.json()] == ["996700000001"]
+
+
+async def test_list_respects_limit_and_offset(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    # created_at.desc() — последний добавленный первым, поэтому проверяем
+    # страницы в обратном порядке добавления.
+    for phone in ("996700000001", "996700000002", "996700000003"):
+        await client.post(f"/bots/{bot_id}/blocked-numbers", json={"phone": phone})
+
+    first_page = await client.get(f"/bots/{bot_id}/blocked-numbers", params={"limit": 2})
+    assert [item["phone"] for item in first_page.json()] == [
+        "996700000003",
+        "996700000002",
+    ]
+
+    second_page = await client.get(
+        f"/bots/{bot_id}/blocked-numbers", params={"limit": 2, "offset": 2}
+    )
+    assert [item["phone"] for item in second_page.json()] == ["996700000001"]
+
+
+async def test_list_limit_out_of_range_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    assert (
+        await client.get(f"/bots/{bot_id}/blocked-numbers", params={"limit": 0})
+    ).status_code == 422
+    assert (
+        await client.get(f"/bots/{bot_id}/blocked-numbers", params={"limit": 101})
+    ).status_code == 422

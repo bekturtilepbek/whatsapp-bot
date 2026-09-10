@@ -41,11 +41,15 @@ async def remove_blocked_number(session: AsyncSession, bot_id: uuid.UUID, phone:
     await session.flush()
 
 
-async def list_blocked_numbers(session: AsyncSession, bot_id: uuid.UUID) -> list[str]:
+async def list_blocked_numbers(
+    session: AsyncSession, bot_id: uuid.UUID, *, limit: int = 20, offset: int = 0
+) -> list[str]:
     stmt = (
         select(BlockedContact.phone)
         .where(BlockedContact.bot_id == bot_id)
         .order_by(BlockedContact.created_at.desc())
+        .limit(limit)
+        .offset(offset)
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

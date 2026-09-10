@@ -28,6 +28,21 @@ FAKE_OWNER_USER = User(
     created_at=datetime.now(),
 )
 
+FAKE_NON_OWNER_USER = User(
+    id=uuid.uuid4(),
+    email="test-non-owner@example.com",
+    password_hash="unused",
+    is_platform_owner=False,
+    is_active=True,
+    created_at=datetime.now(),
+)
+
 
 def override_owner_auth() -> None:
     app.dependency_overrides[get_current_user] = lambda: FAKE_OWNER_USER
+
+
+def override_non_owner_auth() -> None:
+    """Подменяет текущего пользователя на активного, но НЕ владельца
+    платформы — для тестов, проверяющих 403 на PlatformOwner-роутах."""
+    app.dependency_overrides[get_current_user] = lambda: FAKE_NON_OWNER_USER

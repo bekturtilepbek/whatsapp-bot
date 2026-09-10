@@ -7,8 +7,16 @@ from __future__ import annotations
 import uuid
 
 from db.bot_access import grant_bot_access, list_bot_ids_for_user, revoke_bot_access
+from db.bots import get_bot
 from db.models import User
-from db.users import create_user, get_user, list_users, set_user_active, set_user_password
+from db.users import (
+    create_user,
+    get_user,
+    get_user_by_email,
+    list_users,
+    set_user_active,
+    set_user_password,
+)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -44,6 +52,8 @@ async def list_users_route(session: SessionDep, _owner: PlatformOwner) -> list[U
 async def create_user_route(
     body: UserCreate, session: SessionDep, _owner: PlatformOwner
 ) -> UserWithAccessOut:
+    if await get_user_by_email(session, body.email) is not None:
+        raise HTTPException(status_code=409, detail="email already registered")
     user = await create_user(session, email=body.email, password_hash=hash_password(body.password))
     for bot_id in body.bot_ids:
         await grant_bot_access(session, user.id, bot_id)
@@ -55,6 +65,10 @@ async def create_user_route(
 async def grant_bot_access_route(
     user_id: uuid.UUID, body: _BotAccessIn, session: SessionDep, _owner: PlatformOwner
 ) -> None:
+    if await get_user(session, user_id) is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if await get_bot(session, body.bot_id) is None:
+        raise HTTPException(status_code=404, detail="bot not found")
     await grant_bot_access(session, user_id, body.bot_id)
     await session.commit()
 

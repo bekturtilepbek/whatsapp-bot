@@ -24,7 +24,7 @@ from db.models import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
-from tests.auth_helpers import override_owner_auth
+from tests.auth_helpers import override_non_owner_auth, override_owner_auth
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
@@ -145,19 +145,89 @@ async def test_patch_deactivates_user(client: httpx.AsyncClient) -> None:
     assert response.json()["is_active"] is False
 
 
-async def test_non_owner_gets_403(client: httpx.AsyncClient) -> None:
-    from datetime import datetime
-
-    from api.security import get_current_user
-    from db.models import User
-
-    app.dependency_overrides[get_current_user] = lambda: User(
-        id=uuid.uuid4(),
-        email="not-owner@example.com",
-        password_hash="unused",
-        is_platform_owner=False,
-        is_active=True,
-        created_at=datetime.now(),
-    )
+async def test_list_users_requires_owner(client: httpx.AsyncClient) -> None:
+    override_non_owner_auth()
     response = await client.get("/users")
     assert response.status_code == 403
+
+
+async def test_create_user_requires_owner(client: httpx.AsyncClient) -> None:
+    override_non_owner_auth()
+    response = await client.post(
+        "/users", json={"email": "blocked@example.com", "password": "s3cret", "bot_ids": []}
+    )
+    assert response.status_code == 403
+
+
+async def test_grant_bot_access_requires_owner(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    created = await client.post(
+        "/users", json={"email": "grant-403@example.com", "password": "s3cret", "bot_ids": []}
+    )
+    user_id = created.json()["id"]
+
+    override_non_owner_auth()
+    response = await client.post(f"/users/{user_id}/bot-access", json={"bot_id": str(bot_id)})
+    assert response.status_code == 403
+
+
+async def test_revoke_bot_access_requires_owner(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    created = await client.post(
+        "/users",
+        json={"email": "revoke-403@example.com", "password": "s3cret", "bot_ids": [str(bot_id)]},
+    )
+    user_id = created.json()["id"]
+
+    override_non_owner_auth()
+    response = await client.delete(f"/users/{user_id}/bot-access/{bot_id}")
+    assert response.status_code == 403
+
+
+async def test_patch_user_requires_owner(client: httpx.AsyncClient) -> None:
+    created = await client.post(
+        "/users", json={"email": "patch-403@example.com", "password": "s3cret", "bot_ids": []}
+    )
+    user_id = created.json()["id"]
+
+    override_non_owner_auth()
+    response = await client.patch(f"/users/{user_id}", json={"is_active": False})
+    assert response.status_code == 403
+
+
+async def test_grant_bot_access_unknown_user_returns_404(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/users/{uuid.uuid4()}/bot-access", json={"bot_id": str(bot_id)}
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "user not found"
+
+
+async def test_grant_bot_access_unknown_bot_returns_404(client: httpx.AsyncClient) -> None:
+    created = await client.post(
+        "/users", json={"email": "grant-404@example.com", "password": "s3cret", "bot_ids": []}
+    )
+    user_id = created.json()["id"]
+
+    response = await client.post(
+        f"/users/{user_id}/bot-access", json={"bot_id": str(uuid.uuid4())}
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "bot not found"
+
+
+async def test_create_user_duplicate_email_returns_409(client: httpx.AsyncClient) -> None:
+    payload = {"email": "dupe@example.com", "password": "s3cret", "bot_ids": []}
+    first = await client.post("/users", json=payload)
+    assert first.status_code == 201
+
+    second = await client.post("/users", json=payload)
+    assert second.status_code == 409
+    assert second.json()["detail"] == "email already registered"

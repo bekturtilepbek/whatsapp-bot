@@ -190,6 +190,52 @@ async def test_create_computes_embedding_and_returns_product(
         assert found.id == uuid.UUID(body["id"])
 
 
+async def test_create_product_with_valid_display_custom_object(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+
+    response = await client.post(
+        f"/bots/{bot_id}/products",
+        data={"name": "Товар", "display_custom": '{"show_price": false}'},
+        files=[_photo_file()],
+    )
+
+    assert response.status_code == 201
+    assert response.json()["display_custom"] == {"show_price": False}
+
+
+async def test_create_product_with_invalid_json_display_custom_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+
+    response = await client.post(
+        f"/bots/{bot_id}/products",
+        data={"name": "Товар", "display_custom": "not json"},
+        files=[_photo_file()],
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_product_with_non_object_display_custom_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+
+    response = await client.post(
+        f"/bots/{bot_id}/products",
+        data={"name": "Товар", "display_custom": "[1,2,3]"},
+        files=[_photo_file()],
+    )
+
+    assert response.status_code == 422
+
+
 async def test_create_list_get_flow(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

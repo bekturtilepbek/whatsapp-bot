@@ -347,4 +347,12 @@ async def get_product_photo_route(
         data = await storage.get(image.storage_key)
     except Exception as exc:
         raise HTTPException(status_code=502, detail="failed to read photo") from exc
-    return Response(content=data, media_type=image.mime_type)
+    # Фото по photo_id неизменяемы: перезаписи/апдейта в Storage нет, только
+    # create/delete всего объекта — можно кэшировать бессрочно (финальное
+    # ревью 6.8, 2026-09-10: список товаров иначе рефетчит те же байты на
+    # каждый рендер миниатюры).
+    return Response(
+        content=data,
+        media_type=image.mime_type,
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )

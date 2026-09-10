@@ -313,7 +313,7 @@ class Product(Base):
     # worker (контекст LLM, product_search) не платит лишним запросом за то,
     # что не использует.
     photos: Mapped[list[ProductImage]] = relationship(
-        order_by="ProductImage.position", lazy="raise"
+        order_by="ProductImage.position", lazy="raise", passive_deletes=True
     )
 
 

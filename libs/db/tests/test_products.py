@@ -305,6 +305,22 @@ async def test_delete_product_scoped_per_bot(session: AsyncSession) -> None:
     assert await get_product(session, bot_a, product.id) is not None
 
 
+async def test_delete_product_with_photos_does_not_raise(session: AsyncSession) -> None:
+    # Регрессия финального ревью Волны 3 (2026-09-10): без passive_deletes=True
+    # на Product.photos SQLAlchemy перед DELETE родителя сам грузит коллекцию
+    # и шлёт UPDATE product_images SET product_id=NULL — падает на NOT NULL
+    # constraint, а ON DELETE CASCADE в БД до этого не доходит.
+    bot_id = await _make_bot(session)
+    product = await create_product(session, bot_id, name="Товар с фото")
+    await create_product_image(
+        session, product.id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
+    )
+
+    deleted = await delete_product(session, bot_id, product.id)
+    assert deleted is True
+    assert await get_product(session, bot_id, product.id) is None
+
+
 async def test_get_product_without_with_images_does_not_load_photos(session: AsyncSession) -> None:
     bot_id = await _make_bot(session)
     product = await create_product(session, bot_id, name="Товар")

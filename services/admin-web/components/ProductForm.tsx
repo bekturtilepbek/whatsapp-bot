@@ -2,7 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createProduct, updateProduct, type Product, type ProductInput } from "@/lib/api";
+import {
+  addProductPhotos,
+  createProduct,
+  deleteProductPhoto,
+  productPhotoUrl,
+  updateProduct,
+  type Product,
+  type ProductInput,
+  type ProductPhoto,
+} from "@/lib/api";
 
 interface ProductFormProps {
   botId: string;
@@ -55,7 +64,10 @@ function toInput(state: FormState): ProductInput {
 export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const router = useRouter();
   const [state, setState] = useState<FormState>(() => initialState(product));
+  const [newPhotos, setNewPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<ProductPhoto[]>(product?.photos ?? []);
   const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // PATCH на бэкенде мержит поля: null/пропуск значит «не трогать», а не
@@ -76,6 +88,10 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       setError("Название обязательно");
       return;
     }
+    if (!product && newPhotos.length === 0) {
+      setError("Нужно хотя бы одно фото");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -83,7 +99,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       if (product) {
         await updateProduct(apiBaseUrl, botId, product.id, input);
       } else {
-        await createProduct(apiBaseUrl, botId, input);
+        await createProduct(apiBaseUrl, botId, input, newPhotos);
       }
       router.push(`/bots/${botId}/products`);
       router.refresh();
@@ -91,6 +107,38 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       setError(err instanceof Error ? err.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddPhotos = async (files: FileList | null) => {
+    if (!product || !files || files.length === 0) {
+      return;
+    }
+    setError(null);
+    setPhotoBusy(true);
+    try {
+      const added = await addProductPhotos(apiBaseUrl, botId, product.id, Array.from(files));
+      setPhotos((current) => [...current, ...added]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось добавить фото");
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId: string) => {
+    if (!product) {
+      return;
+    }
+    setError(null);
+    setPhotoBusy(true);
+    try {
+      await deleteProductPhoto(apiBaseUrl, botId, product.id, photoId);
+      setPhotos((current) => current.filter((p) => p.id !== photoId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить фото");
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
@@ -177,6 +225,19 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           </label>
         </fieldset>
       )}
+
+      {!product && (
+        <label>
+          Фото
+          <input
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => setNewPhotos(e.target.files ? Array.from(e.target.files) : [])}
+          />
+        </label>
+      )}
+
       <button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </button>
@@ -184,6 +245,42 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
         <p role="alert" style={{ color: "crimson" }}>
           {error}
         </p>
+      )}
+
+      {product && (
+        <section>
+          <h2>Фото</h2>
+          <div>
+            {photos.map((photo) => (
+              <div key={photo.id} style={{ display: "inline-block", marginRight: "1rem" }}>
+                <img
+                  src={productPhotoUrl(apiBaseUrl, botId, product.id, photo.id)}
+                  alt="Фото товара"
+                  style={{ width: "96px", height: "96px", objectFit: "cover" }}
+                />
+                <div>
+                  <button
+                    type="button"
+                    disabled={photoBusy || photos.length <= 1}
+                    onClick={() => void handleDeletePhoto(photo.id)}
+                  >
+                    Удалить фото
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <label>
+            Добавить ещё
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp"
+              disabled={photoBusy}
+              onChange={(e) => void handleAddPhotos(e.target.files)}
+            />
+          </label>
+        </section>
       )}
     </form>
   );

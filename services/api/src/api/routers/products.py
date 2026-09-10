@@ -21,7 +21,14 @@ import structlog
 from db.bots import get_bot
 from db.models import Product
 from db.product_embeddings import upsert_embedding
-from db.products import create_product, delete_product, get_product, list_products, update_product
+from db.products import (
+    DEFAULT_CATALOG_LIMIT,
+    create_product,
+    delete_product,
+    get_product,
+    list_products,
+    update_product,
+)
 from fastapi import APIRouter, HTTPException, Query
 from llm.embeddings import generate_embedding, product_embedding_input
 from scheduling.celery_app import celery_app
@@ -36,12 +43,18 @@ logger = structlog.get_logger("api.products")
 
 PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS = 5.0
 
-# Отдельно от db.products.DEFAULT_CATALOG_LIMIT (=200) — тот лимит задуман
-# под контекст LLM (3.4), не под витрину кабинета; найдено финальным ревью
-# 6.8 (2026-09-10) — список товаров молча обрезался на 200 без признака
-# "есть ещё". PRODUCTS_LIST_MAX_LIMIT — верхняя граница на ?limit=, чтобы
-# клиент не мог одним запросом запросить весь каталог разом.
-PRODUCTS_LIST_DEFAULT_LIMIT = 100
+# Дефолт этого роута == db.products.DEFAULT_CATALOG_LIMIT (=200) — сознательно,
+# чтобы не повторить в меньшем масштабе тот же баг, который правит вся эта
+# пагинация (найдено финальным ревью 6.8, 2026-09-10: список товаров молча
+# обрезался на 200 без признака "есть ещё"). Roль этого роута — дать явным
+# ?limit=/?offset= возможность листать каталог; у самого дефолта нет причин
+# быть меньше, чем было раньше для любого вызывающего, который limit не
+# передаёт (сейчас это только admin-web, но роут публичный — см. FEATURES.md
+# 9.8). admin-web передаёт свой limit явно (PRODUCTS_PAGE_SIZE=100 в
+# app/bots/[id]/products/page.tsx), так что для него это не регрессия.
+# PRODUCTS_LIST_MAX_LIMIT — верхняя граница на ?limit=, чтобы клиент не мог
+# одним запросом запросить весь каталог разом.
+PRODUCTS_LIST_DEFAULT_LIMIT = DEFAULT_CATALOG_LIMIT
 PRODUCTS_LIST_MAX_LIMIT = 500
 
 

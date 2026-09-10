@@ -205,6 +205,15 @@ async def test_list_products_limit_out_of_range_returns_422(
     ).status_code == 422
 
 
+def test_default_list_limit_matches_prior_http_behavior() -> None:
+    """Регрессия на находку code review (2026-09-10): роут раньше молча
+    считал limit=DEFAULT_CATALOG_LIMIT=200 для любого вызова без ?limit=
+    (db.products.list_products), пагинация не должна была урезать этот
+    дефолт для внешних вызывающих (сейчас только admin-web, но роут
+    публичный) — admin-web передаёт свой limit явно и здесь не участвует."""
+    assert products_module.PRODUCTS_LIST_DEFAULT_LIMIT == 200
+
+
 async def test_get_patch_delete_unknown_product_returns_404(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -37,6 +37,12 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
   };
 
   const handleLoadMore = async () => {
+    // offset считается от rows.length — обычный offset-пагинации риск:
+    // товар, добавленный/удалённый между страницами (этим админом в другой
+    // вкладке или кем-то ещё), может на следующей "Показать ещё" сдвинуть
+    // выдачу (пропуск/дубль одной строки). Принято сознательно для витрины
+    // кабинета такого масштаба (найдено code review, 2026-09-10) — не чинить
+    // курсорной пагинацией без реальной жалобы.
     setError(null);
     setLoadingMore(true);
     try {

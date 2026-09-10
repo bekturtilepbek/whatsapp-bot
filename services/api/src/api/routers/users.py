@@ -1,0 +1,86 @@
+"""GET/POST /users, POST/DELETE .../bot-access, PATCH /users/{id} —
+владелец платформы управляет клиентскими аккаунтами (FEATURES.md 6.18).
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from db.bot_access import grant_bot_access, list_bot_ids_for_user, revoke_bot_access
+from db.models import User
+from db.users import create_user, get_user, list_users, set_user_active, set_user_password
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from ..db import SessionDep
+from ..schemas.users import UserCreate, UserPatch, UserWithAccessOut
+from ..security import PlatformOwner, hash_password
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+class _BotAccessIn(BaseModel):
+    bot_id: uuid.UUID
+
+
+async def _to_out(session: SessionDep, user: User) -> UserWithAccessOut:
+    bot_ids = await list_bot_ids_for_user(session, user.id)
+    return UserWithAccessOut(
+        id=user.id,
+        email=user.email,
+        is_platform_owner=user.is_platform_owner,
+        is_active=user.is_active,
+        bot_ids=bot_ids,
+    )
+
+
+@router.get("", response_model=list[UserWithAccessOut])
+async def list_users_route(session: SessionDep, _owner: PlatformOwner) -> list[UserWithAccessOut]:
+    users = await list_users(session)
+    return [await _to_out(session, u) for u in users]
+
+
+@router.post("", response_model=UserWithAccessOut, status_code=201)
+async def create_user_route(
+    body: UserCreate, session: SessionDep, _owner: PlatformOwner
+) -> UserWithAccessOut:
+    user = await create_user(session, email=body.email, password_hash=hash_password(body.password))
+    for bot_id in body.bot_ids:
+        await grant_bot_access(session, user.id, bot_id)
+    await session.commit()
+    return await _to_out(session, user)
+
+
+@router.post("/{user_id}/bot-access", status_code=204)
+async def grant_bot_access_route(
+    user_id: uuid.UUID, body: _BotAccessIn, session: SessionDep, _owner: PlatformOwner
+) -> None:
+    await grant_bot_access(session, user_id, body.bot_id)
+    await session.commit()
+
+
+@router.delete("/{user_id}/bot-access/{bot_id}", status_code=204)
+async def revoke_bot_access_route(
+    user_id: uuid.UUID, bot_id: uuid.UUID, session: SessionDep, _owner: PlatformOwner
+) -> None:
+    await revoke_bot_access(session, user_id, bot_id)
+    await session.commit()
+
+
+@router.patch("/{user_id}", response_model=UserWithAccessOut)
+async def patch_user_route(
+    user_id: uuid.UUID, body: UserPatch, session: SessionDep, _owner: PlatformOwner
+) -> UserWithAccessOut:
+    if body.is_active is not None:
+        updated = await set_user_active(session, user_id, body.is_active)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="user not found")
+    if body.password is not None:
+        updated = await set_user_password(session, user_id, hash_password(body.password))
+        if updated is None:
+            raise HTTPException(status_code=404, detail="user not found")
+    user = await get_user(session, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    await session.commit()
+    return await _to_out(session, user)

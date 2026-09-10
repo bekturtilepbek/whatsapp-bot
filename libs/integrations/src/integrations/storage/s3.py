@@ -46,3 +46,9 @@ class S3Storage:
     def _get_sync(self, key: str) -> bytes:
         response = self._client.get_object(Bucket=self._bucket, Key=key)
         return response["Body"].read()  # type: ignore[no-any-return]
+
+    async def put(self, key: str, data: bytes, mime_type: str) -> None:
+        await asyncio.to_thread(self._put_sync, key, data, mime_type)
+
+    def _put_sync(self, key: str, data: bytes, mime_type: str) -> None:
+        self._client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=mime_type)

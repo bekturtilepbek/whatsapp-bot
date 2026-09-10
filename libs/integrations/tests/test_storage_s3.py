@@ -17,3 +17,17 @@ async def test_get_reads_object_body_via_injected_client() -> None:
 
     assert result == b"hello"
     client.get_object.assert_called_once_with(Bucket="my-bucket", Key="bots/bot-1/media/msg-1")
+
+
+async def test_put_sends_object_with_content_type_via_injected_client() -> None:
+    client = MagicMock()
+    storage = S3Storage(bucket="my-bucket", client=client)
+
+    await storage.put("bots/bot-1/products/prod-1/img-1", b"hello photo", "image/jpeg")
+
+    client.put_object.assert_called_once_with(
+        Bucket="my-bucket",
+        Key="bots/bot-1/products/prod-1/img-1",
+        Body=b"hello photo",
+        ContentType="image/jpeg",
+    )

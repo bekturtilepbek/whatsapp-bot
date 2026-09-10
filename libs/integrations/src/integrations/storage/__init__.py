@@ -11,6 +11,7 @@ from typing import Protocol
 
 class Storage(Protocol):
     async def get(self, key: str) -> bytes: ...
+    async def put(self, key: str, data: bytes, mime_type: str) -> None: ...
 
 
 _DEFAULT_FS_ROOT = "/data/media"

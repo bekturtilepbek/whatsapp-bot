@@ -25,6 +25,8 @@ from db.models import Bot, BotSession
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
+from tests.auth_helpers import override_owner_auth
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
 
@@ -64,6 +66,8 @@ def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
 async def client(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> AsyncIterator[httpx.AsyncClient]:
+    override_owner_auth()
+
     async def override_get_session() -> AsyncIterator[AsyncSession]:
         async with session_factory() as session:
             yield session
@@ -238,3 +242,77 @@ async def test_get_bot_includes_phone_and_linked_at(
     body = response.json()
     assert body["phone"] is None
     assert body["linked_at"] is None
+
+
+async def test_client_without_grant_gets_403_on_bot_route(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from api.security import get_current_user
+    from db.models import User
+
+    bot_id = await _make_bot(session_factory)
+    client_user = User(
+        id=uuid.uuid4(),
+        email="client@example.com",
+        password_hash="unused",
+        is_platform_owner=False,
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+    response = await client.get(f"/bots/{bot_id}")
+    assert response.status_code == 403
+
+
+async def test_client_with_grant_gets_200_on_bot_route(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from api.security import get_current_user
+    from db.bot_access import grant_bot_access
+    from db.models import User
+
+    bot_id = await _make_bot(session_factory)
+    client_user = User(
+        id=uuid.uuid4(),
+        email="client2@example.com",
+        password_hash="unused",
+        is_platform_owner=False,
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    async with session_factory() as session:
+        session.add(client_user)
+        await grant_bot_access(session, client_user.id, bot_id)
+        await session.commit()
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+    response = await client.get(f"/bots/{bot_id}")
+    assert response.status_code == 200
+
+
+async def test_list_bots_filters_by_grant_for_non_owner(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from api.security import get_current_user
+    from db.bot_access import grant_bot_access
+    from db.models import User
+
+    granted_bot_id = await _make_bot(session_factory)
+    await _make_bot(session_factory)  # not granted
+    client_user = User(
+        id=uuid.uuid4(),
+        email="client3@example.com",
+        password_hash="unused",
+        is_platform_owner=False,
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    async with session_factory() as session:
+        session.add(client_user)
+        await grant_bot_access(session, client_user.id, granted_bot_id)
+        await session.commit()
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+    response = await client.get("/bots")
+    assert [b["id"] for b in response.json()] == [str(granted_bot_id)]

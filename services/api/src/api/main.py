@@ -14,7 +14,6 @@ from contextlib import asynccontextmanager
 from db.engine import make_engine, make_session_factory, session_scope
 from db.users import get_user_by_email
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import auth, bots, products
 from .security import hash_password
@@ -51,15 +50,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="platform-api", lifespan=lifespan)
 
-# admin-web стучится в api напрямую из браузера (Волна 3, QR-экран, подход A) —
-# без allow-origin браузер зарубит fetch. allow_credentials не
-# нужен — auth ещё нет (6.18, отдельная итерация), делить нечего.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[os.environ.get("ADMIN_WEB_ORIGIN", "http://localhost:3000")],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS убран (FEATURES.md 6.18): браузер больше не стучится в api напрямую —
+# admin-web ходит через свой BFF-прокси (Task 6 этого суб-проекта), у которого
+# общий origin с браузером, preflight не нужен.
 
 app.include_router(auth.router)
 app.include_router(bots.router)

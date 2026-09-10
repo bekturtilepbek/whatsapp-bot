@@ -31,6 +31,8 @@ from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
+from tests.auth_helpers import override_owner_auth
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
 
@@ -112,6 +114,8 @@ async def client(
     session_factory: async_sessionmaker[AsyncSession],
     fake_storage: _FakeStorage,
 ) -> AsyncIterator[httpx.AsyncClient]:
+    override_owner_auth()
+
     async def override_get_session() -> AsyncIterator[AsyncSession]:
         async with session_factory() as session:
             yield session

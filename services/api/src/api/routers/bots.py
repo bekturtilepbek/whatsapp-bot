@@ -1,7 +1,8 @@
 """GET/PATCH /bots/{id} (STAGE1_CORE Блок 3, п.2).
 
-Без auth — прямым текстом отложено на Волну 3 в STAGE1_CORE; сервис слушает
-localhost, доступ на проде — через SSH-туннель (см. compose/docker-compose.prod.yml).
+Доступ на каждый bot_id-роут — через require_bot_access/require_platform_owner
+(FEATURES.md 6.18, services/api/src/api/security.py): владелец платформы видит
+всё, клиент — только бота(ов) с грантом в bot_access.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
 from ..schemas.bots import BotOut, BotPatch
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
+from ..security import BotAccessUser, CurrentUser
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -39,8 +41,9 @@ BLOCKED_LIST_MAX_LIMIT = 100
 
 
 @router.get("", response_model=list[BotOut])
-async def list_all_bots(session: SessionDep) -> list[BotOut]:
-    bots = await list_bots(session)
+async def list_all_bots(session: SessionDep, user: CurrentUser) -> list[BotOut]:
+    filter_user_id = None if user.is_platform_owner else user.id
+    bots = await list_bots(session, user_id=filter_user_id)
     return [BotOut.model_validate(bot) for bot in bots]
 
 
@@ -61,7 +64,7 @@ async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) 
 
 
 @router.get("/{bot_id}", response_model=BotOut)
-async def read_bot(bot_id: uuid.UUID, session: SessionDep) -> BotOut:
+async def read_bot(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) -> BotOut:
     bot = await get_bot_with_session(session, bot_id)
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
@@ -69,7 +72,9 @@ async def read_bot(bot_id: uuid.UUID, session: SessionDep) -> BotOut:
 
 
 @router.patch("/{bot_id}", response_model=BotOut)
-async def patch_bot(bot_id: uuid.UUID, patch: BotPatch, session: SessionDep) -> BotOut:
+async def patch_bot(
+    bot_id: uuid.UUID, patch: BotPatch, session: SessionDep, user: BotAccessUser
+) -> BotOut:
     data = patch.model_dump(exclude_unset=True)
     bot = await update_bot(
         session,
@@ -88,24 +93,26 @@ async def patch_bot(bot_id: uuid.UUID, patch: BotPatch, session: SessionDep) -> 
 
 @router.get("/{bot_id}/prompts/{kind}/versions", response_model=list[PromptVersionOut])
 async def list_prompt_versions(
-    bot_id: uuid.UUID, kind: PromptKind, session: SessionDep
+    bot_id: uuid.UUID, kind: PromptKind, session: SessionDep, user: BotAccessUser
 ) -> list[PromptVersionOut]:
     versions = await list_versions(session, bot_id, kind)
     return [PromptVersionOut.model_validate(v) for v in versions]
 
 
 @router.get("/{bot_id}/qr")
-async def get_qr(bot_id: uuid.UUID, gateway: GatewayClientDep) -> Response:
+async def get_qr(bot_id: uuid.UUID, gateway: GatewayClientDep, user: BotAccessUser) -> Response:
     return await _proxy_to_gateway(gateway, "GET", f"/qr/{bot_id}")
 
 
 @router.post("/{bot_id}/logout")
-async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep) -> Response:
+async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep, user: BotAccessUser) -> Response:
     return await _proxy_to_gateway(gateway, "POST", f"/bots/{bot_id}/logout")
 
 
 @router.post("/{bot_id}/chats/{chat_id}/release")
-async def release_chat(bot_id: uuid.UUID, chat_id: str, redis: RedisDep) -> dict[str, str]:
+async def release_chat(
+    bot_id: uuid.UUID, chat_id: str, redis: RedisDep, user: BotAccessUser
+) -> dict[str, str]:
     """Ручной возврат чата боту — DELETE того же ключа, что снимается по
     TTL (worker/pipeline/handoff.py). На несуществующий ключ — no-op,
     идемпотентно: повторный вызов не ошибка.
@@ -125,6 +132,7 @@ def _strip_non_digits(phone: str) -> str:
 async def list_blocked(
     bot_id: uuid.UUID,
     session: SessionDep,
+    user: BotAccessUser,
     limit: int = Query(BLOCKED_LIST_DEFAULT_LIMIT, ge=1, le=BLOCKED_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> list[BlockedNumberOut]:
@@ -134,7 +142,7 @@ async def list_blocked(
 
 @router.post("/{bot_id}/blocked-numbers", response_model=BlockedNumberOut, status_code=201)
 async def add_blocked(
-    bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep
+    bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep, user: BotAccessUser
 ) -> BlockedNumberOut:
     phone = _strip_non_digits(body.phone)
     await add_blocked_number(session, bot_id, phone)
@@ -143,19 +151,25 @@ async def add_blocked(
 
 
 @router.delete("/{bot_id}/blocked-numbers/{phone}", status_code=204)
-async def delete_blocked(bot_id: uuid.UUID, phone: str, session: SessionDep) -> None:
+async def delete_blocked(
+    bot_id: uuid.UUID, phone: str, session: SessionDep, user: BotAccessUser
+) -> None:
     await remove_blocked_number(session, bot_id, phone)
     await session.commit()
 
 
 @router.get("/{bot_id}/tools", response_model=list[ToolBindingOut])
-async def list_tools(bot_id: uuid.UUID, session: SessionDep) -> list[ToolBindingOut]:
+async def list_tools(
+    bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser
+) -> list[ToolBindingOut]:
     bindings = await list_enabled_tools(session, bot_id)
     return [ToolBindingOut(tool_name=b.tool_name, config=b.config) for b in bindings]
 
 
 @router.post("/{bot_id}/tools", response_model=ToolBindingOut, status_code=201)
-async def add_tool(bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep) -> ToolBindingOut:
+async def add_tool(
+    bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep, user: BotAccessUser
+) -> ToolBindingOut:
     if body.tool_name not in all_tool_names():
         raise HTTPException(status_code=400, detail=f"unknown tool: {body.tool_name}")
     await enable_tool(session, bot_id, body.tool_name, body.config)
@@ -164,6 +178,8 @@ async def add_tool(bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep) 
 
 
 @router.delete("/{bot_id}/tools/{tool_name}", status_code=204)
-async def delete_tool(bot_id: uuid.UUID, tool_name: str, session: SessionDep) -> None:
+async def delete_tool(
+    bot_id: uuid.UUID, tool_name: str, session: SessionDep, user: BotAccessUser
+) -> None:
     await disable_tool(session, bot_id, tool_name)
     await session.commit()

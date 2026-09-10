@@ -10,17 +10,31 @@ from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from api.db import get_session
 from api.main import app
 from api.redis_client import get_redis
 from core.redis_keys import handoff_key
 from fakeredis.aioredis import FakeRedis
 
+from tests.auth_helpers import override_owner_auth
+
 BOT_ID = uuid.uuid4()
 CHAT_ID = "996700000000@s.whatsapp.net"
 
 
+async def _unused_session() -> AsyncIterator[None]:
+    """require_bot_access объявляет session: SessionDep как параметр —
+    FastAPI резолвит его ДО тела функции, даже если владелец платформы
+    возвращается раньше (short-circuit) и session ни разу не используется.
+    Без реальной БД в этом файле (только fakeredis) достаточно заглушки,
+    которая никогда не обратится к DATABASE_URL."""
+    yield None
+
+
 @pytest.fixture
 async def client() -> AsyncIterator[tuple[httpx.AsyncClient, FakeRedis]]:
+    override_owner_auth()
+    app.dependency_overrides[get_session] = _unused_session
     redis = FakeRedis(decode_responses=True)
     app.dependency_overrides[get_redis] = lambda: redis
     transport = httpx.ASGITransport(app=app)

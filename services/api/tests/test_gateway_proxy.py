@@ -12,8 +12,11 @@ from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from api.db import get_session
 from api.gateway_client import get_gateway_client
 from api.main import app
+
+from tests.auth_helpers import override_owner_auth
 
 BOT_ID = uuid.uuid4()
 
@@ -24,6 +27,21 @@ def _client_with_transport(handler: httpx.MockTransport) -> httpx.AsyncClient:
 
 def _override_gateway(mock_client: httpx.AsyncClient) -> None:
     app.dependency_overrides[get_gateway_client] = lambda: mock_client
+
+
+async def _unused_session() -> AsyncIterator[None]:
+    """require_bot_access объявляет session: SessionDep как параметр —
+    FastAPI резолвит его ДО тела функции, даже если владелец платформы
+    возвращается раньше (short-circuit) и session ни разу не используется.
+    Без реальной БД в этом файле (мок gateway) достаточно заглушки, которая
+    никогда не обратится к DATABASE_URL."""
+    yield None
+
+
+@pytest.fixture(autouse=True)
+def _override_auth() -> None:
+    override_owner_auth()
+    app.dependency_overrides[get_session] = _unused_session
 
 
 @pytest.fixture(autouse=True)

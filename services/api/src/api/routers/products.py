@@ -54,6 +54,7 @@ from ..product_photos import (
     validate_photo_uploads,
 )
 from ..schemas.products import ProductOut, ProductPatch, ProductPhotoOut
+from ..security import BotAccessUser
 from ..storage import StorageDep
 
 router = APIRouter(prefix="/bots", tags=["products"])
@@ -128,6 +129,7 @@ async def _schedule_embedding_retry(product_id: uuid.UUID) -> None:
 async def list_products_route(
     bot_id: uuid.UUID,
     session: SessionDep,
+    user: BotAccessUser,
     limit: int = Query(PRODUCTS_LIST_DEFAULT_LIMIT, ge=1, le=PRODUCTS_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> list[ProductOut]:
@@ -140,6 +142,7 @@ async def create_product_route(
     bot_id: uuid.UUID,
     session: SessionDep,
     storage: StorageDep,
+    user: BotAccessUser,
     name: str = Form(...),
     price: Decimal | None = Form(None),  # noqa: B008
     sku: str | None = Form(None),
@@ -204,7 +207,7 @@ async def create_product_route(
 
 @router.get("/{bot_id}/products/{product_id}", response_model=ProductOut)
 async def get_product_route(
-    bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep
+    bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep, user: BotAccessUser
 ) -> ProductOut:
     product = await get_product(session, bot_id, product_id, with_images=True)
     if product is None:
@@ -214,7 +217,11 @@ async def get_product_route(
 
 @router.patch("/{bot_id}/products/{product_id}", response_model=ProductOut)
 async def patch_product_route(
-    bot_id: uuid.UUID, product_id: uuid.UUID, patch: ProductPatch, session: SessionDep
+    bot_id: uuid.UUID,
+    product_id: uuid.UUID,
+    patch: ProductPatch,
+    session: SessionDep,
+    user: BotAccessUser,
 ) -> ProductOut:
     data = patch.model_dump(exclude_unset=True)
     if "name" in data and not (data["name"] or "").strip():
@@ -250,7 +257,7 @@ async def patch_product_route(
 
 @router.delete("/{bot_id}/products/{product_id}", status_code=204)
 async def delete_product_route(
-    bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep
+    bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep, user: BotAccessUser
 ) -> None:
     deleted = await delete_product(session, bot_id, product_id)
     if not deleted:
@@ -268,6 +275,7 @@ async def add_product_photos_route(
     product_id: uuid.UUID,
     session: SessionDep,
     storage: StorageDep,
+    user: BotAccessUser,
     photos: list[UploadFile] = File(...),  # noqa: B008
 ) -> list[ProductPhotoOut]:
     product = await get_product(session, bot_id, product_id)
@@ -311,7 +319,11 @@ async def add_product_photos_route(
 
 @router.delete("/{bot_id}/products/{product_id}/photos/{photo_id}", status_code=204)
 async def delete_product_photo_route(
-    bot_id: uuid.UUID, product_id: uuid.UUID, photo_id: uuid.UUID, session: SessionDep
+    bot_id: uuid.UUID,
+    product_id: uuid.UUID,
+    photo_id: uuid.UUID,
+    session: SessionDep,
+    user: BotAccessUser,
 ) -> None:
     product = await get_product(session, bot_id, product_id)
     if product is None:
@@ -336,6 +348,7 @@ async def get_product_photo_route(
     photo_id: uuid.UUID,
     session: SessionDep,
     storage: StorageDep,
+    user: BotAccessUser,
 ) -> Response:
     product = await get_product(session, bot_id, product_id)
     if product is None:

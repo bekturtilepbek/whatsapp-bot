@@ -155,6 +155,11 @@ export async function patchBotSettings(
 
 // Decimal (Pydantic v2) сериализуется бэкендом как JSON-строка ("5000.00"),
 // не число — см. services/api/src/api/schemas/products.py.
+export interface ProductPhoto {
+  id: string;
+  position: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -162,6 +167,7 @@ export interface Product {
   sku: string | null;
   description: string | null;
   display_custom: Record<string, boolean>;
+  photos: ProductPhoto[];
   created_at: string;
 }
 
@@ -217,16 +223,41 @@ export async function fetchProduct(
   return (await res.json()) as Product;
 }
 
+/** Собирает multipart/form-data — поле опускается целиком, если его
+ * значение null/undefined/пусто (не отправляем пустую строку вместо
+ * отсутствующего поля: на бэкенде Form(None)-параметр для Decimal не
+ * умеет коэрсить "" в None, только реальное отсутствие ключа). */
+function buildProductFormData(input: ProductInput, photos: File[]): FormData {
+  const form = new FormData();
+  form.set("name", input.name);
+  if (input.price !== null && input.price !== undefined) {
+    form.set("price", String(input.price));
+  }
+  if (input.sku !== null && input.sku !== undefined) {
+    form.set("sku", input.sku);
+  }
+  if (input.description !== null && input.description !== undefined) {
+    form.set("description", input.description);
+  }
+  if (input.display_custom !== undefined) {
+    form.set("display_custom", JSON.stringify(input.display_custom));
+  }
+  for (const photo of photos) {
+    form.append("photos", photo);
+  }
+  return form;
+}
+
 export async function createProduct(
   baseUrl: string,
   botId: string,
   input: ProductInput,
+  photos: File[],
 ): Promise<Product> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await fetch(`${base}/bots/${botId}/products`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: buildProductFormData(input, photos),
   });
   if (!res.ok) {
     throw new Error(`POST /bots/${botId}/products failed: ${res.status}`);
@@ -262,4 +293,52 @@ export async function deleteProduct(
   if (!res.ok) {
     throw new Error(`DELETE /bots/${botId}/products/${productId} failed: ${res.status}`);
   }
+}
+
+export async function addProductPhotos(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+  photos: File[],
+): Promise<ProductPhoto[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const form = new FormData();
+  for (const photo of photos) {
+    form.append("photos", photo);
+  }
+  const res = await fetch(`${base}/bots/${botId}/products/${productId}/photos`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/products/${productId}/photos failed: ${res.status}`);
+  }
+  return (await res.json()) as ProductPhoto[];
+}
+
+export async function deleteProductPhoto(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+  photoId: string,
+): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products/${productId}/photos/${photoId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(
+      `DELETE /bots/${botId}/products/${productId}/photos/${photoId} failed: ${res.status}`,
+    );
+  }
+}
+
+export function productPhotoUrl(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+  photoId: string,
+): string {
+  const base = normalizeBaseUrl(baseUrl);
+  return `${base}/bots/${botId}/products/${productId}/photos/${photoId}`;
 }

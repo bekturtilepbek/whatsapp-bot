@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  addProductPhotos,
   createProduct,
   deleteProduct,
+  deleteProductPhoto,
   fetchBot,
   fetchBots,
   fetchProduct,
@@ -10,6 +12,7 @@ import {
   logoutBot,
   patchBotPrompt,
   patchBotSettings,
+  productPhotoUrl,
   qrImageUrl,
   updateProduct,
 } from "@/lib/api";
@@ -258,7 +261,7 @@ describe("fetchProduct", () => {
 });
 
 describe("createProduct", () => {
-  it("POSTs the input and returns the created product", async () => {
+  it("POSTs multipart form data with the given fields and photos", async () => {
     const created = {
       id: "p1",
       name: "Товар",
@@ -266,24 +269,133 @@ describe("createProduct", () => {
       sku: null,
       description: null,
       display_custom: {},
+      photos: [{ id: "ph1", position: 0 }],
       created_at: "2026-09-10T10:00:00Z",
     };
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => created });
     vi.stubGlobal("fetch", fetchMock);
+    const photo = new File(["fake image bytes"], "photo.jpg", { type: "image/jpeg" });
 
-    const result = await createProduct("http://api", "1", { name: "Товар" });
+    const result = await createProduct("http://api", "1", { name: "Товар" }, [photo]);
 
     expect(result).toEqual(created);
-    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Товар" }),
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/bots/1/products");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(FormData);
+    const body = init.body as FormData;
+    expect(body.get("name")).toBe("Товар");
+    expect(body.getAll("photos")).toEqual([photo]);
+  });
+
+  it("omits optional fields from the form when not provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "p1",
+        name: "Товар",
+        price: null,
+        sku: null,
+        description: null,
+        display_custom: {},
+        photos: [],
+        created_at: "2026-09-10T10:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const photo = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+
+    await createProduct("http://api", "1", { name: "Товар" }, [photo]);
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.has("price")).toBe(false);
+    expect(body.has("sku")).toBe(false);
+    expect(body.has("description")).toBe(false);
+    expect(body.has("display_custom")).toBe(false);
+  });
+
+  it("sends display_custom as a JSON string when given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "p1",
+        name: "Товар",
+        price: null,
+        sku: null,
+        description: null,
+        display_custom: { show_price: false },
+        photos: [],
+        created_at: "2026-09-10T10:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const photo = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+
+    await createProduct(
+      "http://api",
+      "1",
+      { name: "Товар", display_custom: { show_price: false } },
+      [photo],
+    );
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.get("display_custom")).toBe(JSON.stringify({ show_price: false }));
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    const photo = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+    await expect(createProduct("http://api", "1", { name: "x" }, [photo])).rejects.toThrow();
+  });
+});
+
+describe("addProductPhotos", () => {
+  it("POSTs multipart photos to the sub-resource", async () => {
+    const added = [{ id: "ph2", position: 1 }];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => added });
+    vi.stubGlobal("fetch", fetchMock);
+    const photo = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+
+    const result = await addProductPhotos("http://api", "1", "p1", [photo]);
+
+    expect(result).toEqual(added);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/bots/1/products/p1/photos");
+    expect(init.method).toBe("POST");
+    expect((init.body as FormData).getAll("photos")).toEqual([photo]);
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    const photo = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+    await expect(addProductPhotos("http://api", "1", "p1", [photo])).rejects.toThrow();
+  });
+});
+
+describe("deleteProductPhoto", () => {
+  it("DELETEs the photo", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteProductPhoto("http://api", "1", "p1", "ph1");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1/products/p1/photos/ph1", {
+      method: "DELETE",
     });
   });
 
   it("throws when the response is not ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
-    await expect(createProduct("http://api", "1", { name: "x" })).rejects.toThrow();
+    await expect(deleteProductPhoto("http://api", "1", "p1", "ph1")).rejects.toThrow();
+  });
+});
+
+describe("productPhotoUrl", () => {
+  it("builds the photo URL", () => {
+    expect(productPhotoUrl("http://api/", "1", "p1", "ph1")).toBe(
+      "http://api/bots/1/products/p1/photos/ph1",
+    );
   });
 });
 

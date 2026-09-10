@@ -24,7 +24,13 @@ import structlog
 from db.bots import get_bot
 from db.models import Product
 from db.product_embeddings import upsert_embedding
-from db.product_images import create_product_image
+from db.product_images import (
+    create_product_image,
+    delete_product_image,
+    get_product_image,
+    list_product_images,
+    next_position,
+)
 from db.products import (
     DEFAULT_CATALOG_LIMIT,
     create_product,
@@ -33,7 +39,7 @@ from db.products import (
     list_products,
     update_product,
 )
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from llm.embeddings import generate_embedding, product_embedding_input
 from scheduling.celery_app import celery_app
 from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
@@ -47,7 +53,7 @@ from ..product_photos import (
     read_and_resize_photo,
     validate_photo_uploads,
 )
-from ..schemas.products import ProductOut, ProductPatch
+from ..schemas.products import ProductOut, ProductPatch, ProductPhotoOut
 from ..storage import StorageDep
 
 router = APIRouter(prefix="/bots", tags=["products"])
@@ -250,3 +256,95 @@ async def delete_product_route(
     if not deleted:
         raise HTTPException(status_code=404, detail="product not found")
     await session.commit()
+
+
+@router.post(
+    "/{bot_id}/products/{product_id}/photos",
+    response_model=list[ProductPhotoOut],
+    status_code=201,
+)
+async def add_product_photos_route(
+    bot_id: uuid.UUID,
+    product_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+    photos: list[UploadFile] = File(...),  # noqa: B008
+) -> list[ProductPhotoOut]:
+    product = await get_product(session, bot_id, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="product not found")
+
+    existing_count = len(await list_product_images(session, product_id))
+    remaining_slots = MAX_PHOTOS_PER_PRODUCT - existing_count
+    try:
+        validate_photo_uploads(photos, max_count=max(remaining_slots, 0))
+    except PhotoValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    created: list[Any] = []
+    try:
+        for upload in photos:
+            data, mime_type = await read_and_resize_photo(upload)
+            position = await next_position(session, product_id)
+            photo_id = uuid.uuid4()
+            key = build_photo_storage_key(bot_id, product_id, photo_id)
+            await storage.put(key, data, mime_type)
+            image = await create_product_image(
+                session,
+                product_id,
+                id=photo_id,
+                storage_key=key,
+                mime_type=mime_type,
+                position=position,
+            )
+            created.append(image)
+    except PhotoValidationError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=502, detail="failed to store product photo") from exc
+
+    await session.commit()
+    return [ProductPhotoOut.model_validate(img) for img in created]
+
+
+@router.delete("/{bot_id}/products/{product_id}/photos/{photo_id}", status_code=204)
+async def delete_product_photo_route(
+    bot_id: uuid.UUID, product_id: uuid.UUID, photo_id: uuid.UUID, session: SessionDep
+) -> None:
+    product = await get_product(session, bot_id, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="product not found")
+
+    remaining = await list_product_images(session, product_id)
+    if len(remaining) <= 1:
+        if not any(img.id == photo_id for img in remaining):
+            raise HTTPException(status_code=404, detail="photo not found")
+        raise HTTPException(status_code=422, detail="cannot delete the last photo of a product")
+
+    deleted = await delete_product_image(session, product_id, photo_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="photo not found")
+    await session.commit()
+
+
+@router.get("/{bot_id}/products/{product_id}/photos/{photo_id}")
+async def get_product_photo_route(
+    bot_id: uuid.UUID,
+    product_id: uuid.UUID,
+    photo_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+) -> Response:
+    product = await get_product(session, bot_id, product_id)
+    if product is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    image = await get_product_image(session, product_id, photo_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+    try:
+        data = await storage.get(image.storage_key)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="failed to read photo") from exc
+    return Response(content=data, media_type=image.mime_type)

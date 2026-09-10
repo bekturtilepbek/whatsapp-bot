@@ -1,6 +1,6 @@
-"""GET/POST/PATCH/DELETE /bots/{bot_id}/products (FEATURES.md 6.8, Волна 3,
-первая половина — CRUD без фото). Обязательно только name; price/sku/
-description опциональны, display_custom — "всё или ничего" (см.
+"""GET/POST/PATCH/DELETE /bots/{bot_id}/products (FEATURES.md 6.8). POST —
+multipart/form-data, обязательно хотя бы одно фото. Обязательно только name;
+price/sku/description опциональны, display_custom — "всё или ничего" (см.
 db.product_search._resolve_display_config, не меняется).
 
 Эмбеддинг (FEATURES.md 4.1) строится только из name+description
@@ -15,12 +15,16 @@ docs/superpowers/specs/2026-09-10-product-crud-design.md — этот дизай
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
+from decimal import Decimal
+from typing import Any
 
 import structlog
 from db.bots import get_bot
 from db.models import Product
 from db.product_embeddings import upsert_embedding
+from db.product_images import create_product_image
 from db.products import (
     DEFAULT_CATALOG_LIMIT,
     create_product,
@@ -29,14 +33,22 @@ from db.products import (
     list_products,
     update_product,
 )
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from llm.embeddings import generate_embedding, product_embedding_input
 from scheduling.celery_app import celery_app
 from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionDep
-from ..schemas.products import ProductCreate, ProductOut, ProductPatch
+from ..product_photos import (
+    MAX_PHOTOS_PER_PRODUCT,
+    PhotoValidationError,
+    build_photo_storage_key,
+    read_and_resize_photo,
+    validate_photo_uploads,
+)
+from ..schemas.products import ProductOut, ProductPatch
+from ..storage import StorageDep
 
 router = APIRouter(prefix="/bots", tags=["products"])
 logger = structlog.get_logger("api.products")
@@ -56,6 +68,18 @@ PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS = 5.0
 # одним запросом запросить весь каталог разом.
 PRODUCTS_LIST_DEFAULT_LIMIT = DEFAULT_CATALOG_LIMIT
 PRODUCTS_LIST_MAX_LIMIT = 500
+
+
+def _parse_display_custom(raw: str | None) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="display_custom must be valid JSON") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="display_custom must be a JSON object")
+    return parsed
 
 
 async def _recompute_embedding(session: AsyncSession, product: Product) -> None:
@@ -101,40 +125,82 @@ async def list_products_route(
     limit: int = Query(PRODUCTS_LIST_DEFAULT_LIMIT, ge=1, le=PRODUCTS_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> list[ProductOut]:
-    products = await list_products(session, bot_id, limit=limit, offset=offset)
+    products = await list_products(session, bot_id, limit=limit, offset=offset, with_images=True)
     return [ProductOut.model_validate(p) for p in products]
 
 
 @router.post("/{bot_id}/products", response_model=ProductOut, status_code=201)
 async def create_product_route(
-    bot_id: uuid.UUID, body: ProductCreate, session: SessionDep
+    bot_id: uuid.UUID,
+    session: SessionDep,
+    storage: StorageDep,
+    name: str = Form(...),
+    price: Decimal | None = Form(None),  # noqa: B008
+    sku: str | None = Form(None),
+    description: str | None = Form(None),
+    display_custom: str | None = Form(None),
+    photos: list[UploadFile] = File(...),  # noqa: B008
 ) -> ProductOut:
+    try:
+        validate_photo_uploads(photos, max_count=MAX_PHOTOS_PER_PRODUCT)
+    except PhotoValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    name_stripped = name.strip()
+    if not name_stripped:
+        raise HTTPException(status_code=422, detail="name must not be empty")
+
     bot = await get_bot(session, bot_id)
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name must not be empty")
+
+    display_custom_parsed = _parse_display_custom(display_custom)
 
     product = await create_product(
         session,
         bot_id,
-        name=name,
-        price=body.price,
-        sku=body.sku,
-        description=body.description,
-        display_custom=body.display_custom,
+        name=name_stripped,
+        price=price,
+        sku=sku,
+        description=description,
+        display_custom=display_custom_parsed,
     )
+    await session.flush()  # нужен product.id для ключей Storage ниже
+
+    try:
+        for position, upload in enumerate(photos):
+            data, mime_type = await read_and_resize_photo(upload)
+            photo_id = uuid.uuid4()
+            key = build_photo_storage_key(bot_id, product.id, photo_id)
+            await storage.put(key, data, mime_type)
+            await create_product_image(
+                session,
+                product.id,
+                id=photo_id,
+                storage_key=key,
+                mime_type=mime_type,
+                position=position,
+            )
+    except PhotoValidationError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=502, detail="failed to store product photo") from exc
+
     await session.commit()
-    await _recompute_embedding(session, product)
-    return ProductOut.model_validate(product)
+
+    created_product = await get_product(session, bot_id, product.id, with_images=True)
+    assert created_product is not None  # только что закоммитили
+    await _recompute_embedding(session, created_product)
+    return ProductOut.model_validate(created_product)
 
 
 @router.get("/{bot_id}/products/{product_id}", response_model=ProductOut)
 async def get_product_route(
     bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep
 ) -> ProductOut:
-    product = await get_product(session, bot_id, product_id)
+    product = await get_product(session, bot_id, product_id, with_images=True)
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
     return ProductOut.model_validate(product)
@@ -170,6 +236,8 @@ async def patch_product_route(
     if product.name != old_name or product.description != old_description:
         await _recompute_embedding(session, product)
 
+    product = await get_product(session, bot_id, product_id, with_images=True)
+    assert product is not None  # только что успешно обновили выше
     return ProductOut.model_validate(product)
 
 

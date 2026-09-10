@@ -1,4 +1,4 @@
-"""Pydantic v2 схемы товара для api (FEATURES.md 6.8, CRUD без фото)."""
+"""Pydantic v2 схемы товара для api (FEATURES.md 6.8)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,13 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
+class ProductPhotoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    position: int
+
+
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -19,15 +26,8 @@ class ProductOut(BaseModel):
     sku: str | None
     description: str | None
     display_custom: dict[str, Any]
+    photos: list[ProductPhotoOut]
     created_at: datetime
-
-
-class ProductCreate(BaseModel):
-    name: str
-    price: Decimal | None = None
-    sku: str | None = None
-    description: str | None = None
-    display_custom: dict[str, Any] | None = None
 
 
 class ProductPatch(BaseModel):

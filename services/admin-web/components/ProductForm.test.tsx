@@ -111,6 +111,16 @@ it("sends display_custom only when the override checkbox is on", async () => {
   });
 });
 
+it("shows a hint that fields can't be cleared back to empty in edit mode", () => {
+  render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
+  expect(screen.getAllByText(/нельзя очистить обратно/i).length).toBeGreaterThan(0);
+});
+
+it("does not show the clear-field hint in create mode", () => {
+  render(<ProductForm botId="1" apiBaseUrl="http://api" />);
+  expect(screen.queryByText(/нельзя очистить обратно/i)).not.toBeInTheDocument();
+});
+
 it("shows an error when saving fails", async () => {
   vi.mocked(api.createProduct).mockRejectedValue(new Error("save failed"));
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);

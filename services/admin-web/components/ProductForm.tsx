@@ -58,6 +58,18 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // PATCH на бэкенде мержит поля: null/пропуск значит «не трогать», а не
+  // «очистить» (см. аналогичное поведение bots.image_prompt/pdf_prompt).
+  // Значит стереть цену/артикул/описание обратно в пустоту через эту форму
+  // нельзя — предупреждаем об этом в режиме редактирования там, где у товара
+  // уже есть значение поля. Берём исходное значение из product, а не из
+  // текущего state — подсказка не должна пропадать в момент, когда админ
+  // как раз стирает поле (самый нужный момент её увидеть).
+  const clearHint = "Поле нельзя очистить обратно — здесь можно только заменить значение на другое.";
+  const showPriceHint = !!product && !!product.price && product.price.trim() !== "";
+  const showSkuHint = !!product && !!product.sku && product.sku.trim() !== "";
+  const showDescriptionHint = !!product && !!product.description && product.description.trim() !== "";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (state.name.trim() === "") {
@@ -104,6 +116,9 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           onChange={(e) => setState({ ...state, price: e.target.value })}
         />
       </label>
+      {showPriceHint && (
+        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
+      )}
       <label>
         Артикул (SKU)
         <input
@@ -112,6 +127,9 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           onChange={(e) => setState({ ...state, sku: e.target.value })}
         />
       </label>
+      {showSkuHint && (
+        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
+      )}
       <label>
         Описание
         <textarea
@@ -120,6 +138,9 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           onChange={(e) => setState({ ...state, description: e.target.value })}
         />
       </label>
+      {showDescriptionHint && (
+        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
+      )}
       <label>
         <input
           type="checkbox"

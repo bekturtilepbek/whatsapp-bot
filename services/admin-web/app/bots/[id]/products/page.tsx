@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProductsTable } from "@/components/ProductsTable";
 import { fetchBot, fetchProducts } from "@/lib/api";
-import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
+import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 // Совпадает с PRODUCTS_LIST_DEFAULT_LIMIT в services/api/src/api/routers/
 // products.py — ProductsTable сравнивает длину полученной страницы с этим
@@ -32,7 +32,7 @@ export default async function BotProductsPage({
       </p>
       <ProductsTable
         botId={id}
-        apiBaseUrl={API_PUBLIC_URL}
+        apiBaseUrl={API_PROXY_PATH}
         products={products}
         pageSize={PRODUCTS_PAGE_SIZE}
       />

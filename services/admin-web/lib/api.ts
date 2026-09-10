@@ -1,7 +1,7 @@
 // Тонкий фетч-слой admin-web поверх api. Используется и на сервере (SSR
 // первого рендера, baseUrl = API_INTERNAL_URL) и в браузере (поллинг в
-// QrPanel, baseUrl = NEXT_PUBLIC_API_URL) — см. docs/superpowers/specs/
-// 2026-09-09-qr-screen-design.md, подход A.
+// QrPanel, baseUrl = API_PROXY_PATH — см. app/api-proxy, FEATURES.md 6.18) —
+// см. docs/superpowers/specs/2026-09-09-qr-screen-design.md, подход A.
 
 export interface Bot {
   id: string;
@@ -50,9 +50,28 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }
 
+/** Общая обёртка вокруг fetch — на сервере (Server Component / Route
+ * Handler, typeof window === "undefined") сама подмешивает `Authorization`
+ * из cookie сессии admin-web (FEATURES.md 6.18); в браузере просто зовёт
+ * fetch как есть — cookie для "/api-proxy" (свой origin) браузер приложит
+ * сам. Динамический импорт next/headers — этот модуль не должен тянуться
+ * в клиентский бандл (next/headers ломает сборку клиентских компонентов). */
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (typeof window === "undefined") {
+    const { cookies } = await import("next/headers");
+    const token = (await cookies()).get("session")?.value;
+    if (token) {
+      const headers = new Headers(init?.headers);
+      headers.set("Authorization", `Bearer ${token}`);
+      return fetch(url, { ...init, headers });
+    }
+  }
+  return fetch(url, init);
+}
+
 export async function fetchBots(baseUrl: string): Promise<Bot[]> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots`, { cache: "no-store" });
+  const res = await apiFetch(`${base}/bots`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`GET /bots failed: ${res.status}`);
   }
@@ -61,7 +80,7 @@ export async function fetchBots(baseUrl: string): Promise<Bot[]> {
 
 export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${id}`, { cache: "no-store" });
+  const res = await apiFetch(`${base}/bots/${id}`, { cache: "no-store" });
   if (res.status === 404) {
     return null;
   }
@@ -73,7 +92,7 @@ export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null>
 
 export async function logoutBot(baseUrl: string, id: string): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${id}/logout`, { method: "POST" });
+  const res = await apiFetch(`${base}/bots/${id}/logout`, { method: "POST" });
   if (!res.ok) {
     throw new Error(`POST /bots/${id}/logout failed: ${res.status}`);
   }
@@ -109,7 +128,7 @@ export async function patchBotPrompt(
 ): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
   const field = PROMPT_FIELD_BY_KIND[kind];
-  const res = await fetch(`${base}/bots/${id}`, {
+  const res = await apiFetch(`${base}/bots/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ [field]: body }),
@@ -126,7 +145,7 @@ export async function fetchPromptVersions(
   kind: PromptKind,
 ): Promise<PromptVersion[]> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${id}/prompts/${kind}/versions`, { cache: "no-store" });
+  const res = await apiFetch(`${base}/bots/${id}/prompts/${kind}/versions`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`GET /bots/${id}/prompts/${kind}/versions failed: ${res.status}`);
   }
@@ -142,7 +161,7 @@ export async function patchBotSettings(
   settings: BotSettings,
 ): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${id}`, {
+  const res = await apiFetch(`${base}/bots/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ settings }),
@@ -198,7 +217,7 @@ export async function fetchProducts(
     query.set("offset", String(options.offset));
   }
   const qs = query.toString();
-  const res = await fetch(`${base}/bots/${botId}/products${qs ? `?${qs}` : ""}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products${qs ? `?${qs}` : ""}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -213,7 +232,7 @@ export async function fetchProduct(
   productId: string,
 ): Promise<Product | null> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, { cache: "no-store" });
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}`, { cache: "no-store" });
   if (res.status === 404) {
     return null;
   }
@@ -255,7 +274,7 @@ export async function createProduct(
   photos: File[],
 ): Promise<Product> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products`, {
     method: "POST",
     body: buildProductFormData(input, photos),
   });
@@ -272,7 +291,7 @@ export async function updateProduct(
   input: ProductInput,
 ): Promise<Product> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
@@ -289,7 +308,7 @@ export async function deleteProduct(
   productId: string,
 ): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, { method: "DELETE" });
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}`, { method: "DELETE" });
   if (!res.ok) {
     throw new Error(`DELETE /bots/${botId}/products/${productId} failed: ${res.status}`);
   }
@@ -306,7 +325,7 @@ export async function addProductPhotos(
   for (const photo of photos) {
     form.append("photos", photo);
   }
-  const res = await fetch(`${base}/bots/${botId}/products/${productId}/photos`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/photos`, {
     method: "POST",
     body: form,
   });
@@ -323,7 +342,7 @@ export async function deleteProductPhoto(
   photoId: string,
 ): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products/${productId}/photos/${photoId}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/photos/${photoId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -368,7 +387,7 @@ export async function fetchBlockedNumbers(
     query.set("offset", String(options.offset));
   }
   const qs = query.toString();
-  const res = await fetch(`${base}/bots/${botId}/blocked-numbers${qs ? `?${qs}` : ""}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/blocked-numbers${qs ? `?${qs}` : ""}`, {
     cache: "no-store",
   });
   if (!res.ok) {
@@ -383,7 +402,7 @@ export async function addBlockedNumber(
   phone: string,
 ): Promise<BlockedNumber> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/blocked-numbers`, {
+  const res = await apiFetch(`${base}/bots/${botId}/blocked-numbers`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ phone }),
@@ -400,7 +419,7 @@ export async function deleteBlockedNumber(
   phone: string,
 ): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/blocked-numbers/${phone}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/blocked-numbers/${phone}`, {
     method: "DELETE",
   });
   if (!res.ok) {

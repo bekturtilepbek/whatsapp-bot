@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PromptEditor } from "@/components/PromptEditor";
 import { fetchBot, fetchPromptVersions } from "@/lib/api";
-import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
+import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotPromptsPage({
   params,
@@ -29,7 +29,7 @@ export default async function BotPromptsPage({
       <h1>{bot.name} — промпты</h1>
       <PromptEditor
         botId={id}
-        apiBaseUrl={API_PUBLIC_URL}
+        apiBaseUrl={API_PROXY_PATH}
         kind="main"
         label="Основной промпт"
         initialBody={bot.system_prompt}
@@ -37,7 +37,7 @@ export default async function BotPromptsPage({
       />
       <PromptEditor
         botId={id}
-        apiBaseUrl={API_PUBLIC_URL}
+        apiBaseUrl={API_PROXY_PATH}
         kind="image"
         label="Промпт для фото"
         initialBody={bot.image_prompt}
@@ -45,7 +45,7 @@ export default async function BotPromptsPage({
       />
       <PromptEditor
         botId={id}
-        apiBaseUrl={API_PUBLIC_URL}
+        apiBaseUrl={API_PROXY_PATH}
         kind="pdf"
         label="Промпт для PDF"
         initialBody={bot.pdf_prompt}

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { QrPanel } from "@/components/QrPanel";
 import { fetchBot } from "@/lib/api";
-import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
+import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotPage({
   params,
@@ -30,7 +30,7 @@ export default async function BotPage({
       <p>
         <Link href={`/bots/${bot.id}/blocked-numbers`}>Чёрный список →</Link>
       </p>
-      <QrPanel initialBot={bot} apiBaseUrl={API_PUBLIC_URL} />
+      <QrPanel initialBot={bot} apiBaseUrl={API_PROXY_PATH} />
     </main>
   );
 }

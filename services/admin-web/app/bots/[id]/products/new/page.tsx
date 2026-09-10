@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProductForm } from "@/components/ProductForm";
 import { fetchBot } from "@/lib/api";
-import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
+import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function NewProductPage({
   params,
@@ -21,7 +21,7 @@ export default async function NewProductPage({
         <Link href={`/bots/${id}/products`}>← Назад к товарам</Link>
       </p>
       <h1>{bot.name} — новый товар</h1>
-      <ProductForm botId={id} apiBaseUrl={API_PUBLIC_URL} />
+      <ProductForm botId={id} apiBaseUrl={API_PROXY_PATH} />
     </main>
   );
 }

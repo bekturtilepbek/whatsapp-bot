@@ -378,3 +378,45 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class User(Base):
+    """Пользователь кабинета. Владелец платформы (is_platform_owner=True)
+    видит все боты без грантов; клиент — только те, что перечислены в
+    BotAccess (FEATURES.md 6.18)."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    is_platform_owner: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BotAccess(Base):
+    """Грант доступа клиента к конкретному боту. Владельцу платформы
+    (User.is_platform_owner) грант не нужен."""
+
+    __tablename__ = "bot_access"
+    __table_args__ = (UniqueConstraint("user_id", "bot_id", name="uq_bot_access_user_bot"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

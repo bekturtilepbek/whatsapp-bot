@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Bot
+from .models import Bot, BotAccess
 from .prompt_versions import record_version_if_changed
 
 
@@ -39,10 +39,13 @@ async def get_bot_with_session(session: AsyncSession, bot_id: uuid.UUID) -> Bot 
     return result.scalars().first()
 
 
-async def list_bots(session: AsyncSession) -> Sequence[Bot]:
-    result = await session.execute(
-        select(Bot).options(selectinload(Bot.session)).order_by(Bot.created_at)
-    )
+async def list_bots(session: AsyncSession, *, user_id: uuid.UUID | None = None) -> Sequence[Bot]:
+    """user_id=None — все боты (владелец платформы). user_id задан —
+    только боты с грантом в bot_access (клиент)."""
+    stmt = select(Bot).options(selectinload(Bot.session)).order_by(Bot.created_at)
+    if user_id is not None:
+        stmt = stmt.join(BotAccess, BotAccess.bot_id == Bot.id).where(BotAccess.user_id == user_id)
+    result = await session.execute(stmt)
     return result.scalars().all()
 
 

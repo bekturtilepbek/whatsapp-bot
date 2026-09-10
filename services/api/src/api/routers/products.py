@@ -39,10 +39,15 @@ PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS = 5.0
 
 async def _recompute_embedding(session: AsyncSession, product: Product) -> None:
     """Синхронная попытка (с уже встроенным в generate_embedding ретраем);
-    при сбое — не роняем запрос, ставим Celery-подстраховку."""
+    при сбое — не роняем запрос, ставим Celery-подстраховку. upsert_embedding
+    и commit — тоже часть этой попытки: сбой записи (БД недоступна,
+    несовпадение размерности вектора, конфликт транзакции) должен уйти в тот
+    же fallback, а не 500-ить уже сохранённый товар."""
     text = product_embedding_input(product.name, product.description)
     try:
         embedding = await generate_embedding(text)
+        await upsert_embedding(session, product.id, embedding)
+        await session.commit()
     except Exception:
         logger.warning(
             "embedding generation failed, scheduling retry",
@@ -50,9 +55,6 @@ async def _recompute_embedding(session: AsyncSession, product: Product) -> None:
             exc_info=True,
         )
         await _schedule_embedding_retry(product.id)
-        return
-    await upsert_embedding(session, product.id, embedding)
-    await session.commit()
 
 
 async def _schedule_embedding_retry(product_id: uuid.UUID) -> None:

@@ -238,6 +238,36 @@ async def test_patch_description_recomputes_embedding(
     assert calls == 2
 
 
+async def test_patch_description_same_value_does_not_recompute_embedding(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def counting_generate_embedding(text: str, **kwargs: object) -> list[float]:
+        nonlocal calls
+        calls += 1
+        return FAKE_EMBEDDING
+
+    monkeypatch.setattr(products_module, "generate_embedding", counting_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+    created = await client.post(
+        f"/bots/{bot_id}/products", json={"name": "Товар", "description": "Без изменений"}
+    )
+    product_id = created.json()["id"]
+    assert calls == 1
+
+    # description присутствует в теле PATCH, но равен уже сохранённому значению —
+    # это не "изменение", пересчёта быть не должно (отличает "поле передано" от
+    # "значение изменилось").
+    response = await client.patch(
+        f"/bots/{bot_id}/products/{product_id}", json={"description": "Без изменений"}
+    )
+    assert response.status_code == 200
+    assert calls == 1
+
+
 async def test_create_falls_back_to_celery_when_embedding_fails(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

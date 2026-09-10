@@ -17,13 +17,18 @@ DEFAULT_CATALOG_LIMIT = 200
 
 
 async def list_products(
-    session: AsyncSession, bot_id: uuid.UUID, *, limit: int = DEFAULT_CATALOG_LIMIT
+    session: AsyncSession,
+    bot_id: uuid.UUID,
+    *,
+    limit: int = DEFAULT_CATALOG_LIMIT,
+    offset: int = 0,
 ) -> list[Product]:
     stmt = (
         select(Product)
         .where(Product.bot_id == bot_id)
         .order_by(Product.name)
         .limit(limit)
+        .offset(offset)
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())

@@ -173,9 +173,28 @@ export interface ProductInput {
   display_custom?: Record<string, boolean>;
 }
 
-export async function fetchProducts(baseUrl: string, botId: string): Promise<Product[]> {
+export interface FetchProductsOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchProducts(
+  baseUrl: string,
+  botId: string,
+  options?: FetchProductsOptions,
+): Promise<Product[]> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await fetch(`${base}/bots/${botId}/products`, { cache: "no-store" });
+  const query = new URLSearchParams();
+  if (options?.limit !== undefined) {
+    query.set("limit", String(options.limit));
+  }
+  if (options?.offset !== undefined) {
+    query.set("offset", String(options.offset));
+  }
+  const qs = query.toString();
+  const res = await fetch(`${base}/bots/${botId}/products${qs ? `?${qs}` : ""}`, {
+    cache: "no-store",
+  });
   if (!res.ok) {
     throw new Error(`GET /bots/${botId}/products failed: ${res.status}`);
   }

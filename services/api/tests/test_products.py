@@ -173,6 +173,38 @@ async def test_create_list_get_flow(
     assert fetched.json()["id"] == product_id
 
 
+async def test_list_products_respects_limit_and_offset(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+    for name in ("Апельсины", "Бананы", "Вишня"):
+        await client.post(f"/bots/{bot_id}/products", json={"name": name})
+
+    first_page = await client.get(f"/bots/{bot_id}/products", params={"limit": 2})
+    assert first_page.status_code == 200
+    assert [p["name"] for p in first_page.json()] == ["Апельсины", "Бананы"]
+
+    second_page = await client.get(
+        f"/bots/{bot_id}/products", params={"limit": 2, "offset": 2}
+    )
+    assert [p["name"] for p in second_page.json()] == ["Вишня"]
+
+
+async def test_list_products_limit_out_of_range_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    assert (
+        await client.get(f"/bots/{bot_id}/products", params={"limit": 0})
+    ).status_code == 422
+    assert (
+        await client.get(f"/bots/{bot_id}/products", params={"limit": 501})
+    ).status_code == 422
+
+
 async def test_get_patch_delete_unknown_product_returns_404(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -221,6 +221,17 @@ describe("fetchProducts", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     await expect(fetchProducts("http://api", "1")).rejects.toThrow();
   });
+
+  it("appends limit and offset as query params when given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchProducts("http://api", "1", { limit: 2, offset: 4 });
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1/products?limit=2&offset=4", {
+      cache: "no-store",
+    });
+  });
 });
 
 describe("fetchProduct", () => {

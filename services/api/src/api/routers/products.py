@@ -22,7 +22,7 @@ from db.bots import get_bot
 from db.models import Product
 from db.product_embeddings import upsert_embedding
 from db.products import create_product, delete_product, get_product, list_products, update_product
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from llm.embeddings import generate_embedding, product_embedding_input
 from scheduling.celery_app import celery_app
 from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
@@ -35,6 +35,14 @@ router = APIRouter(prefix="/bots", tags=["products"])
 logger = structlog.get_logger("api.products")
 
 PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS = 5.0
+
+# Отдельно от db.products.DEFAULT_CATALOG_LIMIT (=200) — тот лимит задуман
+# под контекст LLM (3.4), не под витрину кабинета; найдено финальным ревью
+# 6.8 (2026-09-10) — список товаров молча обрезался на 200 без признака
+# "есть ещё". PRODUCTS_LIST_MAX_LIMIT — верхняя граница на ?limit=, чтобы
+# клиент не мог одним запросом запросить весь каталог разом.
+PRODUCTS_LIST_DEFAULT_LIMIT = 100
+PRODUCTS_LIST_MAX_LIMIT = 500
 
 
 async def _recompute_embedding(session: AsyncSession, product: Product) -> None:
@@ -74,8 +82,13 @@ async def _schedule_embedding_retry(product_id: uuid.UUID) -> None:
 
 
 @router.get("/{bot_id}/products", response_model=list[ProductOut])
-async def list_products_route(bot_id: uuid.UUID, session: SessionDep) -> list[ProductOut]:
-    products = await list_products(session, bot_id)
+async def list_products_route(
+    bot_id: uuid.UUID,
+    session: SessionDep,
+    limit: int = Query(PRODUCTS_LIST_DEFAULT_LIMIT, ge=1, le=PRODUCTS_LIST_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+) -> list[ProductOut]:
+    products = await list_products(session, bot_id, limit=limit, offset=offset)
     return [ProductOut.model_validate(p) for p in products]
 
 

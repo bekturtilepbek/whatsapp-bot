@@ -4,6 +4,11 @@ import { ProductsTable } from "@/components/ProductsTable";
 import { fetchBot, fetchProducts } from "@/lib/api";
 import { API_INTERNAL_URL, API_PUBLIC_URL } from "@/lib/env";
 
+// Совпадает с PRODUCTS_LIST_DEFAULT_LIMIT в services/api/src/api/routers/
+// products.py — ProductsTable сравнивает длину полученной страницы с этим
+// числом, чтобы понять, есть ли ещё товары ("Показать ещё").
+const PRODUCTS_PAGE_SIZE = 100;
+
 export default async function BotProductsPage({
   params,
 }: {
@@ -14,7 +19,7 @@ export default async function BotProductsPage({
   if (!bot) {
     notFound();
   }
-  const products = await fetchProducts(API_INTERNAL_URL, id);
+  const products = await fetchProducts(API_INTERNAL_URL, id, { limit: PRODUCTS_PAGE_SIZE });
 
   return (
     <main>
@@ -25,7 +30,12 @@ export default async function BotProductsPage({
       <p>
         <Link href={`/bots/${id}/products/new`}>Добавить товар</Link>
       </p>
-      <ProductsTable botId={id} apiBaseUrl={API_PUBLIC_URL} products={products} />
+      <ProductsTable
+        botId={id}
+        apiBaseUrl={API_PUBLIC_URL}
+        products={products}
+        pageSize={PRODUCTS_PAGE_SIZE}
+      />
     </main>
   );
 }

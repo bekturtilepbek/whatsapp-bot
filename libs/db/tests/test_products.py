@@ -157,6 +157,23 @@ async def test_list_products_limit_caps_the_number_of_rows(session: AsyncSession
     assert len(products) == 2
 
 
+async def test_list_products_offset_skips_leading_rows(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    # Имена по алфавиту: Апельсины, Бананы, Вишня — сортировка list_products
+    # по name (см. ORDER BY name), offset считается по этому же порядку.
+    session.add_all(
+        [
+            Product(bot_id=bot_id, name="Апельсины"),
+            Product(bot_id=bot_id, name="Бананы"),
+            Product(bot_id=bot_id, name="Вишня"),
+        ]
+    )
+    await session.flush()
+
+    products = await list_products(session, bot_id, limit=2, offset=1)
+    assert [p.name for p in products] == ["Бананы", "Вишня"]
+
+
 async def test_find_product_by_exact_name_matches_case_and_whitespace_insensitively(
     session: AsyncSession,
 ) -> None:

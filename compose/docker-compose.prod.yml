@@ -139,22 +139,20 @@ services:
       timeout: 5s
       retries: 10
 
-  # NEXT_PUBLIC_API_URL здесь запечён в dev-сборку Next.js (CMD npm run dev,
-  # тот же Dockerfile что в dev-compose) — полноценный прод-билд (Dockerfile.prod
-  # с `next build`/`next start`, аналогично services/gateway/Dockerfile.prod, и
-  # передачей NEXT_PUBLIC_* через build-arg) не входит в эту итерацию: живая
-  # проверка идёт через docker-compose.dev.yml, прод не блокируется, но и не
-  # оптимизирован — известный технический долг, не молчаливое допущение.
   admin-web:
     build:
       context: ../services/admin-web
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
+      args:
+        # NEXT_PUBLIC_* запекается в клиентский бандл на этапе `next build` —
+        # передаём build-arg'ом, не environment: (рантайм-переменная на уже
+        # собранный бандл не повлияет). Адрес api, каким его видит браузер
+        # после SSH-туннеля — НЕ адрес самого admin-web. Дефолт совпадает с
+        # тем, что api слушает на хосте (см. блок api.ports выше,
+        # "127.0.0.1:8000:8000").
+        NEXT_PUBLIC_API_URL: ${ADMIN_WEB_API_PUBLIC_URL:-http://127.0.0.1:8000}
     environment:
       API_INTERNAL_URL: http://api:8000
-      # Адрес api, каким его видит браузер после SSH-туннеля — НЕ адрес самого
-      # admin-web. Дефолт совпадает с тем, что api слушает на хосте (см. блок
-      # api.ports выше, "127.0.0.1:8000:8000").
-      NEXT_PUBLIC_API_URL: ${ADMIN_WEB_API_PUBLIC_URL:-http://127.0.0.1:8000}
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped

@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "core",
     "db",
+    "llm",
     "scheduling",
     "structlog>=24.4",
 ]

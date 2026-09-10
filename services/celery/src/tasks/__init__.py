@@ -8,4 +8,4 @@ from __future__ import annotations
 
 from scheduling.celery_app import celery_app as celery  # noqa: F401
 
-from . import followup  # noqa: F401
+from . import followup, products  # noqa: F401

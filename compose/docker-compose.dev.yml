@@ -89,6 +89,8 @@ services:
     environment:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
+      # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     volumes:
       - ../services/celery/src:/app/services/celery/src
       - ../libs:/app/libs

@@ -8,16 +8,51 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+from db.engine import make_engine, make_session_factory, session_scope
+from db.users import get_user_by_email
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import bots, products
+from .routers import auth, bots, products
+from .security import hash_password
 
-app = FastAPI(title="platform-api")
+
+async def _bootstrap_platform_owner() -> None:
+    """PLATFORM_OWNER_EMAIL/PLATFORM_OWNER_PASSWORD заданы — создаёт
+    владельца платформы при первом старте, если такого email ещё нет.
+    Идемпотентно: не трогает уже существующий пароль на повторных стартах."""
+    email = os.environ.get("PLATFORM_OWNER_EMAIL")
+    password = os.environ.get("PLATFORM_OWNER_PASSWORD")
+    if not email or not password:
+        return
+    engine = make_engine()
+    try:
+        async with session_scope(make_session_factory(engine)) as session:
+            if await get_user_by_email(session, email) is not None:
+                return
+            from db.users import create_user
+
+            await create_user(
+                session, email=email, password_hash=hash_password(password), is_platform_owner=True
+            )
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await _bootstrap_platform_owner()
+    yield
+
+
+app = FastAPI(title="platform-api", lifespan=lifespan)
 
 # admin-web стучится в api напрямую из браузера (Волна 3, QR-экран, подход A) —
-# без allow-origin браузер зарубит fetch кросс-порта. allow_credentials не
+# без allow-origin браузер зарубит fetch. allow_credentials не
 # нужен — auth ещё нет (6.18, отдельная итерация), делить нечего.
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +61,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(bots.router)
 app.include_router(products.router)
 

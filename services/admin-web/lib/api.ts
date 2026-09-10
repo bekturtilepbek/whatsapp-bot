@@ -152,3 +152,95 @@ export async function patchBotSettings(
   }
   return (await res.json()) as Bot;
 }
+
+// Decimal (Pydantic v2) сериализуется бэкендом как JSON-строка ("5000.00"),
+// не число — см. services/api/src/api/schemas/products.py.
+export interface Product {
+  id: string;
+  name: string;
+  price: string | null;
+  sku: string | null;
+  description: string | null;
+  display_custom: Record<string, boolean>;
+  created_at: string;
+}
+
+export interface ProductInput {
+  name: string;
+  price?: number | null;
+  sku?: string | null;
+  description?: string | null;
+  display_custom?: Record<string, boolean>;
+}
+
+export async function fetchProducts(baseUrl: string, botId: string): Promise<Product[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${botId}/products failed: ${res.status}`);
+  }
+  return (await res.json()) as Product[];
+}
+
+export async function fetchProduct(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+): Promise<Product | null> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, { cache: "no-store" });
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error(`GET /bots/${botId}/products/${productId} failed: ${res.status}`);
+  }
+  return (await res.json()) as Product;
+}
+
+export async function createProduct(
+  baseUrl: string,
+  botId: string,
+  input: ProductInput,
+): Promise<Product> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/products failed: ${res.status}`);
+  }
+  return (await res.json()) as Product;
+}
+
+export async function updateProduct(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+  input: ProductInput,
+): Promise<Product> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${botId}/products/${productId} failed: ${res.status}`);
+  }
+  return (await res.json()) as Product;
+}
+
+export async function deleteProduct(
+  baseUrl: string,
+  botId: string,
+  productId: string,
+): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await fetch(`${base}/bots/${botId}/products/${productId}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`DELETE /bots/${botId}/products/${productId} failed: ${res.status}`);
+  }
+}

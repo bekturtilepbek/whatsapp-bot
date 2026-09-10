@@ -109,6 +109,8 @@ services:
       REDIS_URL: redis://redis:6379/0
       GATEWAY_URL: http://gateway:8080
       ADMIN_WEB_ORIGIN: http://localhost:3000
+      STORAGE_DRIVER: fs
+      STORAGE_FS_ROOT: /data/media
       # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
@@ -116,6 +118,7 @@ services:
     volumes:
       - ../services/api/src:/app/services/api/src
       - ../libs:/app/libs
+      - media-data:/data/media
     depends_on:
       postgres:
         condition: service_healthy

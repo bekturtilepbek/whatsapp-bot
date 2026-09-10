@@ -6,7 +6,7 @@ WORKDIR /app
 COPY libs /app/libs
 COPY services/api /app/services/api
 
-RUN pip install --no-cache-dir -e /app/libs/core -e /app/libs/db -e /app/libs/integrations -e /app/libs/llm -e /app/libs/tools -e /app/services/api
+RUN pip install --no-cache-dir -e /app/libs/core -e /app/libs/db -e /app/libs/integrations -e /app/libs/llm -e /app/libs/scheduling -e /app/libs/tools -e /app/services/api
 
 EXPOSE 8000
 

@@ -12,7 +12,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import bots
+from .routers import bots, products
 
 app = FastAPI(title="platform-api")
 
@@ -27,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(bots.router)
+app.include_router(products.router)
 
 
 @app.get("/health")

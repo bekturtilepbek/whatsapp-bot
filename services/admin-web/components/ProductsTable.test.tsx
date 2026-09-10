@@ -26,6 +26,7 @@ const products: Product[] = [
     sku: "NK-001",
     description: null,
     display_custom: {},
+    photos: [{ id: "ph1", position: 0 }],
     created_at: "2026-09-10T10:00:00Z",
   },
   {
@@ -35,6 +36,7 @@ const products: Product[] = [
     sku: null,
     description: null,
     display_custom: {},
+    photos: [],
     created_at: "2026-09-10T10:00:00Z",
   },
 ];
@@ -106,6 +108,7 @@ it('shows "Показать ещё", loads and appends the next page, then hides
     sku: null,
     description: null,
     display_custom: {},
+    photos: [],
     created_at: "2026-09-10T10:00:00Z",
   };
   vi.mocked(api.fetchProducts).mockResolvedValue([nextProduct]);
@@ -130,4 +133,12 @@ it('shows an error and keeps "Показать ещё" visible when loading more
     expect(screen.getByRole("alert")).toHaveTextContent(/load more failed/i);
   });
   expect(screen.getByRole("button", { name: /показать ещё/i })).toBeInTheDocument();
+});
+
+it("renders a thumbnail for the first photo and nothing for a product without photos", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
+
+  const thumbnail = screen.getByRole("img", { name: /кроссовки/i });
+  expect(thumbnail).toHaveAttribute("src", "http://api/bots/1/products/p1/photos/ph1");
+  expect(screen.queryByRole("img", { name: /без цены/i })).not.toBeInTheDocument();
 });

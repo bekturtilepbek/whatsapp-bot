@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteProduct, fetchProducts, type Product } from "@/lib/api";
+import { deleteProduct, fetchProducts, productPhotoUrl, type Product } from "@/lib/api";
 
 interface ProductsTableProps {
   botId: string;
@@ -69,6 +69,7 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
       <table>
         <thead>
           <tr>
+            <th />
             <th>Название</th>
             <th>Цена</th>
             <th>SKU</th>
@@ -79,6 +80,15 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
         <tbody>
           {rows.map((product) => (
             <tr key={product.id}>
+              <td>
+                {product.photos[0] && (
+                  <img
+                    src={productPhotoUrl(apiBaseUrl, botId, product.id, product.photos[0].id)}
+                    alt={product.name}
+                    style={{ width: "48px", height: "48px", objectFit: "cover" }}
+                  />
+                )}
+              </td>
               <td>{product.name}</td>
               <td>{product.price ?? "—"}</td>
               <td>{product.sku ?? "—"}</td>

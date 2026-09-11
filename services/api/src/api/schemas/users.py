@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from .auth import UserOut
+from .auth import PasswordStr, UserOut
 
 
 class UserWithAccessOut(UserOut):
@@ -15,9 +15,7 @@ class UserWithAccessOut(UserOut):
 
 class UserCreate(BaseModel):
     email: str
-    # bcrypt (>=4.2) бросает ValueError на пароль длиннее 72 байт вместо
-    # молчаливого обрезания — отсекаем на границе Pydantic чистым 422.
-    password: str = Field(max_length=72)
+    password: PasswordStr
     bot_ids: list[UUID] = []
 
 
@@ -25,4 +23,4 @@ class UserPatch(BaseModel):
     """Оба поля опциональны — трогаем только реально переданные."""
 
     is_active: bool | None = None
-    password: str | None = Field(default=None, max_length=72)
+    password: PasswordStr | None = None

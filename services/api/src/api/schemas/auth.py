@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict
+
+# bcrypt (>=4.2) бросает ValueError на пароль длиннее 72 БАЙТ (UTF-8) вместо
+# молчаливого обрезания — отсекаем на границе Pydantic чистым 422. Важно:
+# лимит именно в БАЙТАХ, не в символах — Field(max_length=72) считал бы
+# символы, и 72-символьный кириллический пароль (144 байта) всё равно
+# уронил бы bcrypt (найдено на ре-ревью финального ревью 6.18: реальный
+# сценарий для русскоязычного продукта, не гипотетический edge case).
+MAX_PASSWORD_BYTES = 72
+
+
+def _validate_password_byte_length(password: str) -> str:
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"password must be at most {MAX_PASSWORD_BYTES} bytes (UTF-8 encoded)")
+    return password
+
+
+PasswordStr = Annotated[str, AfterValidator(_validate_password_byte_length)]
 
 
 class LoginRequest(BaseModel):
     email: str
-    # bcrypt (>=4.2) бросает ValueError на пароль длиннее 72 байт вместо
-    # молчаливого обрезания — отсекаем на границе Pydantic чистым 422.
-    password: str = Field(max_length=72)
+    password: PasswordStr
 
 
 class UserOut(BaseModel):

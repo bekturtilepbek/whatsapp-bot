@@ -1,0 +1,121 @@
+// @vitest-environment node
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// vi.resetModules() обязателен по той же причине, что и в
+// app/api-proxy/route.test.ts: без него "./actions" остаётся закэширован
+// с моками next/headers и next/navigation из предыдущего теста.
+beforeEach(() => {
+  vi.resetModules();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+describe("login", () => {
+  it("sets the session cookie with the JWT and redirects to /bots on success", async () => {
+    const setCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+    }));
+    const redirectSpy = vi.fn();
+    vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: "jwt-token-value" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    expect(setCookie).toHaveBeenCalledWith(
+      "session",
+      "jwt-token-value",
+      expect.objectContaining({
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60,
+        path: "/",
+      }),
+    );
+    expect(redirectSpy).toHaveBeenCalledWith("/bots");
+  });
+
+  it("returns an error message and does not set a cookie or redirect on failure", async () => {
+    const setCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+    }));
+    const redirectSpy = vi.fn();
+    vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "invalid" }), { status: 401 })),
+    );
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "wrong");
+
+    const result = await login(null, formData);
+
+    expect(result).toBe("Неверный email или пароль");
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends the entered email and password to POST /auth/login", async () => {
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: vi.fn(), delete: vi.fn() }),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ token: "t" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/login"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ email: "owner@example.com", password: "secret" }),
+      }),
+    );
+  });
+});
+
+describe("logout", () => {
+  it("deletes the session cookie and redirects to /login", async () => {
+    const deleteCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: vi.fn(), delete: deleteCookie }),
+    }));
+    const redirectSpy = vi.fn();
+    vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
+
+    const { logout } = await import("./actions");
+    await logout();
+
+    expect(deleteCookie).toHaveBeenCalledWith("session");
+    expect(redirectSpy).toHaveBeenCalledWith("/login");
+  });
+});

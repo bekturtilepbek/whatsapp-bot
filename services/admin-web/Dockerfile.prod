@@ -1,8 +1,4 @@
 # Прод: скомпилированная сборка Next.js вместо dev-сервера (см. Dockerfile).
-# NEXT_PUBLIC_* запекаются в клиентский бандл на этапе `next build` — их
-# нужно передать сюда build-arg'ом (см. compose/docker-compose.prod.yml,
-# build.args), рантайм-переменная окружения на уже собранный бандл не
-# повлияет.
 FROM node:22-slim
 
 WORKDIR /app
@@ -12,8 +8,6 @@ RUN npm ci
 
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
 EXPOSE 3000

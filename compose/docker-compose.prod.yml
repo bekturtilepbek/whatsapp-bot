@@ -115,7 +115,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
       GATEWAY_URL: http://gateway:8080
-      ADMIN_WEB_ORIGIN: ${ADMIN_WEB_ORIGIN:-http://127.0.0.1:3000}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET не задан в .env}
+      PLATFORM_OWNER_EMAIL: ${PLATFORM_OWNER_EMAIL:?PLATFORM_OWNER_EMAIL не задан в .env}
+      PLATFORM_OWNER_PASSWORD: ${PLATFORM_OWNER_PASSWORD:?PLATFORM_OWNER_PASSWORD не задан в .env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY не задан в .env}
       STORAGE_DRIVER: s3
       S3_ENDPOINT: ${S3_ENDPOINT:?S3_ENDPOINT не задан в .env}
@@ -143,14 +145,6 @@ services:
     build:
       context: ../services/admin-web
       dockerfile: Dockerfile.prod
-      args:
-        # NEXT_PUBLIC_* запекается в клиентский бандл на этапе `next build` —
-        # передаём build-arg'ом, не environment: (рантайм-переменная на уже
-        # собранный бандл не повлияет). Адрес api, каким его видит браузер
-        # после SSH-туннеля — НЕ адрес самого admin-web. Дефолт совпадает с
-        # тем, что api слушает на хосте (см. блок api.ports выше,
-        # "127.0.0.1:8000:8000").
-        NEXT_PUBLIC_API_URL: ${ADMIN_WEB_API_PUBLIC_URL:-http://127.0.0.1:8000}
     environment:
       API_INTERNAL_URL: http://api:8000
     ports:

@@ -108,9 +108,11 @@ services:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
       GATEWAY_URL: http://gateway:8080
-      ADMIN_WEB_ORIGIN: http://localhost:3000
       STORAGE_DRIVER: fs
       STORAGE_FS_ROOT: /data/media
+      JWT_SECRET: dev-insecure-jwt-secret-do-not-use-in-prod
+      PLATFORM_OWNER_EMAIL: owner@dev.local
+      PLATFORM_OWNER_PASSWORD: devpassword123
       # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
@@ -138,7 +140,6 @@ services:
       dockerfile: Dockerfile
     environment:
       API_INTERNAL_URL: http://api:8000
-      NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "3000:3000"
     volumes:

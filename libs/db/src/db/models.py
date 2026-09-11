@@ -436,6 +436,13 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
+    # Намеренно БЕЗ ondelete (в отличие от BotAccess, где ondelete="CASCADE"):
+    # аудит-запись должна пережить удаление пользователя/бота, на которого
+    # ссылается, а не исчезнуть вместе с ним. Если когда-нибудь появится
+    # DELETE /users/{id} или DELETE /bots/{id} — попытка удалить строку с
+    # историей аудита упрётся в FK constraint violation. Это ожидаемо: не
+    # добавлять сюда CASCADE не глядя, решение нужно принимать осознанно
+    # (например, обнулять actor_user_id/bot_id вместо каскадного удаления).
     actor_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )

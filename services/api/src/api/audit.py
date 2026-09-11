@@ -6,10 +6,18 @@
 реестре роут просто не аудируется, тихо (документированное поведение,
 не баг). Три-уровневый fallback payload'а и все технические ограничения
 см. docs/superpowers/specs/2026-09-11-audit-log-design.md.
+
+ВАЖНО: `payload` — это тело ответа (либо тела запроса/path-params как
+fallback) ВЕРБАТИМ. Если у будущего роута в ответе появится
+чувствительное поле (например, `config` у tool binding в `tools.create`),
+оно утечёт в аудит-лог открытым текстом — на сегодня ни у одного роута
+в реестре такого поля нет (проверено в финальном ревью), но это нужно
+держать в голове при добавлении новых записей в реестр.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Awaitable, Callable
@@ -109,6 +117,7 @@ async def audit_middleware(
     try:
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
+            logger.warning("audit_skipped_no_bearer", action=action)
             return rebuilt_response
         actor_user_id = decode_access_token(auth_header.removeprefix("Bearer "))
 
@@ -118,14 +127,16 @@ async def audit_middleware(
         payload: dict[str, Any] | None = None
         response_content_type = response.headers.get("content-type", "")
         if response_content_type.startswith("application/json") and response_body:
-            payload = json.loads(response_body)
+            parsed = json.loads(response_body)
+            payload = parsed if isinstance(parsed, dict) else {"items": parsed}
         elif (
             not response_body
             and (request.method, route_path) not in MULTIPART_ROUTES
             and request_body
             and request_content_type.startswith("application/json")
         ):
-            payload = json.loads(request_body)
+            parsed = json.loads(request_body)
+            payload = parsed if isinstance(parsed, dict) else {"items": parsed}
         else:
             path_params = dict(request.path_params)
             if path_params:
@@ -135,15 +146,18 @@ async def audit_middleware(
         if session_factory is None:
             session_factory = get_session_factory()
 
-        async with session_factory() as session:
-            await create_entry(
-                session,
-                actor_user_id=actor_user_id,
-                bot_id=bot_id,
-                action=action,
-                payload=payload,
-            )
-            await session.commit()
+        async def _write_entry() -> None:
+            async with session_factory() as session:
+                await create_entry(
+                    session,
+                    actor_user_id=actor_user_id,
+                    bot_id=bot_id,
+                    action=action,
+                    payload=payload,
+                )
+                await session.commit()
+
+        await asyncio.wait_for(_write_entry(), timeout=5.0)
     except Exception:
         logger.warning("audit_log_write_failed", action=action, exc_info=True)
 

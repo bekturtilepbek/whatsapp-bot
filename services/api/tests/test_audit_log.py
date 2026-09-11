@@ -7,6 +7,7 @@ Task 4 этого же файла.
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
@@ -16,11 +17,14 @@ from pathlib import Path
 
 import httpx
 import pytest
+from PIL import Image
 
 pytest.importorskip("testcontainers.postgres")
 from api.db import get_session
 from api.main import app
+from api.routers import products as products_module
 from api.security import create_access_token
+from api.storage import get_storage
 from db.audit_log import list_entries
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, User
@@ -62,9 +66,47 @@ def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
     return make_session_factory(engine)
 
 
+class _FakeStorage:
+    """Тот же фейковый Storage, что в test_products.py — для регрессионного
+    теста Fix 1 (non-dict payload от /photos), продуктовый роут требует
+    Storage-зависимость, а реальный S3 в юнит-тестах не участвует."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, tuple[bytes, str]] = {}
+
+    async def get(self, key: str) -> bytes:
+        return self.objects[key][0]
+
+    async def put(self, key: str, data: bytes, mime_type: str) -> None:
+        self.objects[key] = (data, mime_type)
+
+
+@pytest.fixture
+def fake_storage() -> _FakeStorage:
+    return _FakeStorage()
+
+
+def _tiny_jpeg_bytes(*, size: tuple[int, int] = (20, 20)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color="red").save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _photo_file(name: str = "photo.jpg") -> tuple[str, tuple[str, bytes, str]]:
+    return ("photos", (name, _tiny_jpeg_bytes(), "image/jpeg"))
+
+
+FAKE_EMBEDDING = [0.1] * 1536
+
+
+async def _fake_generate_embedding(text: str, **kwargs: object) -> list[float]:
+    return FAKE_EMBEDDING
+
+
 @pytest.fixture
 async def client(
     session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[httpx.AsyncClient]:
     # Реальный Bearer-токен для реального персистентного owner-пользователя —
@@ -82,6 +124,7 @@ async def client(
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_storage] = lambda: fake_storage
     app.state.audit_session_factory = session_factory
 
     async with session_factory() as session:
@@ -279,3 +322,45 @@ async def test_get_audit_log_non_owner_returns_403(
 
     response = await client.get("/audit-log")
     assert response.status_code == 403
+
+
+async def test_non_dict_json_response_payload_coerced_to_dict(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix 1 (финальное ревью): POST /photos отвечает JSON-МАССИВОМ
+    (response_model=list[ProductPhotoOut]), а не объектом. Без коэрции
+    payload попадает в audit_log.payload как list — AuditLogOut.payload:
+    dict[str, Any] | None ловит ValidationError и роняет ВЕСЬ ответ
+    GET /audit-log 500-й (воспроизведено ревьюером живым 201 POST + 500 GET).
+    """
+    monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+
+    create_response = await client.post(
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+    )
+    assert create_response.status_code == 201
+    product_id = create_response.json()["id"]
+
+    photos_response = await client.post(
+        f"/bots/{bot_id}/products/{product_id}/photos", files=[_photo_file("new.jpg")]
+    )
+    assert photos_response.status_code == 201
+    assert isinstance(photos_response.json(), list)  # сам роут отвечает массивом
+
+    async with session_factory() as session:
+        entries = await list_entries(session, bot_id=bot_id)
+    photo_entries = [e for e in entries if e.action == "product_photos.create"]
+    assert len(photo_entries) == 1
+    assert isinstance(photo_entries[0].payload, dict)  # не list — коэрция сработала
+    assert "items" in photo_entries[0].payload
+
+    # Конкретная регрессия ревьюера — сам эндпоинт, не только БД-слой.
+    get_response = await client.get(f"/audit-log?bot_id={bot_id}")
+    assert get_response.status_code == 200
+    body = get_response.json()
+    entry = next(e for e in body if e["action"] == "product_photos.create")
+    assert isinstance(entry["payload"], dict)
+    assert "items" in entry["payload"]

@@ -88,7 +88,7 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
       <table>
         <thead>
           <tr>
-            <th>Время</th>
+            <th>Время (UTC)</th>
             <th>Кто</th>
             <th>Бот</th>
             <th>Действие</th>

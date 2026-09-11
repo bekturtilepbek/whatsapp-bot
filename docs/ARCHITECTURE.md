@@ -147,7 +147,7 @@ campaigns            (bot_id, kind, payload, status, limits JSONB)
 campaign_targets     (campaign_id, contact_id, status, sent_at, delivered_at, read_at)
 tool_bindings        (bot_id, tool_name, config JSONB)
 usage_events         (bot_id, model, tokens_in, tokens_out, cost, ts)
-audit_log            (actor, bot_id, action, payload, ts)
+audit_log            (actor_user_id, bot_id, action, payload, created_at)
 ```
 
 Вертикали броней (номера, шахматка, слоты) — в отдельных Postgres-схемах.

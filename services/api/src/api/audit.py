@@ -15,7 +15,6 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-import jwt
 import structlog
 from db.audit_log import create_entry
 from fastapi import Request
@@ -72,7 +71,8 @@ async def audit_middleware(
     if request.method not in AUDIT_METHODS:
         return await call_next(request)
 
-    is_multipart = request.headers.get("content-type", "").startswith("multipart/")
+    request_content_type = request.headers.get("content-type", "")
+    is_multipart = request_content_type.startswith("multipart/")
     request_body: bytes | None = None
     if not is_multipart:
         # Кэшируется Starlette'ом — роут ниже читает те же байты повторно,
@@ -120,9 +120,10 @@ async def audit_middleware(
         if response_content_type.startswith("application/json") and response_body:
             payload = json.loads(response_body)
         elif (
-            (request.method, route_path) not in MULTIPART_ROUTES
+            not response_body
+            and (request.method, route_path) not in MULTIPART_ROUTES
             and request_body
-            and request.headers.get("content-type", "").startswith("application/json")
+            and request_content_type.startswith("application/json")
         ):
             payload = json.loads(request_body)
         else:
@@ -143,7 +144,7 @@ async def audit_middleware(
                 payload=payload,
             )
             await session.commit()
-    except (jwt.InvalidTokenError, Exception):
+    except Exception:
         logger.warning("audit_log_write_failed", action=action, exc_info=True)
 
     return rebuilt_response

@@ -152,6 +152,21 @@ export async function patchBotPrompt(
   return (await res.json()) as Bot;
 }
 
+/** FEATURES.md 6.3 — переименование бота после создания (BotAccessUser,
+ * не только владелец платформы — это витринная строка, не секьюрити). */
+export async function patchBotName(baseUrl: string, id: string, name: string): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
 export async function fetchPromptVersions(
   baseUrl: string,
   id: string,

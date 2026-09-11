@@ -63,6 +63,7 @@ async def update_bot(
     session: AsyncSession,
     bot_id: uuid.UUID,
     *,
+    name: str | None = None,
     enabled: bool | None = None,
     system_prompt: str | None = None,
     image_prompt: str | None = None,
@@ -70,6 +71,10 @@ async def update_bot(
     settings_patch: dict[str, Any] | None = None,
 ) -> Bot | None:
     """Частичное обновление: None-параметр = не трогать это поле.
+
+    name — скалярная колонка, не JSONB (FEATURES.md 6.3), уникальности нет
+    (см. create_bot) — валидация непустой строки делает вызывающий (роутер),
+    здесь просто "передано — пишем".
 
     settings мержится через Postgres JSONB `||` (shallow merge на стороне
     БД), а не Python-side read-modify-write — атомарно, без гонки двух
@@ -88,6 +93,8 @@ async def update_bot(
         return None
 
     values: dict[str, Any] = {}
+    if name is not None:
+        values["name"] = name
     if enabled is not None:
         values["enabled"] = enabled
     if system_prompt is not None:

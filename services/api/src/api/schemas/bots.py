@@ -32,6 +32,7 @@ class BotCreate(BaseModel):
 class BotPatch(BaseModel):
     """Все поля опциональны — трогаем только реально переданные (exclude_unset)."""
 
+    name: str | None = None
     enabled: bool | None = None
     system_prompt: str | None = None
     image_prompt: str | None = None

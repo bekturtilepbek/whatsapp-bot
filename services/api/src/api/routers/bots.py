@@ -95,9 +95,15 @@ async def patch_bot(
     bot_id: uuid.UUID, patch: BotPatch, session: SessionDep, user: BotAccessUser
 ) -> BotOut:
     data = patch.model_dump(exclude_unset=True)
+    name = data.get("name")
+    if name is not None:
+        name = name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="name must not be empty")
     bot = await update_bot(
         session,
         bot_id,
+        name=name,
         enabled=data.get("enabled"),
         system_prompt=data.get("system_prompt"),
         image_prompt=data.get("image_prompt"),

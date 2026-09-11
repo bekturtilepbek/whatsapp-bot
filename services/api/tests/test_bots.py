@@ -143,6 +143,35 @@ async def test_patch_settings_merges_without_wiping_other_keys(
     assert settings["media_fallback_text"] == "заглушка"  # не стёрлось
 
 
+async def test_patch_name_renames_bot(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """FEATURES.md 6.3 — название бота редактируемо после создания."""
+    bot_id = await _make_bot(session_factory)
+    response = await client.patch(f"/bots/{bot_id}", json={"name": "Новое имя"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Новое имя"
+    assert body["system_prompt"] == "исходный промпт"  # не тронуто
+
+
+async def test_patch_name_strips_whitespace(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.patch(f"/bots/{bot_id}", json={"name": "  С пробелами  "})
+    assert response.status_code == 200
+    assert response.json()["name"] == "С пробелами"
+
+
+async def test_patch_name_blank_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.patch(f"/bots/{bot_id}", json={"name": "   "})
+    assert response.status_code == 422
+
+
 async def test_patch_system_prompt_only(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -576,3 +576,45 @@ export async function deleteDocument(
     throw new Error(`DELETE /bots/${botId}/documents/${documentId} failed: ${res.status}`);
   }
 }
+
+// Аудит-лог (FEATURES.md 6.19, только для владельца платформы).
+
+export interface AuditLogEntry {
+  id: string;
+  actor_user_id: string;
+  actor_email: string;
+  bot_id: string | null;
+  bot_name: string | null;
+  action: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface FetchAuditLogOptions {
+  botId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchAuditLog(
+  baseUrl: string,
+  options?: FetchAuditLogOptions,
+): Promise<AuditLogEntry[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const query = new URLSearchParams();
+  if (options?.botId) {
+    query.set("bot_id", options.botId);
+  }
+  if (options?.limit !== undefined) {
+    query.set("limit", String(options.limit));
+  }
+  if (options?.offset !== undefined) {
+    query.set("offset", String(options.offset));
+  }
+  const qs = query.toString();
+  const res = await apiFetch(`${base}/audit-log${qs ? `?${qs}` : ""}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /audit-log failed: ${res.status}`);
+  }
+  return (await res.json()) as AuditLogEntry[];
+}

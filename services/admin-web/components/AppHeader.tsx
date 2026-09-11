@@ -10,6 +10,7 @@ export async function AppHeader() {
     <header>
       <span>{user.email}</span>
       {user.is_platform_owner && <Link href="/users">Пользователи</Link>}
+      {user.is_platform_owner && <Link href="/audit-log">Аудит-лог</Link>}
       <form action={logout}>
         <button type="submit">Выйти</button>
       </form>

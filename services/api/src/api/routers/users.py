@@ -54,6 +54,12 @@ async def create_user_route(
 ) -> UserWithAccessOut:
     if await get_user_by_email(session, body.email) is not None:
         raise HTTPException(status_code=409, detail="email already registered")
+    # Проверяем существование ВСЕХ bot_id до создания пользователя — иначе
+    # неизвестный bot_id на полпути даст FK IntegrityError (500) вместо 404,
+    # а пользователь останется частично созданным. Зеркалит grant_bot_access_route.
+    for bot_id in body.bot_ids:
+        if await get_bot(session, bot_id) is None:
+            raise HTTPException(status_code=404, detail="bot not found")
     user = await create_user(session, email=body.email, password_hash=hash_password(body.password))
     for bot_id in body.bot_ids:
         await grant_bot_access(session, user.id, bot_id)

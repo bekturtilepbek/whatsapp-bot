@@ -17,7 +17,7 @@ from db.users import get_user_by_email
 from fastapi import FastAPI
 
 from .audit import audit_middleware
-from .routers import auth, bots, documents, products, users
+from .routers import audit_log, auth, bots, documents, products, users
 from .security import hash_password
 
 logger = structlog.get_logger("api.main")
@@ -66,6 +66,7 @@ app.middleware("http")(audit_middleware)
 # admin-web ходит через свой BFF-прокси (Task 6 этого суб-проекта), у которого
 # общий origin с браузером, preflight не нужен.
 
+app.include_router(audit_log.router)
 app.include_router(auth.router)
 app.include_router(bots.router)
 app.include_router(documents.router)

@@ -210,3 +210,72 @@ async def test_multipart_document_upload_records_response_payload_not_request_bo
     assert len(create_entries) == 1
     assert create_entries[0].payload is not None
     assert create_entries[0].payload["filename"] == "price.pdf"
+
+
+async def test_get_audit_log_returns_entries_newest_first(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await client.patch(f"/bots/{bot_id}", json={"name": "Раз"})
+    await client.patch(f"/bots/{bot_id}", json={"name": "Два"})
+
+    # Фильтр по bot_id — не по вкусу, а по необходимости: DB в этом файле
+    # module-scoped (как и во всех остальных test_*.py этого сервиса), записи
+    # предыдущих тестов файла никуда не деваются к моменту этого теста.
+    # Без фильтра "/audit-log" без параметров подхватил бы их тоже.
+    response = await client.get(f"/audit-log?bot_id={bot_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert body[0]["payload"]["name"] == "Два"
+    assert body[1]["payload"]["name"] == "Раз"
+    assert body[0]["actor_email"]
+
+
+async def test_get_audit_log_filters_by_bot_id(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_a = await _make_bot(session_factory, name="bot-a")
+    bot_b = await _make_bot(session_factory, name="bot-b")
+    await client.patch(f"/bots/{bot_a}", json={"name": "A изменён"})
+    await client.patch(f"/bots/{bot_b}", json={"name": "B изменён"})
+
+    response = await client.get(f"/audit-log?bot_id={bot_a}")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["bot_id"] == str(bot_a)
+
+
+async def test_get_audit_log_respects_limit(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    for i in range(3):
+        await client.patch(f"/bots/{bot_id}", json={"name": f"Имя {i}"})
+
+    response = await client.get("/audit-log?limit=2")
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+
+async def test_get_audit_log_non_owner_returns_403(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from datetime import datetime
+
+    from api.security import get_current_user
+    from db.models import User
+
+    client_user = User(
+        id=uuid.uuid4(),
+        email="client@example.com",
+        password_hash="unused",
+        is_platform_owner=False,
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+    response = await client.get("/audit-log")
+    assert response.status_code == 403

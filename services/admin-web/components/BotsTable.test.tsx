@@ -39,3 +39,11 @@ it("links to the bot detail page", () => {
   const link = screen.getAllByRole("link", { name: /открыть/i })[0];
   expect(link).toHaveAttribute("href", "/bots/1");
 });
+
+it("shows an explanatory message instead of a table when there are no bots", () => {
+  render(<BotsTable bots={[]} />);
+  expect(
+    screen.getByText("Доступа пока нет, обратитесь к владельцу платформы")
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

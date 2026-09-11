@@ -6,6 +6,10 @@ interface BotsTableProps {
 }
 
 export function BotsTable({ bots }: BotsTableProps) {
+  if (bots.length === 0) {
+    return <p>Доступа пока нет, обратитесь к владельцу платформы</p>;
+  }
+
   return (
     <table>
       <thead>

@@ -11,6 +11,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("login", () => {
@@ -44,6 +45,7 @@ describe("login", () => {
       expect.objectContaining({
         httpOnly: true,
         sameSite: "lax",
+        secure: false,
         maxAge: 30 * 24 * 60 * 60,
         path: "/",
       }),
@@ -117,5 +119,75 @@ describe("logout", () => {
 
     expect(deleteCookie).toHaveBeenCalledWith("session");
     expect(redirectSpy).toHaveBeenCalledWith("/login");
+  });
+});
+
+describe("cookie secure flag based on NODE_ENV", () => {
+  it("sets secure: true when NODE_ENV is production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    const setCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: "jwt-token-value" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    expect(setCookie).toHaveBeenCalledWith(
+      "session",
+      "jwt-token-value",
+      expect.objectContaining({
+        secure: true,
+      }),
+    );
+  });
+
+  it("sets secure: false when NODE_ENV is not production", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    const setCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: "jwt-token-value" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    expect(setCookie).toHaveBeenCalledWith(
+      "session",
+      "jwt-token-value",
+      expect.objectContaining({
+        secure: false,
+      }),
+    );
   });
 });

@@ -17,7 +17,7 @@ from db.users import get_user_by_email
 from fastapi import FastAPI
 
 from .audit import audit_middleware
-from .routers import audit_log, auth, bots, documents, products, users
+from .routers import audit_log, auth, bots, documents, products, usage, users
 from .security import hash_password
 
 logger = structlog.get_logger("api.main")
@@ -71,6 +71,7 @@ app.include_router(auth.router)
 app.include_router(bots.router)
 app.include_router(documents.router)
 app.include_router(products.router)
+app.include_router(usage.router)
 app.include_router(users.router)
 
 

@@ -618,3 +618,29 @@ export async function fetchAuditLog(
   }
   return (await res.json()) as AuditLogEntry[];
 }
+
+// Расходы OpenAI (FEATURES.md 6.15, только для владельца платформы).
+// cost — Decimal на бэкенде, сериализуется как JSON-строка (не число), см.
+// комментарий у Product.price в этом же файле — тот же приём Pydantic v2.
+
+export type UsagePeriod = "7d" | "30d" | "90d" | "all";
+
+export interface UsageSummary {
+  bot_id: string;
+  bot_name: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost: string;
+}
+
+export async function fetchUsage(
+  baseUrl: string,
+  period: UsagePeriod = "30d",
+): Promise<UsageSummary[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/usage?period=${period}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /usage failed: ${res.status}`);
+  }
+  return (await res.json()) as UsageSummary[];
+}

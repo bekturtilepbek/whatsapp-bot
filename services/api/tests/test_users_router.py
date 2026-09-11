@@ -223,6 +223,51 @@ async def test_grant_bot_access_unknown_bot_returns_404(client: httpx.AsyncClien
     assert response.json()["detail"] == "bot not found"
 
 
+async def test_create_user_with_unknown_bot_id_returns_404(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/users",
+        json={
+            "email": "bad-bot-id@example.com",
+            "password": "s3cret",
+            "bot_ids": [str(uuid.uuid4())],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "bot not found"
+
+    listing = await client.get("/users")
+    assert not any(u["email"] == "bad-bot-id@example.com" for u in listing.json())
+
+
+async def test_create_user_with_one_valid_one_unknown_bot_id_returns_404_no_partial_user(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        "/users",
+        json={
+            "email": "partial@example.com",
+            "password": "s3cret",
+            "bot_ids": [str(bot_id), str(uuid.uuid4())],
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "bot not found"
+
+    listing = await client.get("/users")
+    assert not any(u["email"] == "partial@example.com" for u in listing.json())
+
+
+async def test_create_user_password_over_72_bytes_returns_422(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.post(
+        "/users",
+        json={"email": "long-pass@example.com", "password": "x" * 73, "bot_ids": []},
+    )
+    assert response.status_code == 422
+
+
 async def test_create_user_duplicate_email_returns_409(client: httpx.AsyncClient) -> None:
     payload = {"email": "dupe@example.com", "password": "s3cret", "bot_ids": []}
     first = await client.post("/users", json=payload)

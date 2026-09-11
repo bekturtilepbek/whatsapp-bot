@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
     email: str
-    password: str
+    # bcrypt (>=4.2) бросает ValueError на пароль длиннее 72 байт вместо
+    # молчаливого обрезания — отсекаем на границе Pydantic чистым 422.
+    password: str = Field(max_length=72)
 
 
 class UserOut(BaseModel):

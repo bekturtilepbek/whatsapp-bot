@@ -82,10 +82,7 @@ async def client(
 
 
 async def _make_bot(
-    session_factory: async_sessionmaker[AsyncSession],
-    *,
-    name: str = "test-bot",
-    **overrides: object,
+    session_factory: async_sessionmaker[AsyncSession], *, name: str = "test-bot", **overrides: object
 ) -> uuid.UUID:
     async with session_factory() as session:
         bot = Bot(

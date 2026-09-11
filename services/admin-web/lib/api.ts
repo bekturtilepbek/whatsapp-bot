@@ -426,3 +426,75 @@ export async function deleteBlockedNumber(
     throw new Error(`DELETE /bots/${botId}/blocked-numbers/${phone} failed: ${res.status}`);
   }
 }
+
+// Пользователи кабинета (FEATURES.md 6.18, только для владельца платформы).
+
+export interface CabinetUser {
+  id: string;
+  email: string;
+  is_platform_owner: boolean;
+  is_active: boolean;
+  bot_ids: string[];
+}
+
+export async function fetchUsers(baseUrl: string): Promise<CabinetUser[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /users failed: ${res.status}`);
+  }
+  return (await res.json()) as CabinetUser[];
+}
+
+export async function createUser(
+  baseUrl: string,
+  input: { email: string; password: string; bot_ids: string[] },
+): Promise<CabinetUser> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /users failed: ${res.status}`);
+  }
+  return (await res.json()) as CabinetUser;
+}
+
+export async function grantBotAccess(baseUrl: string, userId: string, botId: string): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users/${userId}/bot-access`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bot_id: botId }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /users/${userId}/bot-access failed: ${res.status}`);
+  }
+}
+
+export async function revokeBotAccess(baseUrl: string, userId: string, botId: string): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users/${userId}/bot-access/${botId}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`DELETE /users/${userId}/bot-access/${botId} failed: ${res.status}`);
+  }
+}
+
+export async function patchUser(
+  baseUrl: string,
+  userId: string,
+  patch: { is_active?: boolean; password?: string },
+): Promise<CabinetUser> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /users/${userId} failed: ${res.status}`);
+  }
+  return (await res.json()) as CabinetUser;
+}

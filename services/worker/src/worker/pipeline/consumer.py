@@ -275,7 +275,7 @@ async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
-async def _send_cards(
+async def _send_media_replies(
     event: InboundText, redis: Redis, replies: Sequence[OverrideReply]
 ) -> None:
     """FEATURES.md 4.3/4.4/4.8/4.9: карточки товара и файлы/видео —
@@ -459,7 +459,7 @@ async def _reply(
         # (находка финального ревью — прежнее "последний выигрывает"
         # молча теряло более ранние товары).
         reply_text = "\n\n".join(reply.text for reply in loop_result.override_replies)
-        await _send_cards(event, redis, loop_result.override_replies)
+        await _send_media_replies(event, redis, loop_result.override_replies)
     else:
         if not loop_result.text.strip():
             logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))

@@ -21,7 +21,7 @@ from structlog.testing import capture_logs
 
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
-from db.models import Bot
+from db.models import Bot, Document
 from db.tool_bindings import enable as enable_tool_binding
 from fakeredis.aioredis import FakeRedis
 from llm.client import LLMResult, ToolCall, ToolResultTurn
@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from tools import registry as tools_registry
 from tools.base import MediaToSend, ToolContext, ToolExecutionResult
+from tools.send_document import SendDocumentTool
 from worker.pipeline import consumer as consumer_module
 from worker.pipeline.consumer import _process_entry
 
@@ -444,6 +445,82 @@ async def test_document_media_dispatches_to_outbound_document_with_filename(
         assert payloads[1]["filename"] == "price-list.pdf"
         assert payloads[2]["type"] == "outbound.text"
         assert payloads[2]["text"] == "Файл price-list.pdf отправлен."
+    finally:
+        await redis.aclose()
+
+
+async def test_real_send_document_tool_dispatches_to_outbound_document(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Seam-тест (найдено ретро-ревью 4.8/4.9, 2026-09-08): тест выше
+    (`test_document_media_dispatches_to_outbound_document_with_filename`)
+    проверяет диспетчеризацию по mime_type через `_FakeDocumentTool` —
+    доказывает, что "нечто в форме SendDocumentTool" доходит до
+    _send_media_replies корректно, но не доказывает, что РЕАЛЬНАЯ тулза
+    (со своим поиском Document по имени в БД) действительно производит эту
+    форму, будучи зарегистрированной и вызванной через настоящий
+    tool_loop. libs/tools/tests/test_send_document.py тестирует тулзу
+    саму по себе (execute() -> ToolExecutionResult), эта же проверка
+    отдельно — само соединение между двумя концами не было проверено
+    ни одним из них."""
+    monkeypatch.setattr(consumer_module.random, "uniform", lambda a, b: 0.0)
+    monkeypatch.setitem(tools_registry._REGISTRY, "send_document", SendDocumentTool())
+
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        session.add(
+            Document(
+                bot_id=bot_id,
+                filename="price-list.pdf",
+                storage_key="bots/x/documents/price-list.pdf",
+                mime_type="application/pdf",
+            )
+        )
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    async def fake_complete_with_tools(
+        system_prompt: str, history: list[object], tools: list[object], exchange: object = (),
+        *, force_text: bool = False, **_: object,
+    ) -> LLMResult:
+        exchange_list = list(exchange)
+        if not exchange_list:
+            return LLMResult(
+                text="", tokens_in=1, tokens_out=1, model="gpt-4o-mini",
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        name="send_document",
+                        arguments_json='{"file_name": "price-list.pdf"}',
+                    )
+                ],
+            )
+        return LLMResult(
+            text="текст LLM, будет отброшен", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    async def fail_complete(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("тулза включена — быстрый путь не должен вызываться")
+
+    monkeypatch.setattr(consumer_module, "complete", fail_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_tools", fake_complete_with_tools)
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        out_entries = await redis.xrange("wa:out")
+        # typing, document, text
+        assert len(out_entries) == 3
+        payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
+        assert payloads[0]["type"] == "outbound.typing"
+        assert payloads[1]["type"] == "outbound.document"
+        # Ровно то, что реальный SendDocumentTool взял из реальной строки
+        # Document в БД — не то, что тест сам захардкодил в фейке.
+        assert payloads[1]["storage_key"] == "bots/x/documents/price-list.pdf"
+        assert payloads[1]["mime_type"] == "application/pdf"
+        assert payloads[1]["filename"] == "price-list.pdf"
+        assert payloads[2]["type"] == "outbound.text"
+        assert payloads[2]["text"] == "Отправляю файл price-list.pdf."
     finally:
         await redis.aclose()
 

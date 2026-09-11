@@ -136,8 +136,8 @@ async def test_list_entries_respects_limit_and_offset(session: AsyncSession) -> 
         )
     await session.commit()
 
-    page = await list_entries(session, limit=2, offset=0, actor_user_id=user_id)
-    assert len(page) == 2
+    page = await list_entries(session, limit=2, offset=2, actor_user_id=user_id)
+    assert [e.action for e in page] == ["users.create.2", "users.create.1"]
 
 
 async def test_platform_level_entry_has_null_bot_id_and_bot_name(session: AsyncSession) -> None:

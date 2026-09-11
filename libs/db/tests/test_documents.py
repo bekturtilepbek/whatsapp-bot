@@ -16,9 +16,10 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("testcontainers.postgres")
-from db.documents import find_document_by_filename, list_documents
+from db.documents import create_document, delete_document, find_document_by_filename, list_documents
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Document
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
 
@@ -171,3 +172,106 @@ async def test_find_document_by_filename_scoped_per_bot(session: AsyncSession) -
 
     assert await find_document_by_filename(session, bot_a, "only-a.pdf") is not None
     assert await find_document_by_filename(session, bot_b, "only-a.pdf") is None
+
+
+async def test_create_document_then_find_by_filename(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    document = await create_document(
+        session,
+        bot_id,
+        id=uuid.uuid4(),
+        filename="price.pdf",
+        storage_key="bots/x/documents/y",
+        mime_type="application/pdf",
+    )
+    assert document.filename == "price.pdf"
+
+    found = await find_document_by_filename(session, bot_id, "price.pdf")
+    assert found is not None
+    assert found.id == document.id
+    assert found.storage_key == "bots/x/documents/y"
+
+
+async def test_create_document_duplicate_filename_raises(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    await create_document(
+        session,
+        bot_id,
+        id=uuid.uuid4(),
+        filename="dup.pdf",
+        storage_key="k1",
+        mime_type="application/pdf",
+    )
+    await session.flush()
+    with pytest.raises(IntegrityError):
+        await create_document(
+            session,
+            bot_id,
+            id=uuid.uuid4(),
+            filename="dup.pdf",
+            storage_key="k2",
+            mime_type="application/pdf",
+        )
+
+
+async def test_create_document_same_filename_different_bots_is_fine(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    await create_document(
+        session,
+        bot_a,
+        id=uuid.uuid4(),
+        filename="same.pdf",
+        storage_key="ka",
+        mime_type="application/pdf",
+    )
+    await create_document(
+        session,
+        bot_b,
+        id=uuid.uuid4(),
+        filename="same.pdf",
+        storage_key="kb",
+        mime_type="application/pdf",
+    )
+    assert await find_document_by_filename(session, bot_a, "same.pdf") is not None
+    assert await find_document_by_filename(session, bot_b, "same.pdf") is not None
+
+
+async def test_delete_document_returns_true_and_removes_row(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    document = await create_document(
+        session,
+        bot_id,
+        id=uuid.uuid4(),
+        filename="del.pdf",
+        storage_key="k1",
+        mime_type="application/pdf",
+    )
+    await session.flush()
+
+    deleted = await delete_document(session, bot_id, document.id)
+    assert deleted is True
+    assert await find_document_by_filename(session, bot_id, "del.pdf") is None
+
+
+async def test_delete_document_unknown_id_returns_false(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    assert await delete_document(session, bot_id, uuid.uuid4()) is False
+
+
+async def test_delete_document_scoped_per_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    document = await create_document(
+        session,
+        bot_a,
+        id=uuid.uuid4(),
+        filename="scoped.pdf",
+        storage_key="k1",
+        mime_type="application/pdf",
+    )
+    await session.flush()
+
+    # Тот же document_id, но чужой bot_id — не находит и не удаляет.
+    assert await delete_document(session, bot_b, document.id) is False
+    assert await find_document_by_filename(session, bot_a, "scoped.pdf") is not None

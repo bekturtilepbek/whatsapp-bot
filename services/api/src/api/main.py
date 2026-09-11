@@ -16,7 +16,7 @@ from db.engine import make_engine, make_session_factory, session_scope
 from db.users import get_user_by_email
 from fastapi import FastAPI
 
-from .routers import auth, bots, products, users
+from .routers import auth, bots, documents, products, users
 from .security import hash_password
 
 logger = structlog.get_logger("api.main")
@@ -65,6 +65,7 @@ app = FastAPI(title="platform-api", lifespan=lifespan)
 
 app.include_router(auth.router)
 app.include_router(bots.router)
+app.include_router(documents.router)
 app.include_router(products.router)
 app.include_router(users.router)
 

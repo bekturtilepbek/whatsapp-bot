@@ -498,3 +498,53 @@ export async function patchUser(
   }
   return (await res.json()) as CabinetUser;
 }
+
+// Документы бота (FEATURES.md 6.7).
+
+export interface BotDocument {
+  id: string;
+  filename: string;
+  mime_type: string;
+  created_at: string;
+}
+
+export async function fetchDocuments(baseUrl: string, botId: string): Promise<BotDocument[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${botId}/documents`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${botId}/documents failed: ${res.status}`);
+  }
+  return (await res.json()) as BotDocument[];
+}
+
+export async function uploadDocument(
+  baseUrl: string,
+  botId: string,
+  file: File,
+): Promise<BotDocument> {
+  const base = normalizeBaseUrl(baseUrl);
+  const form = new FormData();
+  form.set("file", file);
+  const res = await apiFetch(`${base}/bots/${botId}/documents`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/documents failed: ${res.status}`);
+  }
+  return (await res.json()) as BotDocument;
+}
+
+export async function deleteDocument(
+  baseUrl: string,
+  botId: string,
+  documentId: string,
+): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${botId}/documents/${documentId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`DELETE /bots/${botId}/documents/${documentId} failed: ${res.status}`);
+  }
+}

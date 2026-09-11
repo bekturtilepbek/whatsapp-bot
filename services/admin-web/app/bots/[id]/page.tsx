@@ -30,6 +30,9 @@ export default async function BotPage({
       <p>
         <Link href={`/bots/${bot.id}/blocked-numbers`}>Чёрный список →</Link>
       </p>
+      <p>
+        <Link href={`/bots/${bot.id}/documents`}>Документы →</Link>
+      </p>
       <QrPanel initialBot={bot} apiBaseUrl={API_PROXY_PATH} />
     </main>
   );

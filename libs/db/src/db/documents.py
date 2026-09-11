@@ -1,6 +1,5 @@
-"""Файлы бота (FEATURES.md 4.8/4.9). Загрузка — Волна 3 (CRUD, 6.7),
-здесь только чтение: список для system prompt и точный поиск для тулзы.
-"""
+"""Файлы бота (FEATURES.md 4.8/4.9, 6.7): список для system prompt, точный
+поиск для тулзы send_document, CRUD для кабинета (create/delete)."""
 
 from __future__ import annotations
 
@@ -34,3 +33,42 @@ async def find_document_by_filename(
     stmt = select(Document).where(Document.bot_id == bot_id, Document.filename == filename)
     result = await session.execute(stmt)
     return result.scalars().first()
+
+
+async def create_document(
+    session: AsyncSession,
+    bot_id: uuid.UUID,
+    *,
+    id: uuid.UUID,
+    filename: str,
+    storage_key: str,
+    mime_type: str,
+) -> Document:
+    """id передаётся явно вызывающим кодом (генерируется ДО этого вызова,
+    т.к. storage_key уже должен включать его — Storage.put() пишется раньше
+    этой функции, тот же порядок, что и у create_product_image), а не
+    полагается на server_default гена БД — иначе storage_key и
+    Document.id разъедутся."""
+    document = Document(
+        id=id, bot_id=bot_id, filename=filename, storage_key=storage_key, mime_type=mime_type
+    )
+    session.add(document)
+    await session.flush()
+    return document
+
+
+async def delete_document(session: AsyncSession, bot_id: uuid.UUID, document_id: uuid.UUID) -> bool:
+    """True — строка была и удалена. Storage-объект НЕ чистится (тот же
+    осознанно принятый паттерн, что и product_images — orphan-объект в
+    Storage дешевле, чем городить delete() в Storage-протоколе ради этого).
+    Тот же паттерн select-затем-delete, что и db.products.delete_product —
+    не bulk DELETE + rowcount (Result.rowcount не типизирован в базовом
+    Result[Any], который возвращает session.execute)."""
+    stmt = select(Document).where(Document.bot_id == bot_id, Document.id == document_id)
+    result = await session.execute(stmt)
+    document = result.scalars().first()
+    if document is None:
+        return False
+    await session.delete(document)
+    await session.flush()
+    return True

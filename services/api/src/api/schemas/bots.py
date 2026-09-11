@@ -25,6 +25,10 @@ class BotOut(BaseModel):
     created_at: datetime
 
 
+class BotCreate(BaseModel):
+    name: str
+
+
 class BotPatch(BaseModel):
     """Все поля опциональны — трогаем только реально переданные (exclude_unset)."""
 

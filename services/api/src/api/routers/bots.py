@@ -13,7 +13,7 @@ import uuid
 import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
-from db.bots import get_bot_with_session, list_bots, update_bot
+from db.bots import create_bot, get_bot_with_session, list_bots, update_bot
 from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
@@ -25,10 +25,10 @@ from ..db import SessionDep
 from ..gateway_client import GatewayClientDep
 from ..redis_client import RedisDep
 from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
-from ..schemas.bots import BotOut, BotPatch
+from ..schemas.bots import BotCreate, BotOut, BotPatch
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
-from ..security import BotAccessUser, CurrentUser
+from ..security import BotAccessUser, CurrentUser, PlatformOwner
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -45,6 +45,25 @@ async def list_all_bots(session: SessionDep, user: CurrentUser) -> list[BotOut]:
     filter_user_id = None if user.is_platform_owner else user.id
     bots = await list_bots(session, user_id=filter_user_id)
     return [BotOut.model_validate(bot) for bot in bots]
+
+
+@router.post("", response_model=BotOut, status_code=201)
+async def create_bot_route(body: BotCreate, session: SessionDep, _owner: PlatformOwner) -> BotOut:
+    """Онбординг бота из UI (FEATURES.md 6.20) — только имя, всё остальное
+    server_default модели. Owner-only: создание бота — административное
+    действие, тот же уровень доступа, что и у users.py. Никакой привязки
+    к номеру здесь нет — это отдельный шаг (QR-экран, 6.1/6.2), уже сданный
+    и работающий "из коробки" для любого существующего bot_id: gateway
+    поднимает сессию Baileys лениво по первому GET /qr/:botId, а не при
+    создании строки в bots."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name must not be empty")
+    bot = await create_bot(session, name=name)
+    await session.commit()
+    created = await get_bot_with_session(session, bot.id)
+    assert created is not None  # только что закоммитили
+    return BotOut.model_validate(created)
 
 
 async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) -> Response:

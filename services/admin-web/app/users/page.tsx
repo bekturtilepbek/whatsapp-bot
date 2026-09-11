@@ -1,20 +1,8 @@
 import { redirect } from "next/navigation";
 import { UsersTable } from "@/components/UsersTable";
 import { fetchBots, fetchUsers } from "@/lib/api";
+import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
-
-async function currentUserIsOwner(): Promise<boolean> {
-  const { cookies } = await import("next/headers");
-  const token = (await cookies()).get("session")?.value;
-  if (!token) return false;
-  const res = await fetch(`${API_INTERNAL_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) return false;
-  const user = (await res.json()) as { is_platform_owner: boolean };
-  return user.is_platform_owner;
-}
 
 export default async function UsersPage() {
   if (!(await currentUserIsOwner())) {

@@ -90,6 +90,19 @@ export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null>
   return (await res.json()) as Bot;
 }
 
+export async function createBot(baseUrl: string, name: string): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
 export async function logoutBot(baseUrl: string, id: string): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/logout`, { method: "POST" });

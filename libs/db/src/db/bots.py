@@ -15,6 +15,16 @@ from .models import Bot, BotAccess
 from .prompt_versions import record_version_if_changed
 
 
+async def create_bot(session: AsyncSession, *, name: str) -> Bot:
+    """Всё остальное (enabled/system_prompt/timezone/settings) — server_default
+    модели (FEATURES.md 6.20). Дубликат name — не ошибка (никакой уникальности
+    на уровне БД нет, name — витринная строка для людей, не идентификатор)."""
+    bot = Bot(name=name)
+    session.add(bot)
+    await session.flush()
+    return bot
+
+
 async def get_bot(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
     """Без eager-load .session — горячий путь (worker/celery на каждое
     сообщение/follow-up), им не нужны Bot.phone/Bot.linked_at. Не добавлять

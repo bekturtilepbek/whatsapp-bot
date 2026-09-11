@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from db.bot_access import grant_bot_access
-from db.bots import list_bots
+from db.bots import create_bot, list_bots
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, User
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,3 +78,18 @@ async def test_list_bots_with_user_id_filters_to_granted(session: AsyncSession) 
 
     result = await list_bots(session, user_id=user.id)
     assert [b.name for b in result] == ["granted"]
+
+
+async def test_create_bot_sets_name_and_defaults(session: AsyncSession) -> None:
+    bot = await create_bot(session, name="Новый бот")
+    assert bot.name == "Новый бот"
+    assert bot.enabled is True
+    assert bot.system_prompt == ""
+    assert bot.timezone == "Asia/Bishkek"
+    assert bot.settings == {}
+
+
+async def test_create_bot_duplicate_name_is_allowed(session: AsyncSession) -> None:
+    await create_bot(session, name="dup")
+    second = await create_bot(session, name="dup")
+    assert second.name == "dup"

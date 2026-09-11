@@ -316,3 +316,45 @@ async def test_list_bots_filters_by_grant_for_non_owner(
 
     response = await client.get("/bots")
     assert [b["id"] for b in response.json()] == [str(granted_bot_id)]
+
+
+async def test_create_bot_returns_201_with_defaults(client: httpx.AsyncClient) -> None:
+    response = await client.post("/bots", json={"name": "Новый бот"})
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "Новый бот"
+    assert body["enabled"] is True
+    assert body["phone"] is None
+    assert body["linked_at"] is None
+    assert body["timezone"] == "Asia/Bishkek"
+
+
+async def test_create_bot_appears_in_list(client: httpx.AsyncClient) -> None:
+    created = await client.post("/bots", json={"name": "В списке"})
+    bot_id = created.json()["id"]
+
+    listing = await client.get("/bots")
+    assert any(b["id"] == bot_id for b in listing.json())
+
+
+async def test_create_bot_empty_name_returns_422(client: httpx.AsyncClient) -> None:
+    response = await client.post("/bots", json={"name": "   "})
+    assert response.status_code == 422
+
+
+async def test_create_bot_non_owner_returns_403(client: httpx.AsyncClient) -> None:
+    from api.security import get_current_user
+    from db.models import User
+
+    client_user = User(
+        id=uuid.uuid4(),
+        email="not-owner@example.com",
+        password_hash="unused",
+        is_platform_owner=False,
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+    response = await client.post("/bots", json={"name": "Чужой бот"})
+    assert response.status_code == 403

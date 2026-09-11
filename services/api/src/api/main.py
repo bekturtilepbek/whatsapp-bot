@@ -16,6 +16,7 @@ from db.engine import make_engine, make_session_factory, session_scope
 from db.users import get_user_by_email
 from fastapi import FastAPI
 
+from .audit import audit_middleware
 from .routers import auth, bots, documents, products, users
 from .security import hash_password
 
@@ -58,6 +59,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="platform-api", lifespan=lifespan)
+
+app.middleware("http")(audit_middleware)
 
 # CORS убран (FEATURES.md 6.18): браузер больше не стучится в api напрямую —
 # admin-web ходит через свой BFF-прокси (Task 6 этого суб-проекта), у которого

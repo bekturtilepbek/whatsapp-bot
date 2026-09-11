@@ -16,7 +16,7 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from api.db import get_session
-from api.main import _bootstrap_platform_owner, app
+from api.main import _bootstrap_platform_owner, app, lifespan
 from api.security import hash_password, verify_password
 from db.engine import make_engine, make_session_factory
 from db.models import User
@@ -132,6 +132,18 @@ async def test_login_unknown_email_returns_401(client: httpx.AsyncClient) -> Non
     assert response.status_code == 401
 
 
+async def test_login_password_over_72_bytes_returns_422_not_500(
+    client: httpx.AsyncClient,
+) -> None:
+    # bcrypt (>=4.2) бросает ValueError на пароль длиннее 72 байт вместо
+    # молчаливого обрезания — Pydantic должен отсечь его чистым 422 раньше,
+    # чем он дойдёт до bcrypt.checkpw.
+    response = await client.post(
+        "/auth/login", json={"email": "nobody@example.com", "password": "x" * 73}
+    )
+    assert response.status_code == 422
+
+
 async def test_login_inactive_user_returns_401(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -223,3 +235,17 @@ async def test_bootstrap_is_noop_when_env_vars_unset(
     async with session_factory() as session:
         user = await get_user_by_email(session, "never-created-owner@example.com")
         assert user is None
+
+
+async def test_lifespan_survives_bootstrap_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # На свежем томе без применённых миграций (таблицы users ещё нет) запрос
+    # бутстрапа падает UndefinedTableError — lifespan не должен ронять приложение.
+    async def _boom() -> None:
+        raise RuntimeError("relation \"users\" does not exist")
+
+    monkeypatch.setattr("api.main._bootstrap_platform_owner", _boom)
+
+    async with lifespan(app):
+        pass  # не должно бросить исключение

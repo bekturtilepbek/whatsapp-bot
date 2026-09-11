@@ -11,12 +11,15 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from db.engine import make_engine, make_session_factory, session_scope
 from db.users import get_user_by_email
 from fastapi import FastAPI
 
 from .routers import auth, bots, products, users
 from .security import hash_password
+
+logger = structlog.get_logger("api.main")
 
 
 async def _bootstrap_platform_owner() -> None:
@@ -44,7 +47,13 @@ async def _bootstrap_platform_owner() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    await _bootstrap_platform_owner()
+    # Бутстрап — удобство, а не обязательное условие запуска: на свежем
+    # Postgres-томе без применённых Alembic-миграций (таблицы users ещё нет)
+    # запрос упадёт UndefinedTableError — приложение всё равно должно стартовать.
+    try:
+        await _bootstrap_platform_owner()
+    except Exception:
+        logger.warning("bootstrap_platform_owner_failed", exc_info=True)
     yield
 
 

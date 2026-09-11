@@ -13,6 +13,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "content-length",
   "host",
+  // cookie — критично: сессионная cookie admin-web не должна доходить до
+  // api. Браузер сам прикладывает её к запросу на "/api-proxy" (свой
+  // origin) — здесь она вырезается, наружу идёт только Authorization:
+  // Bearer, полученный из этой же cookie ниже.
+  "cookie",
 ]);
 
 async function proxy(request: Request, path: string[]): Promise<Response> {

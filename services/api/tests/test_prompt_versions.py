@@ -75,10 +75,12 @@ async def client(
             yield session
 
     app.dependency_overrides[get_session] = override_get_session
+    app.state.audit_session_factory = session_factory
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
+    app.state.audit_session_factory = None
 
 
 async def _make_bot(session_factory: async_sessionmaker[AsyncSession]) -> uuid.UUID:

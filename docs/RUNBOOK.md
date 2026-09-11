@@ -9,7 +9,10 @@
    репозитория** (ADR-007). Обязательные переменные — см.
    `.env.example` и `compose/docker-compose.prod.yml` (там, где
    `${VAR:?...}`, деплой откажется стартовать без неё): `POSTGRES_USER`,
-   `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OPENAI_API_KEY`.
+   `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OPENAI_API_KEY`, `JWT_SECRET`,
+   `PLATFORM_OWNER_EMAIL`, `PLATFORM_OWNER_PASSWORD` (роли и доступы,
+   FEATURES.md 6.18 — `PLATFORM_OWNER_EMAIL`/`PLATFORM_OWNER_PASSWORD`
+   заводят первого владельца платформы при пустой таблице `users`).
    Опционально — `TELEGRAM_BOT_TOKEN` (только если у бота включена тулза
    `send_telegram_lead`, FEATURES.md 4.7); без неё тулза возвращает боту
    текст ошибки, деплой не ломается.
@@ -23,12 +26,12 @@
    FEATURES.md 6.20; пока — прямой SQL, как в чек-листе Блока 1/2).
 5. QR — открыть `http://127.0.0.1:3000/bots/{id}` через SSH-туннель на ОБА
    порта (`ssh -L 8000:localhost:8000 -L 3000:localhost:3000 user@server`),
-   отсканировать QR со страницы. Открывать именно `127.0.0.1:3000` (не
-   `localhost:3000`) — `ADMIN_WEB_ORIGIN` в `docker-compose.prod.yml`
-   по умолчанию разрешает CORS только для `http://127.0.0.1:3000`; другой
-   адрес браузера — и поллинг статуса молча не будет работать (см.
-   `.env.example` про `ADMIN_WEB_ORIGIN`/`ADMIN_WEB_API_PUBLIC_URL`, если
-   нужно поменять адрес).
+   отсканировать QR со страницы. Открывать именно `127.0.0.1:3000` — это
+   просто единственный хост-биндинг `admin-web` в `docker-compose.prod.yml`
+   (`127.0.0.1:3000:3000`); CORS тут ни при чём (убран, FEATURES.md 6.18 —
+   admin-web ходит в api через свой BFF-прокси, у которого общий origin
+   с браузером). Первый вход — через `/login` с `PLATFORM_OWNER_EMAIL`/
+   `PLATFORM_OWNER_PASSWORD` из `.env`.
 
 ## Обновление стенда
 
@@ -87,3 +90,15 @@ gunzip -c backups/<файл>.sql.gz | docker compose -f compose/docker-compose.p
 
 Если авто-релиз (`settings.auto_release_minutes`, дефолт 12 мин) ждать не
 нужно: `POST /bots/{id}/chats/{chatId}/release` через тот же SSH-туннель.
+Ручка, как и все bot-scoped роуты, требует `Authorization: Bearer <token>`
+(FEATURES.md 6.18) — сначала логин:
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"'"$PLATFORM_OWNER_EMAIL"'","password":"'"$PLATFORM_OWNER_PASSWORD"'"}' \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+
+curl -X POST http://127.0.0.1:8000/bots/{id}/chats/{chatId}/release \
+  -H "Authorization: Bearer $TOKEN"
+```

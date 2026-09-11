@@ -64,7 +64,8 @@ Prometheus (пока только structlog), чёрный список, рас�
    входящие пишутся в историю; сообщение менеджера — в историю ролью assistant
    с префиксом `[Ответ менеджера]`. Ручной возврат: `DELETE handoff-ключа` через
    API-ручку.
-2. HTTP-ручки api (слушаем localhost, доступ через SSH-туннель; auth — Волна 3):
+2. HTTP-ручки api (слушаем localhost, доступ через SSH-туннель; авторизация
+   Bearer-токеном поверх этого — сдана на Волне 3, FEATURES.md 6.18):
    `GET/PATCH /bots/{id}` (enabled, system_prompt, settings), `GET /bots/{id}/qr`,
    `POST /bots/{id}/logout`, `POST /bots/{id}/chats/{chatId}/release`.
 3. Деплой: `compose/docker-compose.prod.yml`, `.env` на сервере; крон

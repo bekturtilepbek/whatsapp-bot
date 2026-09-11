@@ -168,7 +168,7 @@ export class OutboundConsumer {
           SEND_TIMEOUT_MS,
           "sendDocument",
         );
-      } else {
+      } else if (event.type === "outbound.video") {
         const video = await withTimeout(
           this.storage.get(event.storage_key),
           SEND_TIMEOUT_MS,
@@ -179,6 +179,13 @@ export class OutboundConsumer {
           SEND_TIMEOUT_MS,
           "sendVideo",
         );
+      } else {
+        // Компилятор ловит здесь любой новый outbound.*-тип, добавленный в
+        // контракт (docs/contracts/events.schema.json) без соответствующей
+        // ветки выше — раньше был bare else, шестой тип молча утёк бы в
+        // video-ветку без ошибки компиляции (найдено ретро-ревью 4.8/4.9).
+        const _exhaustive: never = event;
+        throw new Error(`unhandled outbound event type: ${JSON.stringify(_exhaustive)}`);
       }
     } catch (err) {
       this.logger.error(

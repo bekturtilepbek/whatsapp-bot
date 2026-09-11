@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { patchBotName } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface RenameBotFormProps {
   botId: string;
@@ -12,23 +13,23 @@ interface RenameBotFormProps {
 
 export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormProps) {
   const router = useRouter();
+  const { showError, showSuccess } = useToast();
   const [name, setName] = useState(initialName);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
-      setError("Название не может быть пустым");
+      showError("Название не может быть пустым");
       return;
     }
-    setError(null);
     setSaving(true);
     try {
       await patchBotName(apiBaseUrl, botId, name);
+      showSuccess("Название сохранено");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить название");
+      showError(err instanceof Error ? err.message : "Не удалось сохранить название");
     } finally {
       setSaving(false);
     }
@@ -48,11 +49,6 @@ export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormP
       <button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </button>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
     </form>
   );
 }

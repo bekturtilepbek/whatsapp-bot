@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fetchPromptVersions, patchBotPrompt, type PromptKind, type PromptVersion } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface PromptEditorProps {
   botId: string;
@@ -20,21 +21,21 @@ export function PromptEditor({
   initialBody,
   initialVersions,
 }: PromptEditorProps) {
+  const { showError, showSuccess } = useToast();
   const [body, setBody] = useState(initialBody ?? "");
   const [versions, setVersions] = useState<PromptVersion[]>(initialVersions);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const save = async (newBody: string) => {
     setSaving(true);
-    setError(null);
     try {
       await patchBotPrompt(apiBaseUrl, botId, kind, newBody);
       setBody(newBody);
       const updated = await fetchPromptVersions(apiBaseUrl, botId, kind);
       setVersions(updated);
+      showSuccess("Сохранено");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить");
+      showError(err instanceof Error ? err.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
     }
@@ -49,11 +50,6 @@ export function PromptEditor({
           {saving ? "Сохраняем…" : "Сохранить"}
         </button>
       </div>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
       <ul>
         {versions.map((version) => (
           <li key={version.id}>

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { DocumentsTable } from "@/components/DocumentsTable";
 import * as api from "@/lib/api";
 import type { BotDocument } from "@/lib/api";
@@ -50,6 +50,7 @@ it("uploads a selected file and prepends it to the list", async () => {
     expect(api.uploadDocument).toHaveBeenCalledWith("http://api", "1", file);
   });
   expect(await screen.findByText("new.pdf")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent(/загружен/i);
 });
 
 it("shows an error when upload fails", async () => {
@@ -85,6 +86,7 @@ it("deletes a document and removes its row", async () => {
   await waitFor(() => {
     expect(screen.queryByText("price.pdf")).not.toBeInTheDocument();
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/удалён/i);
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {

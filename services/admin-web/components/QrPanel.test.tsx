@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { QrPanel } from "@/components/QrPanel";
 import * as api from "@/lib/api";
 import type { Bot } from "@/lib/api";
@@ -67,6 +67,7 @@ it("logs out and returns to the QR view", async () => {
   await waitFor(() => {
     expect(screen.getByRole("img", { name: /qr/i })).toBeInTheDocument();
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/отключён/i);
 });
 
 it("shows an error when a poll fails", async () => {
@@ -78,13 +79,13 @@ it("shows an error when a poll fails", async () => {
   });
 });
 
-it("shows an error when logout fails", async () => {
-  // fetchBot тоже отклоняется тем же сообщением — иначе refresh() внутри
-  // handleLogout (вызывается всегда, даже при неудачном logout) успешно
-  // отрабатывает и тут же чистит error через setError(null), и тест ловит
-  // гонку между "ошибка выставлена" и "ошибка сразу очищена".
+it("shows an error toast when logout fails", async () => {
+  // Ошибка logout теперь идёт в toast (одноразовое действие), а не в
+  // локальный error, завязанный на poll — гонка с refresh()'ом, успешно
+  // чистившим error через setError(null), больше не существует: toast и
+  // poll-статус (pollError) — независимые состояния.
   vi.mocked(api.logoutBot).mockRejectedValue(new Error("gateway unreachable"));
-  vi.mocked(api.fetchBot).mockRejectedValue(new Error("gateway unreachable"));
+  vi.mocked(api.fetchBot).mockResolvedValue(linkedBot);
   render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
 
   fireEvent.click(screen.getByRole("button", { name: /отключить/i }));

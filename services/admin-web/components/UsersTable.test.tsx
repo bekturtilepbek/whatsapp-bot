@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { UsersTable } from "@/components/UsersTable";
 import * as api from "@/lib/api";
 import type { Bot, CabinetUser } from "@/lib/api";
@@ -104,6 +104,7 @@ it("creates a user and adds it to the list", async () => {
   expect(await screen.findByText("new@example.com")).toBeInTheDocument();
   expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Пароль") as HTMLInputElement).value).toBe("");
+  expect(screen.getByRole("status")).toHaveTextContent(/создан/i);
 });
 
 it("shows an error and keeps the form filled when creating fails", async () => {

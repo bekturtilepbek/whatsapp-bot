@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { PromptEditor } from "@/components/PromptEditor";
 import * as api from "@/lib/api";
 import type { PromptVersion } from "@/lib/api";
@@ -78,6 +78,7 @@ it("saves the edited body and refreshes version history", async () => {
   await waitFor(() => {
     expect(screen.getAllByText(/новый текст/).length).toBeGreaterThan(0);
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/сохранено/i);
 });
 
 it("rolls back to a past version with one click", async () => {

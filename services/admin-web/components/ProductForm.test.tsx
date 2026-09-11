@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { ProductForm } from "@/components/ProductForm";
 import * as api from "@/lib/api";
 import type { Product } from "@/lib/api";
@@ -89,6 +89,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
     );
   });
   expect(pushMock).toHaveBeenCalledWith("/bots/1/products");
+  expect(screen.getByRole("status")).toHaveTextContent(/товар сохранён/i);
 });
 
 it("updates an existing product's text fields (photos untouched by this save)", async () => {
@@ -107,6 +108,7 @@ it("updates an existing product's text fields (photos untouched by this save)", 
       display_custom: {},
     });
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/товар сохранён/i);
 });
 
 it("sends display_custom only when the override checkbox is on", async () => {
@@ -194,6 +196,7 @@ it("enables delete and removes the photo from view when there is more than one",
   await waitFor(() => {
     expect(screen.getAllByRole("img", { name: /фото товара/i })).toHaveLength(1);
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/фото удалено/i);
 });
 
 it("adds a photo via the file input in edit mode", async () => {
@@ -210,4 +213,5 @@ it("adds a photo via the file input in edit mode", async () => {
   await waitFor(() => {
     expect(screen.getAllByRole("img", { name: /фото товара/i })).toHaveLength(2);
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/фото добавлено/i);
 });

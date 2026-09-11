@@ -12,6 +12,7 @@ import {
   type ProductInput,
   type ProductPhoto,
 } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface ProductFormProps {
   botId: string;
@@ -63,12 +64,12 @@ function toInput(state: FormState): ProductInput {
 
 export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const router = useRouter();
+  const { showError, showSuccess } = useToast();
   const [state, setState] = useState<FormState>(() => initialState(product));
   const [newPhotos, setNewPhotos] = useState<File[]>([]);
   const [photos, setPhotos] = useState<ProductPhoto[]>(product?.photos ?? []);
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // PATCH на бэкенде мержит поля: null/пропуск значит «не трогать», а не
   // «очистить» (см. аналогичное поведение bots.image_prompt/pdf_prompt).
@@ -85,15 +86,14 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (state.name.trim() === "") {
-      setError("Название обязательно");
+      showError("Название обязательно");
       return;
     }
     if (!product && newPhotos.length === 0) {
-      setError("Нужно хотя бы одно фото");
+      showError("Нужно хотя бы одно фото");
       return;
     }
     setSaving(true);
-    setError(null);
     try {
       const input = toInput(state);
       if (product) {
@@ -101,10 +101,11 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       } else {
         await createProduct(apiBaseUrl, botId, input, newPhotos);
       }
+      showSuccess("Товар сохранён");
       router.push(`/bots/${botId}/products`);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить");
+      showError(err instanceof Error ? err.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
     }
@@ -114,13 +115,13 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     if (!product || !files || files.length === 0) {
       return;
     }
-    setError(null);
     setPhotoBusy(true);
     try {
       const added = await addProductPhotos(apiBaseUrl, botId, product.id, Array.from(files));
       setPhotos((current) => [...current, ...added]);
+      showSuccess("Фото добавлено");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось добавить фото");
+      showError(err instanceof Error ? err.message : "Не удалось добавить фото");
     } finally {
       setPhotoBusy(false);
     }
@@ -130,13 +131,13 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     if (!product) {
       return;
     }
-    setError(null);
     setPhotoBusy(true);
     try {
       await deleteProductPhoto(apiBaseUrl, botId, product.id, photoId);
       setPhotos((current) => current.filter((p) => p.id !== photoId));
+      showSuccess("Фото удалено");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить фото");
+      showError(err instanceof Error ? err.message : "Не удалось удалить фото");
     } finally {
       setPhotoBusy(false);
     }
@@ -241,11 +242,6 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       <button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </button>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
 
       {product && (
         <section>

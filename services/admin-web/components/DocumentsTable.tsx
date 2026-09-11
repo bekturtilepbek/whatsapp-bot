@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { deleteDocument, uploadDocument, type BotDocument } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface DocumentsTableProps {
   botId: string;
@@ -10,8 +11,8 @@ interface DocumentsTableProps {
 }
 
 export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableProps) {
+  const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(documents);
-  const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const handleUpload = async (files: FileList | null) => {
@@ -19,35 +20,30 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
     if (!file) {
       return;
     }
-    setError(null);
     setUploading(true);
     try {
       const uploaded = await uploadDocument(apiBaseUrl, botId, file);
       setRows((current) => [uploaded, ...current]);
+      showSuccess("Файл загружен");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить файл");
+      showError(err instanceof Error ? err.message : "Не удалось загрузить файл");
     } finally {
       setUploading(false);
     }
   };
 
   const handleDelete = async (documentId: string) => {
-    setError(null);
     try {
       await deleteDocument(apiBaseUrl, botId, documentId);
       setRows((current) => current.filter((row) => row.id !== documentId));
+      showSuccess("Файл удалён");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить");
+      showError(err instanceof Error ? err.message : "Не удалось удалить");
     }
   };
 
   return (
     <>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
       <label>
         Загрузить файл
         <input

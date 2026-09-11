@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchBot, logoutBot, qrImageUrl, type Bot } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface QrPanelProps {
   initialBot: Bot;
@@ -12,15 +13,21 @@ interface QrPanelProps {
 }
 
 export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPanelProps) {
+  const { showError, showSuccess } = useToast();
   const [bot, setBot] = useState<Bot>(initialBot);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Намеренно НЕ toast: это статус фонового поллинга (каждые pollIntervalMs,
+  // 5с в проде), не результат одноразового действия пользователя — toast на
+  // каждый неудачный опрос копился бы бесконечной стопкой, пока не
+  // восстановится сеть. Постоянный инлайн-баннер здесь уместнее (FEATURES.md
+  // 6.5 про алерты РЕЗУЛЬТАТА действия, не про живой статус соединения).
+  const [pollError, setPollError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const updated = await fetchBot(apiBaseUrl, initialBot.id);
-      setError(null);
+      setPollError(null);
       if (!updated) return;
       setBot(updated);
       if (!updated.linked_at) {
@@ -28,7 +35,7 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
         setQrUrl(qrImageUrl(apiBaseUrl, initialBot.id));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось обновить статус");
+      setPollError(err instanceof Error ? err.message : "Не удалось обновить статус");
     }
   }, [apiBaseUrl, initialBot.id]);
 
@@ -46,12 +53,12 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   }, [apiBaseUrl, initialBot.id]);
 
   const handleLogout = async () => {
-    setError(null);
     setLoggingOut(true);
     try {
       await logoutBot(apiBaseUrl, bot.id);
+      showSuccess("Номер отключён");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось отключить номер");
+      showError(err instanceof Error ? err.message : "Не удалось отключить номер");
     } finally {
       setLoggingOut(false);
     }
@@ -67,9 +74,9 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
         <button onClick={() => void handleLogout()} disabled={loggingOut}>
           {loggingOut ? "Отключаем…" : "Отключить"}
         </button>
-        {error && (
+        {pollError && (
           <p role="alert" style={{ color: "crimson" }}>
-            {error}
+            {pollError}
           </p>
         )}
       </div>
@@ -83,9 +90,9 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
         // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
         <img src={qrUrl} alt="QR-код для подключения WhatsApp" width={300} height={300} />
       )}
-      {error && (
+      {pollError && (
         <p role="alert" style={{ color: "crimson" }}>
-          {error}
+          {pollError}
         </p>
       )}
     </div>

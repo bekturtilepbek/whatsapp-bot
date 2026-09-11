@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { deleteProduct, fetchProducts, productPhotoUrl, type Product } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface ProductsTableProps {
   botId: string;
@@ -17,8 +18,8 @@ interface ProductsTableProps {
 
 export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: ProductsTableProps) {
   const router = useRouter();
+  const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(products);
-  const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(products.length === pageSize);
 
@@ -26,13 +27,13 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
     if (!confirm("Удалить товар?")) {
       return;
     }
-    setError(null);
     try {
       await deleteProduct(apiBaseUrl, botId, productId);
       setRows((current) => current.filter((p) => p.id !== productId));
+      showSuccess("Товар удалён");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить");
+      showError(err instanceof Error ? err.message : "Не удалось удалить");
     }
   };
 
@@ -43,7 +44,6 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
     // выдачу (пропуск/дубль одной строки). Принято сознательно для витрины
     // кабинета такого масштаба (найдено code review, 2026-09-10) — не чинить
     // курсорной пагинацией без реальной жалобы.
-    setError(null);
     setLoadingMore(true);
     try {
       const next = await fetchProducts(apiBaseUrl, botId, {
@@ -53,7 +53,7 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
       setRows((current) => [...current, ...next]);
       setHasMore(next.length === pageSize);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить ещё");
+      showError(err instanceof Error ? err.message : "Не удалось загрузить ещё");
     } finally {
       setLoadingMore(false);
     }
@@ -61,11 +61,6 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
 
   return (
     <>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
       <table>
         <thead>
           <tr>

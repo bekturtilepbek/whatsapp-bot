@@ -9,6 +9,7 @@ import {
   type CabinetUser,
 } from "@/lib/api";
 import type { Bot } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface UsersTableProps {
   apiBaseUrl: string;
@@ -17,31 +18,34 @@ interface UsersTableProps {
 }
 
 export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
+  const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(users);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
     if (!email.trim() || !password.trim()) return;
-    setError(null);
     setCreating(true);
     try {
       const created = await createUser(apiBaseUrl, { email, password, bot_ids: [] });
       setRows((current) => [...current, created]);
       setEmail("");
       setPassword("");
+      showSuccess("Пользователь создан");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось создать");
+      showError(err instanceof Error ? err.message : "Не удалось создать");
     } finally {
       setCreating(false);
     }
   };
 
+  // toggleAccess/toggleActive — чекбоксы: сама смена состояния чекбокса уже
+  // видимое подтверждение успеха, отдельный toast был бы шумом на каждый
+  // клик. Ошибка — другое дело, без неё непонятно, почему чекбокс не
+  // изменился (состояние не обновляется при catch).
   const toggleAccess = async (userId: string, botId: string, hasAccess: boolean) => {
-    setError(null);
     try {
       if (hasAccess) {
         await revokeBotAccess(apiBaseUrl, userId, botId);
@@ -59,29 +63,23 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
         ),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось изменить доступ");
+      showError(err instanceof Error ? err.message : "Не удалось изменить доступ");
     }
   };
 
   const toggleActive = async (userId: string, isActive: boolean) => {
-    setError(null);
     try {
       await patchUser(apiBaseUrl, userId, { is_active: !isActive });
       setRows((current) =>
         current.map((u) => (u.id === userId ? { ...u, is_active: !isActive } : u)),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось изменить статус");
+      showError(err instanceof Error ? err.message : "Не удалось изменить статус");
     }
   };
 
   return (
     <>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
       <form onSubmit={(event) => void handleCreate(event)}>
         <input
           type="email"

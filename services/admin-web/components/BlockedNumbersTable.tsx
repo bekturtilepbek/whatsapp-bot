@@ -7,6 +7,7 @@ import {
   fetchBlockedNumbers,
   type BlockedNumber,
 } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface BlockedNumbersTableProps {
   botId: string;
@@ -24,9 +25,9 @@ export function BlockedNumbersTable({
   numbers,
   pageSize,
 }: BlockedNumbersTableProps) {
+  const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(numbers);
   const [phone, setPhone] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(numbers.length === pageSize);
@@ -36,7 +37,6 @@ export function BlockedNumbersTable({
     if (!phone.trim()) {
       return;
     }
-    setError(null);
     setAdding(true);
     try {
       const added = await addBlockedNumber(apiBaseUrl, botId, phone);
@@ -47,27 +47,27 @@ export function BlockedNumbersTable({
           : [added, ...current],
       );
       setPhone("");
+      showSuccess("Номер добавлен в чёрный список");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось добавить");
+      showError(err instanceof Error ? err.message : "Не удалось добавить");
     } finally {
       setAdding(false);
     }
   };
 
   const handleDelete = async (targetPhone: string) => {
-    setError(null);
     try {
       await deleteBlockedNumber(apiBaseUrl, botId, targetPhone);
       setRows((current) => current.filter((row) => row.phone !== targetPhone));
+      showSuccess("Номер удалён из чёрного списка");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить");
+      showError(err instanceof Error ? err.message : "Не удалось удалить");
     }
   };
 
   const handleLoadMore = async () => {
     // offset от rows.length — тот же принятый риск сдвига страницы при
     // параллельном изменении списка, что и в ProductsTable.
-    setError(null);
     setLoadingMore(true);
     try {
       const next = await fetchBlockedNumbers(apiBaseUrl, botId, {
@@ -77,7 +77,7 @@ export function BlockedNumbersTable({
       setRows((current) => [...current, ...next]);
       setHasMore(next.length === pageSize);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить ещё");
+      showError(err instanceof Error ? err.message : "Не удалось загрузить ещё");
     } finally {
       setLoadingMore(false);
     }
@@ -85,11 +85,6 @@ export function BlockedNumbersTable({
 
   return (
     <>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
       <form onSubmit={(event) => void handleAdd(event)}>
         <input
           type="text"

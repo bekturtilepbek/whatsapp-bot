@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createBot } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 interface NewBotFormProps {
   apiBaseUrl: string;
@@ -10,8 +11,8 @@ interface NewBotFormProps {
 
 export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
   const router = useRouter();
+  const { showError, showSuccess } = useToast();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -19,14 +20,14 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
     if (!name.trim()) {
       return;
     }
-    setError(null);
     setCreating(true);
     try {
       const bot = await createBot(apiBaseUrl, name);
+      showSuccess("Бот создан");
       router.push(`/bots/${bot.id}`);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось создать бота");
+      showError(err instanceof Error ? err.message : "Не удалось создать бота");
       setCreating(false);
     }
   };
@@ -47,11 +48,6 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
       <button type="submit" disabled={creating}>
         {creating ? "Создаём…" : "Создать"}
       </button>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
     </form>
   );
 }

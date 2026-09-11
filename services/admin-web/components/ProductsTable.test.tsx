@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { ProductsTable } from "@/components/ProductsTable";
 import * as api from "@/lib/api";
 import type { Product } from "@/lib/api";
@@ -77,6 +77,7 @@ it("deletes the product and removes its row after confirmation", async () => {
     expect(screen.queryByText("Кроссовки")).not.toBeInTheDocument();
   });
   expect(refreshMock).toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent(/товар удалён/i);
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { BlockedNumbersTable } from "@/components/BlockedNumbersTable";
 import * as api from "@/lib/api";
 import type { BlockedNumber } from "@/lib/api";
@@ -44,6 +44,7 @@ it("adds a number and prepends it to the list", async () => {
   });
   expect(await screen.findByText("996700000003")).toBeInTheDocument();
   expect((screen.getByLabelText("Номер телефона") as HTMLInputElement).value).toBe("");
+  expect(screen.getByRole("status")).toHaveTextContent(/добавлен/i);
 });
 
 it("shows an error and does not clear the input when adding fails", async () => {
@@ -79,6 +80,7 @@ it("deletes a number and removes its row", async () => {
   await waitFor(() => {
     expect(screen.queryByText("996700000001")).not.toBeInTheDocument();
   });
+  expect(screen.getByRole("status")).toHaveTextContent(/удалён/i);
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {

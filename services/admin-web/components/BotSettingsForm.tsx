@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { patchBotSettings, type BotSettings } from "@/lib/api";
+import { useToast } from "@/components/ToastProvider";
 
 const BYTES_PER_MB = 1024 * 1024;
 // Не «сколько разрешает WhatsApp» — свой предохранитель поверх лимита
@@ -79,30 +80,25 @@ interface BotSettingsFormProps {
 }
 
 export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSettingsFormProps) {
+  const { showError, showSuccess } = useToast();
   const [baseline, setBaseline] = useState<Required<BotSettings>>(initialSettings);
   const [settings, setSettings] = useState<Required<BotSettings>>(initialSettings);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const isDirty = Object.keys(diffSettings(baseline, settings)).length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const validationError = validateSettings(settings);
     if (validationError) {
-      setError(validationError);
+      showError(validationError);
       return;
     }
     setSaving(true);
-    setSaved(false);
-    setError(null);
     try {
       await patchBotSettings(apiBaseUrl, botId, diffSettings(baseline, settings));
       setBaseline(settings);
-      setSaved(true);
+      showSuccess("Сохранено");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить");
+      showError(err instanceof Error ? err.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
     }
@@ -211,12 +207,6 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
       <button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </button>
-      {saved && !isDirty && !error && <p role="status">Сохранено</p>}
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
     </form>
   );
 }

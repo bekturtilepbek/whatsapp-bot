@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { NewBotForm } from "@/components/NewBotForm";
 import * as api from "@/lib/api";
 import type { Bot } from "@/lib/api";
@@ -55,6 +55,7 @@ it("creates a bot and navigates to its page", async () => {
     expect(pushMock).toHaveBeenCalledWith("/bots/b1");
   });
   expect(refreshMock).toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent(/бот создан/i);
 });
 
 it("shows an error and does not navigate when creation fails", async () => {

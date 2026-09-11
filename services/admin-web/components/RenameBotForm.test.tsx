@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { RenameBotForm } from "@/components/RenameBotForm";
 import * as api from "@/lib/api";
 import type { Bot } from "@/lib/api";
@@ -48,6 +48,7 @@ it("saves the new name and refreshes", async () => {
     expect(api.patchBotName).toHaveBeenCalledWith("http://api", "b1", "Новое имя");
   });
   expect(refreshMock).toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent(/название сохранено/i);
 });
 
 it("does not save when the name is blank", async () => {

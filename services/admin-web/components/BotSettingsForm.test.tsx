@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
 import * as api from "@/lib/api";
 import type { Bot, BotSettings } from "@/lib/api";
@@ -90,18 +90,6 @@ it("shows an error when saving fails", async () => {
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
   });
-});
-
-it("hides the saved banner again once the admin edits a field", async () => {
-  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
-  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-
-  fireEvent.change(screen.getByLabelText(/таймаут батчинга/i), { target: { value: "2" } });
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
-  expect(await screen.findByRole("status")).toBeInTheDocument();
-
-  fireEvent.change(screen.getByLabelText(/таймаут батчинга/i), { target: { value: "3" } });
-  expect(screen.queryByRole("status")).not.toBeInTheDocument();
 });
 
 describe("validation blocks the save call and shows an error instead", () => {

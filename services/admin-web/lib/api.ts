@@ -649,3 +649,37 @@ export async function fetchUsage(
   }
   return (await res.json()) as UsageSummary[];
 }
+
+// Песочница (FEATURES.md 9.6, только для владельца платформы) — без тулз,
+// история хранится целиком в браузере (ничего не пишется в contacts/messages
+// на бэкенде, см. services/api/src/api/routers/sandbox.py).
+
+export interface SandboxHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface SandboxMessageResult {
+  reply: string;
+  tokens_in: number;
+  tokens_out: number;
+  model: string;
+}
+
+export async function sendSandboxMessage(
+  baseUrl: string,
+  botId: string,
+  history: SandboxHistoryItem[],
+  message: string,
+): Promise<SandboxMessageResult> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${botId}/sandbox/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ history, message }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/sandbox/messages failed: ${res.status}`);
+  }
+  return (await res.json()) as SandboxMessageResult;
+}

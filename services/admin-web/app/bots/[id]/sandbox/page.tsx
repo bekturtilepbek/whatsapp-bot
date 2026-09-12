@@ -17,8 +17,8 @@ export default async function SandboxPage({ params }: { params: Promise<{ id: st
 
   return (
     <main>
-      <h1>Песочница: {bot.name}</h1>
-      <SandboxChat apiBaseUrl={API_PROXY_PATH} botId={bot.id} />
+      <h1>Песочница</h1>
+      <SandboxChat apiBaseUrl={API_PROXY_PATH} botId={bot.id} botName={bot.name} />
     </main>
   );
 }

@@ -1,61 +1,96 @@
-body {
-  font-family: system-ui, sans-serif;
-  margin: 2rem;
-  color: #1a1a1a;
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #1c1b19;
+  --color-ink-soft: #6f6a62;
+  --color-ink-faint: #a39c8e;
+  --color-canvas: #faf9f6;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f1efea;
+  --color-border: #e4e0d8;
+  --color-sidebar: #1b1a17;
+  --color-sidebar-ink: #ede9e2;
+  --color-sidebar-ink-soft: #a39c8e;
+  --color-accent: #3459b4;
+  --color-accent-hover: #274783;
+  --color-accent-soft: #e8edf8;
+  --color-success: #1c8a5e;
+  --color-warning: #b7791f;
+  --color-danger: #c0362c;
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
-}
+/* Существующие правила ДО этой волны редизайна — сохранены дословно и
+ * обёрнуты в @layer base, а не удалены: Tailwind-слои идут base < components
+ * < utilities, поэтому любой новый примитив (@layer utilities, то есть
+ * className-утилиты на компонентах components/ui/) автоматически побеждает
+ * эти правила в каскаде, а ещё не мигрированные экраны (BotsTable,
+ * ProductsTable и т.д. — см. Global Constraints плана) продолжают выглядеть
+ * ровно как раньше. Правила удаляются целиком только последним таском самой
+ * последней волны редизайна экранов, когда ни один <table>/<button> без
+ * className их больше не использует. */
+@layer base {
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 2rem;
+    color: #1a1a1a;
+  }
 
-th,
-td {
-  text-align: left;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid #ddd;
-}
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
 
-button {
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-}
+  th,
+  td {
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #ddd;
+  }
 
-textarea {
-  width: 100%;
-  font-family: inherit;
-  font-size: 1rem;
-  padding: 0.5rem;
-  box-sizing: border-box;
-}
+  button {
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+  }
 
-section {
-  margin-bottom: 2rem;
-}
+  textarea {
+    width: 100%;
+    font-family: inherit;
+    font-size: 1rem;
+    padding: 0.5rem;
+    box-sizing: border-box;
+  }
 
-ul {
-  list-style: none;
-  padding: 0;
-}
+  section {
+    margin-bottom: 2rem;
+  }
 
-li {
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #ddd;
-}
+  ul {
+    list-style: none;
+    padding: 0;
+  }
 
-form label {
-  display: block;
-  margin-bottom: 1rem;
-}
+  li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #ddd;
+  }
 
-form input[type="number"],
-form input[type="text"] {
-  display: block;
-  margin-top: 0.25rem;
-  padding: 0.4rem;
-  font-size: 1rem;
-}
+  form label {
+    display: block;
+    margin-bottom: 1rem;
+  }
 
-form input[type="checkbox"] {
-  margin-right: 0.5rem;
+  form input[type="number"],
+  form input[type="text"] {
+    display: block;
+    margin-top: 0.25rem;
+    padding: 0.4rem;
+    font-size: 1rem;
+  }
+
+  form input[type="checkbox"] {
+    margin-right: 0.5rem;
+  }
 }

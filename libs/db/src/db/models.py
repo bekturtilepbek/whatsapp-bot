@@ -84,6 +84,21 @@ class Bot(Base):
         (clearSession в gateway обнуляет это поле, см. services/gateway/src/db/bots.ts)."""
         return self.session.linked_at if self.session else None
 
+    @property
+    def status(self) -> str | None:
+        """Живой статус соединения Baileys (FEATURES.md 6.17) — connecting/
+        qr/open/reconnecting/logged_out; None — сессия ни разу не поднималась.
+        Пишет gateway напрямую в BotSession.status (services/gateway/src/session/manager.ts,
+        publishStatus) при каждом connection.update — ADR-006, состояние в Postgres,
+        не только событие в Redis Stream (которое пайплайн диалога всё равно дропает)."""
+        return self.session.status if self.session else None
+
+    @property
+    def last_seen(self) -> datetime | None:
+        """Момент последнего события от сокета (любой статус, не только open) —
+        обновляется тем же вызовом, что и status. До первого события — None."""
+        return self.session.last_seen if self.session else None
+
 
 class BotSession(Base):
     """Auth-state сессии Baileys — в Postgres (ADR-006), не в памяти процесса.
@@ -102,6 +117,9 @@ class BotSession(Base):
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
     linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # connecting/qr/open/reconnecting/logged_out — набор значений не в БД
+    # (простой String, не Postgres enum), валидируется на стороне gateway/api.
+    status: Mapped[str | None] = mapped_column(String, nullable=True)
 
     bot: Mapped[Bot] = relationship(back_populates="session")
 

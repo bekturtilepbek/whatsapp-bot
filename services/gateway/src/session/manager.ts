@@ -18,7 +18,7 @@ import type { TransportLogger } from "../logger.js";
 import { usePostgresAuthState } from "../auth/postgres-auth-state.js";
 import { publishEvent } from "../bus/publish.js";
 import type { InboundText, SessionStatus } from "../contracts/events.js";
-import { clearSession, markLinked } from "../db/bots.js";
+import { clearSession, markLinked, setSessionStatus } from "../db/bots.js";
 import { attachMedia } from "../media/download.js";
 import { normalizeInboundMessage } from "../normalize/inbound.js";
 import type { Storage } from "../storage/types.js";
@@ -331,12 +331,23 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Публикует событие в поток (пайплайн диалога его дропает, см. consumer.py)
+   * И пишет статус напрямую в Postgres (ADR-006) — единственный способ
+   * дашборду (FEATURES.md 6.17) узнать текущее состояние сессии, раз
+   * событие само по себе нигде не оседает.
+   */
   private async publishStatus(botId: string, status: SessionStatus["status"]): Promise<void> {
     const event: SessionStatus = { type: "session.status", bot_id: botId, status, ts: Date.now() };
     try {
       await publishEvent(this.redis, IN_STREAM, event);
     } catch (err) {
       this.logger.error({ err, botId, status }, "failed to publish session.status");
+    }
+    try {
+      await setSessionStatus(this.pool, botId, status);
+    } catch (err) {
+      this.logger.error({ err, botId, status }, "failed to persist session status");
     }
   }
 }

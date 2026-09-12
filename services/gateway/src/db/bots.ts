@@ -36,8 +36,23 @@ export async function markLinked(pool: Pool, botId: string, phone: string | unde
   );
 }
 
-export async function touchLastSeen(pool: Pool, botId: string): Promise<void> {
-  await pool.query("UPDATE bot_sessions SET last_seen = now() WHERE bot_id = $1", [botId]);
+/**
+ * Живой статус соединения (FEATURES.md 6.17) — пишется на каждый
+ * connection.update (connecting/qr/open/reconnecting/logged_out), не только
+ * на открытие. UPSERT, а не UPDATE: строка bot_sessions может ещё не
+ * существовать на самом первом событии — persist() в postgres-auth-state.ts
+ * создаёт её лениво по факту первого creds.update/flush ключей, порядок
+ * относительно первого connection.update не гарантирован.
+ */
+export async function setSessionStatus(pool: Pool, botId: string, status: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO bot_sessions (bot_id, status, last_seen)
+     VALUES ($1, $2, now())
+     ON CONFLICT (bot_id) DO UPDATE
+        SET status = EXCLUDED.status,
+            last_seen = now()`,
+    [botId, status],
+  );
 }
 
 export async function clearSession(pool: Pool, botId: string): Promise<void> {

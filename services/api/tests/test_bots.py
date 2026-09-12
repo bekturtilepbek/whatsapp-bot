@@ -275,6 +275,26 @@ async def test_get_bot_includes_phone_and_linked_at(
     assert body["linked_at"] is None
 
 
+async def test_get_bot_includes_status_and_last_seen(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+
+    response = await client.get(f"/bots/{bot_id}")
+    body = response.json()
+    assert body["status"] is None
+    assert body["last_seen"] is None
+
+    async with session_factory() as session:
+        session.add(BotSession(bot_id=bot_id, status="open", last_seen=datetime.now(UTC)))
+        await session.commit()
+
+    response = await client.get(f"/bots/{bot_id}")
+    body = response.json()
+    assert body["status"] == "open"
+    assert body["last_seen"] is not None
+
+
 async def test_client_without_grant_gets_403_on_bot_route(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -9,6 +9,7 @@ export async function AppHeader() {
   return (
     <header>
       <span>{user.email}</span>
+      {user.is_platform_owner && <Link href="/dashboard">Дашборд</Link>}
       {user.is_platform_owner && <Link href="/users">Пользователи</Link>}
       {user.is_platform_owner && <Link href="/audit-log">Аудит-лог</Link>}
       {user.is_platform_owner && <Link href="/usage">Расходы</Link>}

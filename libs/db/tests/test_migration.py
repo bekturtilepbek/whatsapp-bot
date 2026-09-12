@@ -93,5 +93,6 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
             "phone",
             "linked_at",
             "last_seen",
+            "status",
         }
     await engine.dispose()

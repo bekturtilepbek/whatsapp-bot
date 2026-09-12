@@ -136,6 +136,40 @@ describe("SessionManager.sendText / sendTyping", () => {
   });
 });
 
+// FEATURES.md 6.17 — дашборд узнаёт живой статус сессии только из
+// bot_sessions.status/last_seen (событие session.status само по себе никуда
+// не оседает, worker его дропает — см. consumer.py). publishStatus приватный,
+// вызываем напрямую — ровно то, что реально дёргается на connection.update.
+describe("SessionManager - persists session status to Postgres", () => {
+  it("writes status and last_seen via UPSERT on bot_sessions", async () => {
+    const pool = makeFakePool();
+    const sessions = new SessionManager(pool, makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+
+    await (sessions as any).publishStatus("bot-1", "open");
+
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("bot_sessions"), [
+      "bot-1",
+      "open",
+    ]);
+  });
+
+  it("does not throw when the DB write fails", async () => {
+    const pool = {
+      query: vi.fn(async () => {
+        throw new Error("connection refused");
+      }),
+    } as unknown as Pool;
+    const logger = makeFakeLogger();
+    const sessions = new SessionManager(pool, makeFakeRedis(), logger, makeFakeStorage());
+
+    await expect((sessions as any).publishStatus("bot-1", "qr")).resolves.toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot-1", status: "qr" }),
+      "failed to persist session status",
+    );
+  });
+});
+
 // Fix 2 (финальный review): gateway не должен скачивать/заливать медиа,
 // которое worker всё равно отбросит до сохранения (группы, status@broadcast,
 // from_me — см. is_ignored_chat в worker/pipeline/filters.py и отдельный путь

@@ -15,6 +15,11 @@ export interface Bot {
   // Опционально (не как остальные поля выше) — bots.settings свободный dict
   // на бэкенде, старые фикстуры в тестах его не заполняют и не обязаны.
   settings?: BotSettings;
+  // Живой статус сессии (FEATURES.md 6.17) — connecting/qr/open/reconnecting/
+  // logged_out/null. Опционально по той же причине, что settings выше: бэкенд
+  // всегда отдаёт оба поля, но старые фикстуры в тестах их не заполняют.
+  status?: string | null;
+  last_seen?: string | null;
 }
 
 // FEATURES.md 6.11 — настройки бота. Все поля опциональны: bots.settings —

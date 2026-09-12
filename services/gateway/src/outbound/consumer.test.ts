@@ -125,22 +125,66 @@ describe("OutboundConsumer idempotency and routing", () => {
     expect(sessions.sendText).not.toHaveBeenCalled();
   });
 
-  it("acks even when the send itself fails", async () => {
-    const { redis, sessions, logger, storage } = makeMocks();
-    (sessions.sendText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("send failed"));
-    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
-    const event = {
-      type: "outbound.text",
-      bot_id: BOT_ID,
-      chat_id: "996700000000@s.whatsapp.net",
-      text: "не доставится",
-      client_msg_id: "msg-fail",
-    };
+  it("retries a transient send failure and succeeds without losing the message", async () => {
+    vi.useFakeTimers();
+    try {
+      const { redis, sessions, logger, storage } = makeMocks();
+      (sessions.sendText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error("network blip"),
+      );
+      const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+      const event = {
+        type: "outbound.text",
+        bot_id: BOT_ID,
+        chat_id: "996700000000@s.whatsapp.net",
+        text: "доставится со второй попытки",
+        client_msg_id: "msg-retry",
+      };
 
-    await (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
-      .processEntry("1-0", payloadFields(event));
+      const entryPromise = (
+        consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> }
+      ).processEntry("1-0", payloadFields(event));
+      await vi.advanceTimersByTimeAsync(1000); // backoff между попыткой 1 и 2
+      await entryPromise;
 
-    expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+      expect(sessions.sendText).toHaveBeenCalledTimes(2);
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("acks after exhausting all retries on a permanently failing send (FEATURES.md 4.3)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { redis, sessions, logger, storage } = makeMocks();
+      (sessions.sendText as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("send failed"));
+      const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+      const event = {
+        type: "outbound.text",
+        bot_id: BOT_ID,
+        chat_id: "996700000000@s.whatsapp.net",
+        text: "не доставится",
+        client_msg_id: "msg-fail",
+      };
+
+      const entryPromise = (
+        consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> }
+      ).processEntry("1-0", payloadFields(event));
+      await vi.advanceTimersByTimeAsync(1000); // между попыткой 1 и 2
+      await vi.advanceTimersByTimeAsync(2000); // между попыткой 2 и 3
+      await entryPromise;
+
+      expect(sessions.sendText).toHaveBeenCalledTimes(3); // RETRY_MAX_ATTEMPTS
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.objectContaining({ message: "send failed" }) }),
+        "failed to send outbound event",
+      );
+      expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads bytes from storage and sends outbound.image via sendImage", async () => {
@@ -170,12 +214,13 @@ describe("OutboundConsumer idempotency and routing", () => {
     expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
   });
 
-  it("bounds a hanging storage.get with the send timeout instead of hanging forever", async () => {
+  it("bounds a hanging storage.get with the send timeout on every retry attempt, then gives up", async () => {
     vi.useFakeTimers();
     try {
       const { redis, sessions, logger, storage } = makeMocks();
-      // storage.get никогда не резолвится — имитация зависшего S3/диска
-      (storage.get as ReturnType<typeof vi.fn>).mockReturnValueOnce(new Promise(() => {}));
+      // storage.get никогда не резолвится ни на одной попытке — имитация
+      // зависшего S3/диска, не единичного сетевого сбоя.
+      (storage.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
       const consumer = new OutboundConsumer(redis, sessions, logger, storage);
       const event = {
         type: "outbound.image",
@@ -190,12 +235,18 @@ describe("OutboundConsumer idempotency and routing", () => {
         consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> }
       ).processEntry("1-0", payloadFields(event));
 
-      // Продвигаем таймеры на SEND_TIMEOUT_MS (20с) без реального ожидания —
-      // withTimeout должен отклонить raceующий storage.get, не дожидаясь sendImage.
+      // Каждая попытка сама по себе ограничена SEND_TIMEOUT_MS (20с);
+      // withRetry добавляет backoff (1с, 2с) между тремя попытками —
+      // итого 20с+1с+20с+2с+20с прежде чем сдаться.
+      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(2_000);
       await vi.advanceTimersByTimeAsync(20_000);
       await entryPromise;
 
       expect(sessions.sendImage).not.toHaveBeenCalled();
+      expect(storage.get).toHaveBeenCalledTimes(3); // RETRY_MAX_ATTEMPTS
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           err: expect.objectContaining({ message: "storageGet timed out after 20000ms" }),

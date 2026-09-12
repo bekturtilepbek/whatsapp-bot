@@ -2,14 +2,20 @@
 // outbound.document / outbound.video -> отправка через Baileys. Идемпотентность
 // по client_msg_id (SET NX EX 3600) ДО отправки — ретрай worker'а не должен
 // породить дубль сообщения клиенту (CLAUDE.md, "Исходящие идемпотентны").
-// Ошибка отправки — лог + ACK, без ретраев (ретраи с backoff — Волна 1, вне
-// скоупа Блока 1).
+// Ошибка отправки — до 3 попыток с backoff (см. utils/retry.ts), затем лог +
+// ACK без дальнейших ретраев — сообщение теряется, но очередь не блокируется
+// навсегда (технический долг, закрыт FEATURES.md 4.3). Обработка entry в
+// пачке — по-прежнему последовательная: одна зависшая отправка с ретраями
+// (до ~63с в худшем случае) задержит остальные entry той же пачки —
+// сознательно принято, распараллеливание пачки — отдельная задача при
+// необходимости.
 import type { Redis } from "ioredis";
 
 import { Event } from "../contracts/events.js";
 import type { SessionManager } from "../session/manager.js";
 import type { TransportLogger } from "../logger.js";
 import type { Storage } from "../storage/types.js";
+import { withRetry } from "../utils/retry.js";
 import { withTimeout } from "../utils/timeout.js";
 
 const OUT_STREAM = "wa:out";
@@ -132,61 +138,67 @@ export class OutboundConsumer {
     }
 
     try {
-      if (event.type === "outbound.text") {
-        await withTimeout(
-          this.sessions.sendText(event.bot_id, event.chat_id, event.text, event.client_msg_id),
-          SEND_TIMEOUT_MS,
-          "sendText",
-        );
-      } else if (event.type === "outbound.typing") {
-        await withTimeout(
-          this.sessions.sendTyping(event.bot_id, event.chat_id),
-          SEND_TIMEOUT_MS,
-          "sendTyping",
-        );
-      } else if (event.type === "outbound.image") {
-        const image = await withTimeout(
-          this.storage.get(event.storage_key),
-          SEND_TIMEOUT_MS,
-          "storageGet",
-        );
-        await withTimeout(
-          this.sessions.sendImage(event.bot_id, event.chat_id, image, event.mime_type, event.client_msg_id),
-          SEND_TIMEOUT_MS,
-          "sendImage",
-        );
-      } else if (event.type === "outbound.document") {
-        const document = await withTimeout(
-          this.storage.get(event.storage_key),
-          SEND_TIMEOUT_MS,
-          "storageGet",
-        );
-        await withTimeout(
-          this.sessions.sendDocument(
-            event.bot_id, event.chat_id, document, event.mime_type, event.filename, event.client_msg_id,
-          ),
-          SEND_TIMEOUT_MS,
-          "sendDocument",
-        );
-      } else if (event.type === "outbound.video") {
-        const video = await withTimeout(
-          this.storage.get(event.storage_key),
-          SEND_TIMEOUT_MS,
-          "storageGet",
-        );
-        await withTimeout(
-          this.sessions.sendVideo(event.bot_id, event.chat_id, video, event.mime_type, event.client_msg_id),
-          SEND_TIMEOUT_MS,
-          "sendVideo",
-        );
-      } else {
-        // Компилятор ловит здесь любой новый outbound.*-тип, добавленный в
-        // контракт (docs/contracts/events.schema.json) без соответствующей
-        // ветки выше — раньше был bare else, шестой тип молча утёк бы в
-        // video-ветку без ошибки компиляции (найдено ретро-ревью 4.8/4.9).
-        const _exhaustive: never = event;
-        throw new Error(`unhandled outbound event type: ${JSON.stringify(_exhaustive)}`);
-      }
+      await withRetry(
+        async () => {
+          if (event.type === "outbound.text") {
+            await withTimeout(
+              this.sessions.sendText(event.bot_id, event.chat_id, event.text, event.client_msg_id),
+              SEND_TIMEOUT_MS,
+              "sendText",
+            );
+          } else if (event.type === "outbound.typing") {
+            await withTimeout(
+              this.sessions.sendTyping(event.bot_id, event.chat_id),
+              SEND_TIMEOUT_MS,
+              "sendTyping",
+            );
+          } else if (event.type === "outbound.image") {
+            const image = await withTimeout(
+              this.storage.get(event.storage_key),
+              SEND_TIMEOUT_MS,
+              "storageGet",
+            );
+            await withTimeout(
+              this.sessions.sendImage(event.bot_id, event.chat_id, image, event.mime_type, event.client_msg_id),
+              SEND_TIMEOUT_MS,
+              "sendImage",
+            );
+          } else if (event.type === "outbound.document") {
+            const document = await withTimeout(
+              this.storage.get(event.storage_key),
+              SEND_TIMEOUT_MS,
+              "storageGet",
+            );
+            await withTimeout(
+              this.sessions.sendDocument(
+                event.bot_id, event.chat_id, document, event.mime_type, event.filename, event.client_msg_id,
+              ),
+              SEND_TIMEOUT_MS,
+              "sendDocument",
+            );
+          } else if (event.type === "outbound.video") {
+            const video = await withTimeout(
+              this.storage.get(event.storage_key),
+              SEND_TIMEOUT_MS,
+              "storageGet",
+            );
+            await withTimeout(
+              this.sessions.sendVideo(event.bot_id, event.chat_id, video, event.mime_type, event.client_msg_id),
+              SEND_TIMEOUT_MS,
+              "sendVideo",
+            );
+          } else {
+            // Компилятор ловит здесь любой новый outbound.*-тип, добавленный в
+            // контракт (docs/contracts/events.schema.json) без соответствующей
+            // ветки выше — раньше был bare else, шестой тип молча утёк бы в
+            // video-ветку без ошибки компиляции (найдено ретро-ревью 4.8/4.9).
+            const _exhaustive: never = event;
+            throw new Error(`unhandled outbound event type: ${JSON.stringify(_exhaustive)}`);
+          }
+        },
+        event.type,
+        this.logger,
+      );
     } catch (err) {
       this.logger.error(
         { err, botId: event.bot_id, chatId: event.chat_id, clientMsgId: event.client_msg_id },

@@ -134,6 +134,32 @@ describe("SessionManager.sendText / sendTyping", () => {
       { messageId: "video-msg-1" },
     );
   });
+
+  // FEATURES.md 9.10 — живьём проверено на реальном номере (спайк 2026-09-12):
+  // реакция доставляется и отображается корректно.
+  it("sendReaction reacts to the client's message (fromMe:false), not our own", async () => {
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    await sessions.sendReaction(
+      "bot-1",
+      "996700000000@s.whatsapp.net",
+      "3EB0C767D82A1B0C4A5F",
+      "👍",
+      "reaction-msg-1",
+    );
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "996700000000@s.whatsapp.net",
+      {
+        react: {
+          text: "👍",
+          key: { remoteJid: "996700000000@s.whatsapp.net", id: "3EB0C767D82A1B0C4A5F", fromMe: false },
+        },
+      },
+      { messageId: "reaction-msg-1" },
+    );
+  });
 });
 
 // FEATURES.md 6.17 — дашборд узнаёт живой статус сессии только из

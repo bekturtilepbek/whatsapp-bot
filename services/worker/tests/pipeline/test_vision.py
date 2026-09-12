@@ -111,8 +111,8 @@ async def test_bot_with_image_prompt_sends_vision_reply_and_records_usage(
             _FakeStorage(data=b"fake-jpeg-bytes"),
         )
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2
-        assert "На фото синие кроссовки" in out_entries[1][1]["payload"]
+        assert len(out_entries) == 3
+        assert "На фото синие кроссовки" in out_entries[2][1]["payload"]
 
         async with session_factory() as session:
             messages = (
@@ -154,7 +154,7 @@ async def test_bot_without_image_prompt_falls_back_and_skips_llm(
             _inbound_image_payload_with_storage(bot_id), redis, session_factory, _FakeStorage()
         )
         out_entries = await redis.xrange("wa:out")
-        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
         async with session_factory() as session:
             usage = (
                 (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
@@ -185,8 +185,8 @@ async def test_storage_read_failure_falls_back_without_crashing_or_double_reply(
             _FakeStorage(error=OSError("disk unavailable")),
         )
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2  # ровно один typing+text, не два ответа
-        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+        assert len(out_entries) == 3  # ровно один typing+text, не два ответа
+        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
         async with session_factory() as session:
             usage = (
                 (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
@@ -217,7 +217,7 @@ async def test_vision_llm_failure_falls_back_without_crashing(
             _FakeStorage(data=b"fake-jpeg-bytes"),
         )
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2
-        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+        assert len(out_entries) == 3
+        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
     finally:
         await redis.aclose()

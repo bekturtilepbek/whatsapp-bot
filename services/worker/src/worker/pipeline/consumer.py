@@ -38,6 +38,7 @@ from core.events import (
     InboundText,
     OutboundDocument,
     OutboundImage,
+    OutboundReaction,
     OutboundText,
     OutboundTyping,
     OutboundVideo,
@@ -82,6 +83,11 @@ _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
 DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 DEFAULT_AUTO_RELEASE_MINUTES = 12
+# FEATURES.md 9.10 — авто-реакция на входящее медиа, быстрый фидбек клиенту,
+# пока готовится полноценный ответ. Без tool loop (сознательно, подтверждено
+# пользователем) — деревянно простой shim в пайплайне, не через LLM.
+DEFAULT_MEDIA_REACTION_ENABLED = True
+DEFAULT_MEDIA_REACTION_EMOJI = "👍"
 # Эталон V1 (FEATURES.md 4.3) — джиттер между отправляемыми медиа,
 # анти-бан дисциплина (CLAUDE.md §7): не пачка фото залпом.
 PHOTO_JITTER_MIN_SECONDS = 1.0
@@ -121,6 +127,38 @@ def _handoff_ttl_seconds(bot: Bot) -> int:
     except (TypeError, ValueError):
         minutes = DEFAULT_AUTO_RELEASE_MINUTES
     return int(minutes * 60)
+
+
+def _media_reaction_enabled(bot: Bot) -> bool:
+    return bool(bot.settings.get("media_reaction_enabled", DEFAULT_MEDIA_REACTION_ENABLED))
+
+
+def _media_reaction_emoji(bot: Bot) -> str:
+    value = bot.settings.get("media_reaction_emoji", DEFAULT_MEDIA_REACTION_EMOJI)
+    return value if isinstance(value, str) and value else DEFAULT_MEDIA_REACTION_EMOJI
+
+
+async def _react_to_media(event: InboundText, bot: Bot, redis: Redis) -> None:
+    """FEATURES.md 9.10 — быстрый фидбек на фото/файл/видео клиента, ДО
+    батчинга/лока/ответа: реакция не трогает общее состояние диалога, ждать
+    очередь незачем. Живьём проверено на реальном номере (2026-09-12)."""
+    reaction_event = OutboundReaction(
+        bot_id=event.bot_id,
+        chat_id=event.chat_id,
+        reply_to_wa_msg_id=event.wa_msg_id,
+        emoji=_media_reaction_emoji(bot),
+        client_msg_id=uuid.uuid4().hex,
+    )
+    try:
+        await publish(redis, OUT_STREAM, reaction_event.model_dump(mode="json"))
+    except Exception:
+        # Реакция — необязательный штрих, не должна ронять основной ответ.
+        logger.warning(
+            "failed to publish media reaction, continuing without it",
+            bot_id=str(event.bot_id),
+            wa_msg_id=event.wa_msg_id,
+            exc_info=True,
+        )
 
 
 async def _process_entry(
@@ -189,6 +227,9 @@ async def _process_entry(
     bot_id_str = str(event.bot_id)
     if await handoff.is_active(redis, bot_id_str, event.chat_id):
         return  # менеджер ведёт чат вручную — история уже записана выше
+
+    if event.media_type is not None and _media_reaction_enabled(bot):
+        await _react_to_media(event, bot, redis)
 
     became_leader = await batching.register_arrival(
         redis, bot_id_str, event.chat_id, _batch_timeout_seconds(bot)

@@ -25,6 +25,7 @@ function makeMocks() {
     sendImage: vi.fn(async () => undefined),
     sendDocument: vi.fn(async () => undefined),
     sendVideo: vi.fn(async () => undefined),
+    sendReaction: vi.fn(async () => undefined),
   } as unknown as SessionManager;
 
   const logger = {
@@ -332,5 +333,52 @@ describe("OutboundConsumer idempotency and routing", () => {
       "video-1",
     );
     expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+  });
+
+  it("routes outbound.reaction to sendReaction (FEATURES.md 9.10)", async () => {
+    const { redis, sessions, logger, storage } = makeMocks();
+    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+    const event = {
+      type: "outbound.reaction",
+      bot_id: BOT_ID,
+      chat_id: "996700000000@s.whatsapp.net",
+      reply_to_wa_msg_id: "3EB0C767D82A1B0C4A5F",
+      emoji: "👍",
+      client_msg_id: "reaction-1",
+    };
+
+    await (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
+      .processEntry("1-0", payloadFields(event));
+
+    expect(sessions.sendReaction).toHaveBeenCalledWith(
+      BOT_ID,
+      "996700000000@s.whatsapp.net",
+      "3EB0C767D82A1B0C4A5F",
+      "👍",
+      "reaction-1",
+    );
+    expect(redis.set).toHaveBeenCalledWith("wa:sent:reaction-1", "1", "EX", 3600, "NX");
+    expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
+  });
+
+  it("skips a duplicate outbound.reaction client_msg_id but still ACKs", async () => {
+    const { redis, sessions, logger, storage } = makeMocks();
+    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+    const event = {
+      type: "outbound.reaction",
+      bot_id: BOT_ID,
+      chat_id: "996700000000@s.whatsapp.net",
+      reply_to_wa_msg_id: "3EB0C767D82A1B0C4A5F",
+      emoji: "👍",
+      client_msg_id: "reaction-dup",
+    };
+    const entry = (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
+      .processEntry;
+
+    await entry.call(consumer, "1-0", payloadFields(event));
+    await entry.call(consumer, "2-0", payloadFields(event));
+
+    expect(sessions.sendReaction).toHaveBeenCalledTimes(1);
+    expect(redis.xack).toHaveBeenCalledTimes(2);
   });
 });

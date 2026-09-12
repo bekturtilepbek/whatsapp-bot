@@ -76,6 +76,17 @@ class OutboundVideo(BaseModel):
     client_msg_id: str = Field(min_length=1)
 
 
+class OutboundReaction(BaseModel):
+    """Реакция-эмодзи на входящее сообщение клиента, в wa:out (FEATURES.md 9.10)."""
+
+    type: Literal["outbound.reaction"] = "outbound.reaction"
+    bot_id: UUID
+    chat_id: str = Field(min_length=1)
+    reply_to_wa_msg_id: str = Field(min_length=1)
+    emoji: str = Field(min_length=1)
+    client_msg_id: str = Field(min_length=1)
+
+
 class OutboundTyping(BaseModel):
     """Индикатор "печатает" в wa:out."""
 
@@ -100,6 +111,7 @@ Event = (
     | OutboundImage
     | OutboundDocument
     | OutboundVideo
+    | OutboundReaction
     | OutboundTyping
     | SessionStatus
 )

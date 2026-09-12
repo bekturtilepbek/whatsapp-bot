@@ -136,6 +136,23 @@ export class SessionManager {
     await this.activeSocket(botId).sendPresenceUpdate("composing", chatId);
   }
 
+  /** Реакция-эмодзи на сообщение клиента (FEATURES.md 9.10) — key.fromMe:false,
+   * реагируем на ЕГО сообщение, не на своё. Живьём проверено на реальном
+   * номере (спайк 2026-09-12): реакция доставляется и отображается. */
+  async sendReaction(
+    botId: string,
+    chatId: string,
+    replyToWaMsgId: string,
+    emoji: string,
+    clientMsgId: string,
+  ): Promise<void> {
+    await this.activeSocket(botId).sendMessage(
+      chatId,
+      { react: { text: emoji, key: { remoteJid: chatId, id: replyToWaMsgId, fromMe: false } } },
+      { messageId: clientMsgId },
+    );
+  }
+
   /** Аналогично sendText — messageId=clientMsgId для той же связки с
    * идемпотентностью/handoff-echo-детектом (wa:sent:{client_msg_id}). */
   async sendImage(

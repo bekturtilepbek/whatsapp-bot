@@ -35,6 +35,10 @@ export interface BotSettings {
   reminder_message?: string;
   media_fallback_text?: string;
   media_max_size_bytes?: number;
+  // FEATURES.md 9.10 — авто-реакция на входящее медиа (быстрый фидбек до
+  // полноценного ответа), без LLM/тулз.
+  media_reaction_enabled?: boolean;
+  media_reaction_emoji?: string;
 }
 
 export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
@@ -46,6 +50,8 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
     "Здравствуйте! Подскажите, удалось ли ознакомиться с информацией? Если есть вопросы — я на связи!",
   media_fallback_text: "Пока я умею отвечать только на текстовые сообщения",
   media_max_size_bytes: 16 * 1024 * 1024,
+  media_reaction_enabled: true,
+  media_reaction_emoji: "👍",
 };
 
 /** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/

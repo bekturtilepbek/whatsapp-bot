@@ -86,6 +86,20 @@
       },
       "required": ["type", "bot_id", "chat_id", "storage_key", "mime_type", "client_msg_id"]
     },
+    "outboundReaction": {
+      "type": "object",
+      "description": "Реакция-эмодзи на входящее сообщение клиента, в wa:out (FEATURES.md 9.10).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.reaction" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "reply_to_wa_msg_id": { "type": "string", "minLength": 1 },
+        "emoji": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "reply_to_wa_msg_id", "emoji", "client_msg_id"]
+    },
     "outboundTyping": {
       "type": "object",
       "description": "Индикатор \"печатает\" в wa:out.",
@@ -120,6 +134,7 @@
     { "$ref": "#/definitions/outboundImage" },
     { "$ref": "#/definitions/outboundDocument" },
     { "$ref": "#/definitions/outboundVideo" },
+    { "$ref": "#/definitions/outboundReaction" },
     { "$ref": "#/definitions/outboundTyping" },
     { "$ref": "#/definitions/sessionStatus" }
   ]

@@ -20,6 +20,8 @@ const initialSettings: Required<BotSettings> = {
   reminder_message: "стандартный текст",
   media_fallback_text: "заглушка",
   media_max_size_bytes: 16 * 1024 * 1024,
+  media_reaction_enabled: true,
+  media_reaction_emoji: "👍",
 };
 
 afterEach(() => {
@@ -35,6 +37,8 @@ it("renders current settings", () => {
   expect(screen.getByLabelText(/текст напоминания/i)).toHaveValue("стандартный текст");
   expect(screen.getByLabelText(/заглушка на неподдерживаемое медиа/i)).toHaveValue("заглушка");
   expect(screen.getByLabelText(/макс\. размер/i)).toHaveValue(16);
+  expect(screen.getByLabelText(/реагировать эмодзи/i)).toBeChecked();
+  expect(screen.getByLabelText(/эмодзи реакции/i)).toHaveValue("👍");
 });
 
 it("saves only the fields that were actually changed", async () => {
@@ -81,6 +85,22 @@ it("sends nothing further to save once already saved (baseline advances)", async
   expect(api.patchBotSettings).toHaveBeenLastCalledWith("http://api", "1", {});
 });
 
+it("saves changed media reaction settings (FEATURES.md 9.10)", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  fireEvent.click(screen.getByLabelText(/реагировать эмодзи/i));
+  fireEvent.change(screen.getByLabelText(/эмодзи реакции/i), { target: { value: "🎉" } });
+  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
+      media_reaction_enabled: false,
+      media_reaction_emoji: "🎉",
+    });
+  });
+});
+
 it("shows an error when saving fails", async () => {
   vi.mocked(api.patchBotSettings).mockRejectedValue(new Error("save failed"));
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
@@ -125,6 +145,15 @@ describe("validation blocks the save call and shows an error instead", () => {
     fireEvent.change(screen.getByLabelText(/заглушка на неподдерживаемое медиа/i), {
       target: { value: "   " },
     });
+    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.patchBotSettings).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty reaction emoji", async () => {
+    render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+    fireEvent.change(screen.getByLabelText(/эмодзи реакции/i), { target: { value: "   " } });
     fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();

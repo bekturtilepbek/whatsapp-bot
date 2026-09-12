@@ -44,6 +44,12 @@ function diffSettings(
   if (current.media_max_size_bytes !== baseline.media_max_size_bytes) {
     changed.media_max_size_bytes = current.media_max_size_bytes;
   }
+  if (current.media_reaction_enabled !== baseline.media_reaction_enabled) {
+    changed.media_reaction_enabled = current.media_reaction_enabled;
+  }
+  if (current.media_reaction_emoji !== baseline.media_reaction_emoji) {
+    changed.media_reaction_emoji = current.media_reaction_emoji;
+  }
   return changed;
 }
 
@@ -69,6 +75,9 @@ function validateSettings(settings: Required<BotSettings>): string | null {
   }
   if (settings.media_fallback_text.trim() === "") {
     return "Заглушка на неподдерживаемое медиа не может быть пустой";
+  }
+  if (settings.media_reaction_emoji.trim() === "") {
+    return "Эмодзи реакции на медиа не может быть пустым";
   }
   return null;
 }
@@ -200,6 +209,24 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
                 media_max_size_bytes: Math.round(Number(e.target.value) * BYTES_PER_MB),
               })
             }
+          />
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.media_reaction_enabled}
+            onChange={(e) =>
+              setSettings({ ...settings, media_reaction_enabled: e.target.checked })
+            }
+          />
+          Реагировать эмодзи на входящее фото/файл/видео
+        </label>
+        <label>
+          Эмодзи реакции
+          <input
+            type="text"
+            value={settings.media_reaction_emoji}
+            onChange={(e) => setSettings({ ...settings, media_reaction_emoji: e.target.value })}
           />
         </label>
       </section>

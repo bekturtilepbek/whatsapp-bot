@@ -78,9 +78,11 @@ async def test_media_message_gets_fallback_reply_without_llm(
         await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2
-        assert '"type": "outbound.typing"' in out_entries[0][1]["payload"]
-        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+        # Реакция (FEATURES.md 9.10) публикуется первой, до typing/ответа.
+        assert len(out_entries) == 3
+        assert '"type": "outbound.reaction"' in out_entries[0][1]["payload"]
+        assert '"type": "outbound.typing"' in out_entries[1][1]["payload"]
+        assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
 
         async with session_factory() as session:
             # БД (testcontainers) общая на весь модуль — фильтруем по своему
@@ -125,7 +127,7 @@ async def test_media_fallback_text_is_configurable_via_bot_settings(
         await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
-        assert custom_text in out_entries[1][1]["payload"]
+        assert custom_text in out_entries[2][1]["payload"]  # 0=reaction, 1=typing, 2=fallback
     finally:
         await redis.aclose()
 
@@ -150,7 +152,7 @@ async def test_empty_media_fallback_text_falls_back_to_default(
         await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
-        assert consumer_module.DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[1][1]["payload"]
+        assert consumer_module.DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
     finally:
         await redis.aclose()
 

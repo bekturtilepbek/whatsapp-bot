@@ -105,7 +105,8 @@ export class OutboundConsumer {
         event.type === "outbound.typing" ||
         event.type === "outbound.image" ||
         event.type === "outbound.document" ||
-        event.type === "outbound.video"
+        event.type === "outbound.video" ||
+        event.type === "outbound.reaction"
       ) {
         // Цепочка === (не .includes() на массиве типов) — TS естественно
         // сужает event до нужного Extract-объединения по литералам, без
@@ -125,7 +126,15 @@ export class OutboundConsumer {
   private async handleOutbound(
     event: Extract<
       Event,
-      { type: "outbound.text" | "outbound.typing" | "outbound.image" | "outbound.document" | "outbound.video" }
+      {
+        type:
+          | "outbound.text"
+          | "outbound.typing"
+          | "outbound.image"
+          | "outbound.document"
+          | "outbound.video"
+          | "outbound.reaction";
+      }
     >,
   ): Promise<void> {
     // Формат ключа задокументирован и переиспользуется в libs/core/src/core/redis_keys.py
@@ -186,6 +195,14 @@ export class OutboundConsumer {
               this.sessions.sendVideo(event.bot_id, event.chat_id, video, event.mime_type, event.client_msg_id),
               SEND_TIMEOUT_MS,
               "sendVideo",
+            );
+          } else if (event.type === "outbound.reaction") {
+            await withTimeout(
+              this.sessions.sendReaction(
+                event.bot_id, event.chat_id, event.reply_to_wa_msg_id, event.emoji, event.client_msg_id,
+              ),
+              SEND_TIMEOUT_MS,
+              "sendReaction",
             );
           } else {
             // Компилятор ловит здесь любой новый outbound.*-тип, добавленный в

@@ -2,6 +2,13 @@
 .env
 *.env.local
 
+# Архив прошлой версии продукта (referenced for behavior/UI, не копируется —
+# CLAUDE.md, ADR-007) — содержит реальные секреты (.env, shared/secrets/gcp.json).
+# Держать вне репозитория в идеале; на случай, если временно лежит здесь —
+# никогда не коммитить.
+webhook_wb.zip
+webhook_wb/
+
 # Python
 .venv/
 __pycache__/

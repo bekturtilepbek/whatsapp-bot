@@ -6,12 +6,23 @@ import type { Pool } from "pg";
  * Сессии для них поднимаются при старте gateway независимо от bots.enabled —
  * флаг проверяет worker в пайплайне, транспорт не молчит сам по себе.
  * Разрыв сессии — только явный logout.
+ *
+ * Условие — `phone IS NOT NULL`, то же поле, что `markLinked` выставляет
+ * при успешном открытии сессии и `clearSession` обнуляет при logout (тот
+ * же источник истины, что у Bot.phone/linked_at в модели). РАНЬШЕ здесь
+ * проверялся `auth_state -> 'creds' ->> 'registered'` — оказалось, что
+ * Baileys выставляет `registered: true` в creds не всегда (живая проверка
+ * 2026-09-12: полностью рабочая, шлющая сообщения сессия имела
+ * `registered: false`) — из-за этого gateway НИ РАЗУ не поднимал ни один
+ * привязанный бот автоматически при своём рестарте, вопреки обещанию
+ * ARCHITECTURE.md "сессия поднимается на любом узле без QR". Найдено при
+ * живой проверке FEATURES.md 9.10 (реакции), не связано с самой фичей.
  */
 export async function listLinkedBotIds(pool: Pool): Promise<string[]> {
   const { rows } = await pool.query<{ bot_id: string }>(
     `SELECT bot_id
        FROM bot_sessions
-      WHERE auth_state -> 'creds' ->> 'registered' = 'true'`,
+      WHERE phone IS NOT NULL`,
   );
   return rows.map((r) => r.bot_id);
 }

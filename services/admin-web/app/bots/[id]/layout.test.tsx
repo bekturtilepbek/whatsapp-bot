@@ -66,3 +66,29 @@ it("hides the sandbox tab for a non-owner", async () => {
   render(element);
   expect(screen.queryByRole("link", { name: "Песочница" })).not.toBeInTheDocument();
 });
+
+// render(await BotLayout({...})) резолвит только один уровень async —
+// безопасно, пока ни один child BotLayout (сейчас — TabLink, синхронный
+// client-компонент) не станет сам async Server Component-ом.
+
+it("shows the pending status when the session is mid-connection", async () => {
+  mockedFetchBot.mockResolvedValue({ ...bot, status: "qr" });
+  mockedIsOwner.mockResolvedValue(true);
+  const element = await BotLayout({
+    params: Promise.resolve({ id: "1" }),
+    children: <div>Содержимое вкладки</div>,
+  });
+  render(element);
+  expect(screen.getByText("Ждёт QR")).toBeInTheDocument();
+});
+
+it("shows disconnected when linked but logged out, even though linked_at is still set", async () => {
+  mockedFetchBot.mockResolvedValue({ ...bot, status: "logged_out" });
+  mockedIsOwner.mockResolvedValue(true);
+  const element = await BotLayout({
+    params: Promise.resolve({ id: "1" }),
+    children: <div>Содержимое вкладки</div>,
+  });
+  render(element);
+  expect(screen.getByText("Не подключён")).toBeInTheDocument();
+});

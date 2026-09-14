@@ -3,6 +3,9 @@ import { render, screen } from "@testing-library/react";
 import { Sidebar } from "@/components/Sidebar";
 import { fetchCurrentUser } from "@/lib/currentUser";
 
+// render(await Sidebar()) резолвит только один уровень async — безопасно,
+// пока ни один child Sidebar не является сам async Server Component-ом.
+
 vi.mock("@/lib/currentUser", () => ({
   fetchCurrentUser: vi.fn(),
 }));

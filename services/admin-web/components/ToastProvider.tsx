@@ -74,7 +74,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               type="button"
               aria-label="Закрыть уведомление"
               onClick={() => removeToast(toast.id)}
-              className="ml-auto text-base text-ink-soft hover:text-ink"
+              className="ml-auto p-0 text-base text-ink-soft hover:text-ink"
             >
               ×
             </button>

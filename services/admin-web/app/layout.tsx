@@ -11,10 +11,10 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ru" className={`${plexSans.variable} ${plexMono.variable}`}>
-      <body className="flex min-h-screen bg-canvas font-sans text-ink">
+      <body className="m-0 flex min-h-screen bg-canvas font-sans text-ink">
         <ToastProvider>
           <Sidebar />
-          <main className="min-w-0 flex-1 overflow-x-hidden px-8 py-7">{children}</main>
+          <div className="min-w-0 flex-1 overflow-x-hidden px-8 py-7">{children}</div>
         </ToastProvider>
       </body>
     </html>

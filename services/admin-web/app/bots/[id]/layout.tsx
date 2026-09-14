@@ -8,7 +8,20 @@ import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL } from "@/lib/env";
 
 function toConnectionStatus(bot: Bot): BotConnectionStatus {
-  return bot.linked_at ? "connected" : "disconnected";
+  switch (bot.status) {
+    case "open":
+      return "connected";
+    case "connecting":
+    case "qr":
+    case "reconnecting":
+      return "pending";
+    case "logged_out":
+      return "disconnected";
+    default:
+      // status отсутствует (старые фикстуры без этого поля, см. комментарий
+      // у Bot.status в lib/api.ts) — падаем обратно на linked_at.
+      return bot.linked_at ? "connected" : "disconnected";
+  }
 }
 
 export default async function BotLayout({
@@ -34,7 +47,7 @@ export default async function BotLayout({
         {bot.phone && <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>}
       </div>
 
-      <Tabs>
+      <Tabs ariaLabel="Разделы бота">
         <TabLink href={`/bots/${bot.id}`}>Обзор</TabLink>
         <TabLink href={`/bots/${bot.id}/prompts`} exact={false}>
           Промпты

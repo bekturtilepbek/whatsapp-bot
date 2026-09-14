@@ -9,7 +9,7 @@ export async function Sidebar() {
   if (!user) return null;
 
   return (
-    <aside className="flex h-screen w-[232px] shrink-0 flex-col bg-sidebar px-3.5 py-5 text-sidebar-ink-soft">
+    <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col bg-sidebar px-3.5 py-5 text-sidebar-ink-soft">
       <div className="mb-6 flex items-center gap-2 px-2">
         <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-xs font-semibold text-white">
           Б
@@ -17,14 +17,14 @@ export async function Sidebar() {
         <span className="text-sm font-semibold text-sidebar-ink">Платформа ботов</span>
       </div>
 
-      <nav className="flex flex-col gap-0.5">
+      <nav aria-label="Основная" className="flex flex-col gap-0.5">
         <Link href="/bots" className={NAV_LINK_CLASSES}>
           Боты
         </Link>
       </nav>
 
       {user.is_platform_owner && (
-        <nav className="mt-5 flex flex-col gap-0.5">
+        <nav aria-label="Платформа" className="mt-5 flex flex-col gap-0.5">
           <div className="px-2.5 pb-1.5 text-[10.5px] uppercase tracking-wide text-sidebar-ink-soft">
             Платформа
           </div>
@@ -46,7 +46,7 @@ export async function Sidebar() {
       <div className="mt-auto flex items-center gap-2 border-t border-white/10 pt-3.5">
         <span className="min-w-0 flex-1 truncate text-xs text-sidebar-ink-soft">{user.email}</span>
         <form action={logout}>
-          <button type="submit" className="text-xs text-sidebar-ink-soft hover:text-sidebar-ink">
+          <button type="submit" className="p-0 text-xs text-sidebar-ink-soft hover:text-sidebar-ink">
             Выйти
           </button>
         </form>

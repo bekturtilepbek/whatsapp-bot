@@ -60,39 +60,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ showError, showSuccess }}>
       {children}
-      <div
-        style={{
-          position: "fixed",
-          bottom: "1rem",
-          right: "1rem",
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.5rem",
-          zIndex: 1000,
-        }}
-      >
+      <div className="fixed bottom-4 right-4 z-[1000] flex flex-col gap-2">
         {toasts.map((toast) => (
           <div
             key={toast.id}
             role={toast.kind === "error" ? "alert" : "status"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.75rem",
-              padding: "0.75rem 1rem",
-              borderRadius: "4px",
-              boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-              background: toast.kind === "error" ? "#fdecea" : "#e8f5e9",
-              color: toast.kind === "error" ? "crimson" : "#1e4620",
-              maxWidth: "24rem",
-            }}
+            className={`flex max-w-[24rem] items-center gap-3 rounded-lg border-l-[3px] bg-surface px-4 py-3 text-sm text-ink shadow-md ${
+              toast.kind === "error" ? "border-l-danger" : "border-l-success"
+            }`}
           >
             <span>{toast.message}</span>
             <button
               type="button"
               aria-label="Закрыть уведомление"
               onClick={() => removeToast(toast.id)}
-              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1rem" }}
+              className="ml-auto text-base text-ink-soft hover:text-ink"
             >
               ×
             </button>

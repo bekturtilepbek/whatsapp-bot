@@ -1,7 +1,7 @@
 // Текущий пользователь на сервере (Server Component) — читает session-cookie
 // напрямую и зовёт GET /auth/me по API_INTERNAL_URL (не через apiFetch: этот
 // модуль сам вызывается только на сервере, apiFetch's client-side ветка тут
-// не нужна). Третье место, где понадобился этот код (AppHeader, /users,
+// не нужна). Третье место, где понадобился этот код (Sidebar, /users,
 // /bots/new) — вынесено сюда вместо третьей копии (FEATURES.md 6.18/6.20).
 
 import { API_INTERNAL_URL } from "./env";

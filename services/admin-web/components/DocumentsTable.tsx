@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { deleteDocument, uploadDocument, type BotDocument } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Table } from "@/components/ui/Table";
 
 interface DocumentsTableProps {
   botId: string;
@@ -43,37 +47,52 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
   };
 
   return (
-    <>
-      <label>
-        Загрузить файл
-        <input
-          type="file"
-          disabled={uploading}
-          onChange={(e) => void handleUpload(e.target.files)}
-          aria-label="Файл документа"
+    <div className="space-y-5">
+      <Card className="p-5">
+        <label className="mb-0 block text-sm font-medium text-ink">
+          Загрузить файл
+          <input
+            type="file"
+            disabled={uploading}
+            onChange={(e) => void handleUpload(e.target.files)}
+            aria-label="Файл документа"
+            className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
+          />
+        </label>
+        {uploading && <p className="mt-2 text-xs text-ink-soft">Загружаем…</p>}
+      </Card>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Документов пока нет"
+          description="Загруженные файлы бот сможет отправлять клиентам по запросу."
         />
-      </label>
-      {uploading && <p>Загружаем…</p>}
-      <table>
-        <thead>
-          <tr>
-            <th>Имя файла</th>
-            <th>Тип</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((doc) => (
-            <tr key={doc.id}>
-              <td>{doc.filename}</td>
-              <td>{doc.mime_type}</td>
-              <td>
-                <button onClick={() => void handleDelete(doc.id)}>Удалить</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+      ) : (
+        <Table>
+          <table>
+            <thead>
+              <tr>
+                <th>Имя файла</th>
+                <th>Тип</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((doc) => (
+                <tr key={doc.id}>
+                  <td>{doc.filename}</td>
+                  <td className="font-mono">{doc.mime_type}</td>
+                  <td>
+                    <Button variant="danger" onClick={() => void handleDelete(doc.id)}>
+                      Удалить
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Table>
+      )}
+    </div>
   );
 }

@@ -100,3 +100,9 @@ it("shows an error and keeps the row when deletion fails", async () => {
   });
   expect(screen.getByText("price.pdf")).toBeInTheDocument();
 });
+
+it("shows an empty state when there are no documents", () => {
+  render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={[]} />);
+  expect(screen.getByText("Документов пока нет")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

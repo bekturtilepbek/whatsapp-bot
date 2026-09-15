@@ -1,28 +1,12 @@
 import type { ReactNode } from "react";
 import { notFound } from "next/navigation";
-import { StatusPulse, type BotConnectionStatus } from "@/components/ui/StatusPulse";
+import { StatusPulse } from "@/components/ui/StatusPulse";
 import { Tabs } from "@/components/ui/Tabs";
 import { TabLink } from "@/components/ui/TabLink";
-import { fetchBot, type Bot } from "@/lib/api";
+import { fetchBot } from "@/lib/api";
+import { toConnectionStatus } from "@/lib/botStatus";
 import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL } from "@/lib/env";
-
-function toConnectionStatus(bot: Bot): BotConnectionStatus {
-  switch (bot.status) {
-    case "open":
-      return "connected";
-    case "connecting":
-    case "qr":
-    case "reconnecting":
-      return "pending";
-    case "logged_out":
-      return "disconnected";
-    default:
-      // status отсутствует (старые фикстуры без этого поля, см. комментарий
-      // у Bot.status в lib/api.ts) — падаем обратно на linked_at.
-      return bot.linked_at ? "connected" : "disconnected";
-  }
-}
 
 export default async function BotLayout({
   children,

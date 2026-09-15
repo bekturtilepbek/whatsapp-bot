@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { patchBotName } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 
@@ -37,18 +39,19 @@ export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormP
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)}>
-      <label>
+      <label className="mb-4 block text-sm font-medium text-ink">
         Название бота
-        <input
+        <Input
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
           aria-label="Название бота"
+          className="mt-1.5 max-w-sm"
         />
       </label>
-      <button type="submit" disabled={saving}>
+      <Button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
-      </button>
+      </Button>
     </form>
   );
 }

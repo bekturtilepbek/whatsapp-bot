@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProductForm } from "@/components/ProductForm";
 import { fetchBot } from "@/lib/api";
@@ -17,10 +16,6 @@ export default async function NewProductPage({
 
   return (
     <main>
-      <p>
-        <Link href={`/bots/${id}/products`}>← Назад к товарам</Link>
-      </p>
-      <h1>{bot.name} — новый товар</h1>
       <ProductForm botId={id} apiBaseUrl={API_PROXY_PATH} />
     </main>
   );

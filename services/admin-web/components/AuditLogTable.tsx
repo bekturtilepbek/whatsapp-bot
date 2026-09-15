@@ -89,7 +89,9 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
 
       {rows.length === 0 ? (
-        <EmptyState title="Записей аудит-лога пока нет" />
+        <EmptyState
+          title={botFilter ? "По этому боту записей нет" : "Записей аудит-лога пока нет"}
+        />
       ) : (
         <>
           <Table>

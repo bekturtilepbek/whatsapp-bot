@@ -70,7 +70,7 @@ export function DashboardTable({ bots }: DashboardTableProps) {
                 <div className="flex items-center gap-2">
                   <StatusPulse status={toConnectionStatus(bot)} />
                   {bot.status && bot.status !== "open" && (
-                    <span className="font-mono text-xs text-ink-faint">{bot.status}</span>
+                    <span className="font-mono text-xs text-ink-soft">{bot.status}</span>
                   )}
                 </div>
               </td>

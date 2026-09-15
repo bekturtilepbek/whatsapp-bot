@@ -99,7 +99,6 @@ export function BlockedNumbersTable({
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
               placeholder="+996 700 00 00 00"
-              aria-label="Номер телефона"
               className="mt-1.5"
             />
           </label>

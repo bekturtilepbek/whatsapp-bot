@@ -37,6 +37,9 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
   };
 
   const handleDelete = async (documentId: string) => {
+    if (!confirm("Удалить файл?")) {
+      return;
+    }
     try {
       await deleteDocument(apiBaseUrl, botId, documentId);
       setRows((current) => current.filter((row) => row.id !== documentId));

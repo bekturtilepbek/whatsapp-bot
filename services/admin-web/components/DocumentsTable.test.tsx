@@ -75,6 +75,7 @@ it("does nothing when the file input is cleared without a selection", async () =
 });
 
 it("deletes a document and removes its row", async () => {
+  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
   vi.mocked(api.deleteDocument).mockResolvedValue(undefined);
   render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
 
@@ -90,6 +91,7 @@ it("deletes a document and removes its row", async () => {
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {
+  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
   vi.mocked(api.deleteDocument).mockRejectedValue(new Error("delete failed"));
   render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
 
@@ -98,6 +100,16 @@ it("shows an error and keeps the row when deletion fails", async () => {
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/delete failed/i);
   });
+  expect(screen.getByText("price.pdf")).toBeInTheDocument();
+});
+
+it("does nothing when the delete confirmation is declined", async () => {
+  vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
+  render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
+
+  fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+
+  expect(api.deleteDocument).not.toHaveBeenCalled();
   expect(screen.getByText("price.pdf")).toBeInTheDocument();
 });
 

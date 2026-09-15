@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { fetchUsage, type UsagePeriod, type UsageSummary } from "@/lib/api";
+import { Select } from "@/components/ui/Select";
+import { Table } from "@/components/ui/Table";
 
 interface UsageTableProps {
   apiBaseUrl: string;
@@ -48,58 +50,60 @@ export function UsageTable({ apiBaseUrl, summaries, initialPeriod }: UsageTableP
   const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
 
   return (
-    <>
-      <label>
+    <div className="space-y-5">
+      <label className="mb-0 block max-w-xs text-sm font-medium text-ink">
         Период
-        <select
+        <Select
           value={period}
           onChange={(e) => void handlePeriodChange(e.target.value as UsagePeriod)}
           aria-label="Период"
+          className="mt-1.5"
         >
           {(Object.keys(PERIOD_LABELS) as UsagePeriod[]).map((p) => (
             <option key={p} value={p}>
               {PERIOD_LABELS[p]}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
-      {loading && <p>Загружаем…</p>}
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
-      )}
-      <table>
-        <thead>
-          <tr>
-            <th>Бот</th>
-            <th>Токены (вход)</th>
-            <th>Токены (выход)</th>
-            <th>Стоимость ($)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.bot_id}>
-              <td>{row.bot_name}</td>
-              <td>{row.tokens_in.toLocaleString("ru-RU")}</td>
-              <td>{row.tokens_out.toLocaleString("ru-RU")}</td>
-              <td>{formatCost(row.cost)}</td>
+
+      {loading && <p className="text-sm text-ink-soft">Загружаем…</p>}
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+      <Table>
+        <table>
+          <thead>
+            <tr>
+              <th>Бот</th>
+              <th>Токены (вход)</th>
+              <th>Токены (выход)</th>
+              <th>Стоимость ($)</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td>Итого</td>
-            <td>{totalTokensIn.toLocaleString("ru-RU")}</td>
-            <td>{totalTokensOut.toLocaleString("ru-RU")}</td>
-            <td>{totalCost.toFixed(4)}</td>
-          </tr>
-        </tfoot>
-      </table>
-      <p style={{ color: "gray", fontSize: "0.85em" }}>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.bot_id}>
+                <td>{row.bot_name}</td>
+                <td className="font-mono">{row.tokens_in.toLocaleString("ru-RU")}</td>
+                <td className="font-mono">{row.tokens_out.toLocaleString("ru-RU")}</td>
+                <td className="font-mono">{formatCost(row.cost)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="font-semibold">Итого</td>
+              <td className="font-mono font-semibold">{totalTokensIn.toLocaleString("ru-RU")}</td>
+              <td className="font-mono font-semibold">{totalTokensOut.toLocaleString("ru-RU")}</td>
+              <td className="font-mono font-semibold">{totalCost.toFixed(4)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </Table>
+
+      <p className="text-xs text-ink-soft">
         Оценка по объявленным ценам OpenAI, не биллинговые данные.
       </p>
-    </>
+    </div>
   );
 }

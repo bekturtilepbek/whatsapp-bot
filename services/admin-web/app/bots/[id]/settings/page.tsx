@@ -21,6 +21,7 @@ export default async function BotSettingsPage({
   return (
     <main className="space-y-5">
       <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Название</h2>
         <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
       </Card>
       <BotSettingsForm botId={id} apiBaseUrl={API_PROXY_PATH} initialSettings={initialSettings} />

@@ -49,7 +49,7 @@ export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormP
           className="mt-1.5 max-w-sm"
         />
       </label>
-      <Button type="submit" disabled={saving}>
+      <Button type="submit" variant="secondary" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </Button>
     </form>

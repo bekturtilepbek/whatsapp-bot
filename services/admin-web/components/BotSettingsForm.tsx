@@ -129,7 +129,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Батчинг</h2>
-        <label className="block text-sm font-medium text-ink">
+        <label className="mb-0 block text-sm font-medium text-ink">
           Таймаут батчинга, сек
           <NumberField
             min={0}
@@ -145,7 +145,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
 
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Хэндофф</h2>
-        <label className="block text-sm font-medium text-ink">
+        <label className="mb-0 block text-sm font-medium text-ink">
           Авто-возврат после ответа менеджера, мин
           <NumberField
             min={0}
@@ -180,7 +180,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             className="mt-1.5 max-w-xs"
           />
         </label>
-        <label className="block text-sm font-medium text-ink">
+        <label className="mb-0 block text-sm font-medium text-ink">
           Текст напоминания
           <Textarea
             rows={3}
@@ -227,7 +227,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           />
           Реагировать эмодзи на входящее фото/файл/видео
         </label>
-        <label className="block text-sm font-medium text-ink">
+        <label className="mb-0 block text-sm font-medium text-ink">
           Эмодзи реакции
           <Input
             type="text"

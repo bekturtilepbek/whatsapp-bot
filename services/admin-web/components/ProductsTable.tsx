@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { deleteProduct, fetchProducts, productPhotoUrl, type Product } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Table } from "@/components/ui/Table";
 
 interface ProductsTableProps {
   botId: string;
@@ -59,48 +62,74 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
     }
   };
 
+  if (rows.length === 0) {
+    // Без своей кнопки "Добавить товар" — она уже есть на странице выше
+    // (app/bots/[id]/products/page.tsx), повторять здесь = тот же дубль
+    // действия, который правили в прошлой волне (RenameBotForm/BotSettingsForm).
+    return (
+      <EmptyState
+        title="Товаров пока нет"
+        description="Добавьте первый — он появится в каталоге бота сразу."
+      />
+    );
+  }
+
   return (
     <>
-      <table>
-        <thead>
-          <tr>
-            <th />
-            <th>Название</th>
-            <th>Цена</th>
-            <th>SKU</th>
-            <th />
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((product) => (
-            <tr key={product.id}>
-              <td>
-                {product.photos[0] && (
-                  <img
-                    src={productPhotoUrl(apiBaseUrl, botId, product.id, product.photos[0].id)}
-                    alt={product.name}
-                    style={{ width: "48px", height: "48px", objectFit: "cover" }}
-                  />
-                )}
-              </td>
-              <td>{product.name}</td>
-              <td>{product.price ?? "—"}</td>
-              <td>{product.sku ?? "—"}</td>
-              <td>
-                <Link href={`/bots/${botId}/products/${product.id}/edit`}>Редактировать</Link>
-              </td>
-              <td>
-                <button onClick={() => void handleDelete(product.id)}>Удалить</button>
-              </td>
+      <Table>
+        <table>
+          <thead>
+            <tr>
+              <th />
+              <th>Название</th>
+              <th>Цена</th>
+              <th>SKU</th>
+              <th />
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((product) => (
+              <tr key={product.id}>
+                <td>
+                  {product.photos[0] && (
+                    <img
+                      src={productPhotoUrl(apiBaseUrl, botId, product.id, product.photos[0].id)}
+                      alt={product.name}
+                      className="h-12 w-12 rounded-md object-cover"
+                    />
+                  )}
+                </td>
+                <td>{product.name}</td>
+                <td className="font-mono">{product.price ?? "—"}</td>
+                <td className="font-mono">{product.sku ?? "—"}</td>
+                <td>
+                  <Link
+                    href={`/bots/${botId}/products/${product.id}/edit`}
+                    className="font-medium text-accent hover:underline"
+                  >
+                    Редактировать
+                  </Link>
+                </td>
+                <td>
+                  <Button variant="danger" onClick={() => void handleDelete(product.id)}>
+                    Удалить
+                  </Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Table>
       {hasMore && (
-        <button onClick={() => void handleLoadMore()} disabled={loadingMore}>
+        <Button
+          variant="secondary"
+          className="mt-4"
+          onClick={() => void handleLoadMore()}
+          disabled={loadingMore}
+        >
           {loadingMore ? "Загружаем…" : "Показать ещё"}
-        </button>
+        </Button>
       )}
     </>
   );

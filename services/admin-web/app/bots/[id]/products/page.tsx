@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ProductsTable } from "@/components/ProductsTable";
+import { buttonClasses } from "@/components/ui/Button";
 import { fetchBot, fetchProducts } from "@/lib/api";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
@@ -23,13 +24,11 @@ export default async function BotProductsPage({
 
   return (
     <main>
-      <p>
-        <Link href={`/bots/${id}`}>← Назад к боту</Link>
-      </p>
-      <h1>{bot.name} — товары</h1>
-      <p>
-        <Link href={`/bots/${id}/products/new`}>Добавить товар</Link>
-      </p>
+      <div className="mb-6 flex justify-end">
+        <Link href={`/bots/${id}/products/new`} className={buttonClasses()}>
+          + Добавить товар
+        </Link>
+      </div>
       <ProductsTable
         botId={id}
         apiBaseUrl={API_PROXY_PATH}

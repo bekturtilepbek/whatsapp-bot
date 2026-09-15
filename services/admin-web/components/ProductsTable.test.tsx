@@ -143,3 +143,9 @@ it("renders a thumbnail for the first photo and nothing for a product without ph
   expect(thumbnail).toHaveAttribute("src", "http://api/bots/1/products/p1/photos/ph1");
   expect(screen.queryByRole("img", { name: /без цены/i })).not.toBeInTheDocument();
 });
+
+it("shows an empty state when there are no products", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={[]} pageSize={10} />);
+  expect(screen.getByText("Товаров пока нет")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

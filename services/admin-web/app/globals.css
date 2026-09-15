@@ -22,75 +22,17 @@
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 
-/* Существующие правила ДО этой волны редизайна — сохранены дословно и
- * обёрнуты в @layer base, а не удалены: Tailwind-слои идут base < components
- * < utilities, поэтому любой новый примитив (@layer utilities, то есть
- * className-утилиты на компонентах components/ui/) автоматически побеждает
- * эти правила в каскаде, а ещё не мигрированные экраны (BotsTable,
- * ProductsTable и т.д. — см. Global Constraints плана) продолжают выглядеть
- * ровно как раньше. Правила удаляются целиком только последним таском самой
- * последней волны редизайна экранов, когда ни один <table>/<button> без
- * className их больше не использует. */
+/* Редизайн кабинета завершён (ADR-009) — все экраны переведены на
+ * components/ui/ примитивы, временный @layer base для немигрированных
+ * экранов сослужил свою службу и удалён. Единственное намеренно
+ * оставленное правило ниже — не легаси, а постоянный маленький дефолт:
+ * браузеры по умолчанию НЕ ставят курсор-руку на <button>. Держим его
+ * одним общим правилом вместо того, чтобы дублировать cursor-pointer в
+ * каждом месте с голым <button> — components/ui/Button.tsx получает
+ * курсор отсюда так же, как Sidebar.tsx ("Выйти") и ToastProvider.tsx
+ * (кнопка закрытия), у обоих голая точечная разметка без своего примитива. */
 @layer base {
-  body {
-    font-family: system-ui, sans-serif;
-    margin: 2rem;
-    color: #1a1a1a;
-  }
-
-  table {
-    border-collapse: collapse;
-    width: 100%;
-  }
-
-  th,
-  td {
-    text-align: left;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid #ddd;
-  }
-
   button {
-    padding: 0.5rem 1rem;
     cursor: pointer;
-  }
-
-  textarea {
-    width: 100%;
-    font-family: inherit;
-    font-size: 1rem;
-    padding: 0.5rem;
-    box-sizing: border-box;
-  }
-
-  section {
-    margin-bottom: 2rem;
-  }
-
-  ul {
-    list-style: none;
-    padding: 0;
-  }
-
-  li {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid #ddd;
-  }
-
-  form label {
-    display: block;
-    margin-bottom: 1rem;
-  }
-
-  form input[type="number"],
-  form input[type="text"] {
-    display: block;
-    margin-top: 0.25rem;
-    padding: 0.4rem;
-    font-size: 1rem;
-  }
-
-  form input[type="checkbox"] {
-    margin-right: 0.5rem;
   }
 }

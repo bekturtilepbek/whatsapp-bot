@@ -13,6 +13,12 @@ import {
   type ProductPhoto,
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { NumberField } from "@/components/ui/NumberField";
+import { Switch } from "@/components/ui/Switch";
+import { Textarea } from "@/components/ui/Textarea";
 
 interface ProductFormProps {
   botId: string;
@@ -146,127 +152,134 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   return (
     // noValidate — та же причина, что и в BotSettingsForm: нативная
     // HTML5-валидация (required/min) тихо блокирует submit ДО нашей проверки.
-    <form noValidate onSubmit={(e) => void handleSubmit(e)}>
-      <label>
-        Название
-        <input
-          type="text"
-          value={state.name}
-          onChange={(e) => setState({ ...state, name: e.target.value })}
-        />
-      </label>
-      <label>
-        Цена
-        <input
-          type="number"
-          min={0}
-          step={0.01}
-          value={state.price}
-          onChange={(e) => setState({ ...state, price: e.target.value })}
-        />
-      </label>
-      {showPriceHint && (
-        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
-      )}
-      <label>
-        Артикул (SKU)
-        <input
-          type="text"
-          value={state.sku}
-          onChange={(e) => setState({ ...state, sku: e.target.value })}
-        />
-      </label>
-      {showSkuHint && (
-        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
-      )}
-      <label>
-        Описание
-        <textarea
-          rows={4}
-          value={state.description}
-          onChange={(e) => setState({ ...state, description: e.target.value })}
-        />
-      </label>
-      {showDescriptionHint && (
-        <p style={{ color: "gray", fontSize: "0.85em" }}>{clearHint}</p>
-      )}
-      <label>
-        <input
-          type="checkbox"
-          checked={state.displayOverride}
-          onChange={(e) => setState({ ...state, displayOverride: e.target.checked })}
-        />
-        Переопределить вывод для этого товара
-      </label>
-      {state.displayOverride && (
-        <fieldset>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.showName}
-              onChange={(e) => setState({ ...state, showName: e.target.checked })}
-            />
-            Показывать название
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.showDescription}
-              onChange={(e) => setState({ ...state, showDescription: e.target.checked })}
-            />
-            Показывать описание
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={state.showPrice}
-              onChange={(e) => setState({ ...state, showPrice: e.target.checked })}
-            />
-            Показывать цену
-          </label>
-        </fieldset>
-      )}
-
-      {!product && (
-        <label>
-          Фото
-          <input
-            type="file"
-            multiple
-            accept="image/jpeg,image/png,image/webp"
-            onChange={(e) => setNewPhotos(e.target.files ? Array.from(e.target.files) : [])}
+    <form noValidate onSubmit={(e) => void handleSubmit(e)} className="max-w-xl space-y-5">
+      <Card className="space-y-4 p-5">
+        <label className="mb-0 block text-sm font-medium text-ink">
+          Название
+          <Input
+            type="text"
+            value={state.name}
+            onChange={(e) => setState({ ...state, name: e.target.value })}
+            className="mt-1.5"
           />
         </label>
+        <div>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Цена
+            <NumberField
+              min={0}
+              step={0.01}
+              value={state.price}
+              onChange={(e) => setState({ ...state, price: e.target.value })}
+              className="mt-1.5 max-w-xs"
+            />
+          </label>
+          {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+        </div>
+        <div>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Артикул (SKU)
+            <Input
+              type="text"
+              value={state.sku}
+              onChange={(e) => setState({ ...state, sku: e.target.value })}
+              className="mt-1.5 max-w-xs"
+            />
+          </label>
+          {showSkuHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+        </div>
+        <div>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Описание
+            <Textarea
+              rows={4}
+              value={state.description}
+              onChange={(e) => setState({ ...state, description: e.target.value })}
+              className="mt-1.5"
+            />
+          </label>
+          {showDescriptionHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+          <Switch
+            checked={state.displayOverride}
+            onChange={(e) => setState({ ...state, displayOverride: e.target.checked })}
+          />
+          Переопределить вывод для этого товара
+        </label>
+        {state.displayOverride && (
+          <fieldset className="mt-4 space-y-3 border-0 p-0">
+            <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+              <Switch
+                checked={state.showName}
+                onChange={(e) => setState({ ...state, showName: e.target.checked })}
+              />
+              Показывать название
+            </label>
+            <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+              <Switch
+                checked={state.showDescription}
+                onChange={(e) => setState({ ...state, showDescription: e.target.checked })}
+              />
+              Показывать описание
+            </label>
+            <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+              <Switch
+                checked={state.showPrice}
+                onChange={(e) => setState({ ...state, showPrice: e.target.checked })}
+              />
+              Показывать цену
+            </label>
+          </fieldset>
+        )}
+      </Card>
+
+      {!product && (
+        <Card className="p-5">
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Фото
+            <input
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => setNewPhotos(e.target.files ? Array.from(e.target.files) : [])}
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint"
+            />
+          </label>
+        </Card>
       )}
 
-      <button type="submit" disabled={saving}>
+      <Button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
-      </button>
+      </Button>
 
       {product && (
-        <section>
-          <h2>Фото</h2>
-          <div>
+        <Card className="p-5">
+          <h2 className="mb-4 text-[15px] font-semibold text-ink">Фото</h2>
+          <div className="flex flex-wrap gap-4">
             {photos.map((photo) => (
-              <div key={photo.id} style={{ display: "inline-block", marginRight: "1rem" }}>
+              <div key={photo.id} className="w-24">
                 <img
                   src={productPhotoUrl(apiBaseUrl, botId, product.id, photo.id)}
                   alt="Фото товара"
-                  style={{ width: "96px", height: "96px", objectFit: "cover" }}
+                  className="h-24 w-24 rounded-md object-cover"
                 />
-                <div>
-                  <button
-                    type="button"
-                    disabled={photoBusy || photos.length <= 1}
-                    onClick={() => void handleDeletePhoto(photo.id)}
-                  >
-                    Удалить фото
-                  </button>
-                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-2 w-full justify-center"
+                  disabled={photoBusy || photos.length <= 1}
+                  onClick={() => void handleDeletePhoto(photo.id)}
+                >
+                  Удалить фото
+                </Button>
               </div>
             ))}
           </div>
-          <label>
+          <label className="mb-0 mt-4 block text-sm font-medium text-ink">
             Добавить ещё
             <input
               type="file"
@@ -274,9 +287,10 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
               accept="image/jpeg,image/png,image/webp"
               disabled={photoBusy}
               onChange={(e) => void handleAddPhotos(e.target.files)}
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
             />
           </label>
-        </section>
+        </Card>
       )}
     </form>
   );

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { DashboardTable } from "@/components/DashboardTable";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchBots } from "@/lib/api";
 import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL } from "@/lib/env";
@@ -13,7 +14,7 @@ export default async function DashboardPage() {
 
   return (
     <main>
-      <h1>Дашборд</h1>
+      <PageHeader title="Дашборд" subtitle={`Ботов: ${bots.length}`} />
       <DashboardTable bots={bots} />
     </main>
   );

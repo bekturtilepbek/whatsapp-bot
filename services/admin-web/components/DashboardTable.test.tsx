@@ -26,7 +26,7 @@ describe("DashboardTable", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("renders status label and last_seen for each bot", () => {
+  it("renders the StatusPulse label and last_seen for a healthy bot, with no raw-status caption", () => {
     render(
       <DashboardTable
         bots={[
@@ -34,16 +34,25 @@ describe("DashboardTable", () => {
         ]}
       />
     );
-    expect(screen.getByText("🟢 Подключён")).toBeInTheDocument();
+    expect(screen.getByText("Подключён")).toBeInTheDocument();
     expect(screen.getByText("2026-09-12 10:30")).toBeInTheDocument();
+    // "open" не дублируется мелкой подписью — для здорового бота это шум,
+    // подпись нужна только там, где StatusPulse что-то схлопывает.
+    expect(screen.queryByText("open")).not.toBeInTheDocument();
   });
 
-  it("shows a placeholder for a bot that was never linked", () => {
+  it("shows a placeholder for a bot that was never linked, with no raw-status caption", () => {
     render(<DashboardTable bots={[makeBot({ status: null, last_seen: null })]} />);
-    expect(screen.getByText("⚪ Не подключался")).toBeInTheDocument();
-    // "—" встречается дважды в этой строке: "последняя активность" и "пауза"
-    // (бот из makeBot enabled=true, т.е. не на паузе).
-    expect(screen.getAllByText("—")).toHaveLength(2);
+    expect(screen.getByText("Не подключён")).toBeInTheDocument();
+    // "—" встречается один раз в этой строке (последняя активность) — колонка
+    // "Пауза" ушла, бейдж "на паузе" не рендерится для enabled:true.
+    expect(screen.getAllByText("—")).toHaveLength(1);
+  });
+
+  it("shows the raw status as a caption for a bot with a problem status", () => {
+    render(<DashboardTable bots={[makeBot({ status: "reconnecting" })]} />);
+    expect(screen.getByText("Подключается")).toBeInTheDocument();
+    expect(screen.getByText("reconnecting")).toBeInTheDocument();
   });
 
   it("marks a paused bot", () => {

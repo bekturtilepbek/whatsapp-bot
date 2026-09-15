@@ -1,4 +1,9 @@
+import { Badge } from "@/components/ui/Badge";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { StatusPulse } from "@/components/ui/StatusPulse";
+import { Table } from "@/components/ui/Table";
 import type { Bot } from "@/lib/api";
+import { toConnectionStatus } from "@/lib/botStatus";
 
 interface DashboardTableProps {
   bots: Bot[];
@@ -16,23 +21,9 @@ const STATUS_ORDER: Record<string, number> = {
 };
 const NEVER_LINKED_ORDER = 4;
 
-const STATUS_LABELS: Record<string, string> = {
-  open: "🟢 Подключён",
-  connecting: "🟡 Подключается",
-  qr: "🟡 Ждёт QR-код",
-  reconnecting: "🟠 Переподключается",
-  logged_out: "🔴 Отключён (logout)",
-};
-const NEVER_LINKED_LABEL = "⚪ Не подключался";
-
 function statusOrder(status: string | null | undefined): number {
   if (!status) return NEVER_LINKED_ORDER;
   return STATUS_ORDER[status] ?? NEVER_LINKED_ORDER;
-}
-
-function statusLabel(status: string | null | undefined): string {
-  if (!status) return NEVER_LINKED_LABEL;
-  return STATUS_LABELS[status] ?? status;
 }
 
 function formatLastSeen(iso: string | null | undefined): string {
@@ -45,7 +36,7 @@ function formatLastSeen(iso: string | null | undefined): string {
 
 export function DashboardTable({ bots }: DashboardTableProps) {
   if (bots.length === 0) {
-    return <p>Ботов пока нет</p>;
+    return <EmptyState title="Ботов пока нет" />;
   }
 
   const sorted = [...bots].sort((a, b) => {
@@ -55,25 +46,39 @@ export function DashboardTable({ bots }: DashboardTableProps) {
   });
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Бот</th>
-          <th>Статус</th>
-          <th>Последняя активность</th>
-          <th>Пауза</th>
-        </tr>
-      </thead>
-      <tbody>
-        {sorted.map((bot) => (
-          <tr key={bot.id}>
-            <td>{bot.name}</td>
-            <td>{statusLabel(bot.status)}</td>
-            <td>{formatLastSeen(bot.last_seen)}</td>
-            <td>{bot.enabled ? "—" : "на паузе"}</td>
+    <Table>
+      <table>
+        <thead>
+          <tr>
+            <th>Бот</th>
+            <th>Статус</th>
+            <th>Последняя активность</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {sorted.map((bot) => (
+            <tr key={bot.id}>
+              <td>
+                {bot.name}
+                {!bot.enabled && (
+                  <Badge variant="paused" className="ml-2">
+                    на паузе
+                  </Badge>
+                )}
+              </td>
+              <td>
+                <div className="flex items-center gap-2">
+                  <StatusPulse status={toConnectionStatus(bot)} />
+                  {bot.status && bot.status !== "open" && (
+                    <span className="font-mono text-xs text-ink-faint">{bot.status}</span>
+                  )}
+                </div>
+              </td>
+              <td className="font-mono">{formatLastSeen(bot.last_seen)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Table>
   );
 }

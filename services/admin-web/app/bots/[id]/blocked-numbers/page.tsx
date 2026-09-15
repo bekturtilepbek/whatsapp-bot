@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BlockedNumbersTable } from "@/components/BlockedNumbersTable";
 import { fetchBlockedNumbers, fetchBot } from "@/lib/api";
@@ -23,10 +22,6 @@ export default async function BotBlockedNumbersPage({
 
   return (
     <main>
-      <p>
-        <Link href={`/bots/${id}`}>← Назад к боту</Link>
-      </p>
-      <h1>{bot.name} — чёрный список</h1>
       <BlockedNumbersTable
         botId={id}
         apiBaseUrl={API_PROXY_PATH}

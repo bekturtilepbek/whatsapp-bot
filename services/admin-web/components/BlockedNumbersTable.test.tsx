@@ -137,3 +137,9 @@ it('shows an error and keeps "Показать ещё" visible when loading more
   });
   expect(screen.getByRole("button", { name: /показать ещё/i })).toBeInTheDocument();
 });
+
+it("shows an empty state when there are no blocked numbers", () => {
+  render(<BlockedNumbersTable botId="1" apiBaseUrl="http://api" numbers={[]} pageSize={10} />);
+  expect(screen.getByText("Чёрный список пуст")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

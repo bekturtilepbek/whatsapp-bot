@@ -8,6 +8,11 @@ import {
   type BlockedNumber,
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
+import { Table } from "@/components/ui/Table";
 
 interface BlockedNumbersTableProps {
   botId: string;
@@ -84,42 +89,66 @@ export function BlockedNumbersTable({
   };
 
   return (
-    <>
-      <form onSubmit={(event) => void handleAdd(event)}>
-        <input
-          type="text"
-          value={phone}
-          onChange={(event) => setPhone(event.target.value)}
-          placeholder="+996 700 00 00 00"
-          aria-label="Номер телефона"
+    <div className="space-y-5">
+      <Card className="p-5">
+        <form onSubmit={(event) => void handleAdd(event)} className="flex items-end gap-3">
+          <label className="mb-0 block flex-1 text-sm font-medium text-ink">
+            Номер телефона
+            <Input
+              type="text"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="+996 700 00 00 00"
+              aria-label="Номер телефона"
+              className="mt-1.5"
+            />
+          </label>
+          <Button type="submit" disabled={adding}>
+            {adding ? "Добавляем…" : "Добавить"}
+          </Button>
+        </form>
+      </Card>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          title="Чёрный список пуст"
+          description="Заблокированные номера не получают ответов от бота."
         />
-        <button type="submit" disabled={adding}>
-          {adding ? "Добавляем…" : "Добавить"}
-        </button>
-      </form>
-      <table>
-        <thead>
-          <tr>
-            <th>Номер</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.phone}>
-              <td>{row.phone}</td>
-              <td>
-                <button onClick={() => void handleDelete(row.phone)}>Удалить</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {hasMore && (
-        <button onClick={() => void handleLoadMore()} disabled={loadingMore}>
-          {loadingMore ? "Загружаем…" : "Показать ещё"}
-        </button>
+      ) : (
+        <>
+          <Table>
+            <table>
+              <thead>
+                <tr>
+                  <th>Номер</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.phone}>
+                    <td className="font-mono">{row.phone}</td>
+                    <td>
+                      <Button variant="danger" onClick={() => void handleDelete(row.phone)}>
+                        Удалить
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Table>
+          {hasMore && (
+            <Button
+              variant="secondary"
+              onClick={() => void handleLoadMore()}
+              disabled={loadingMore}
+            >
+              {loadingMore ? "Загружаем…" : "Показать ещё"}
+            </Button>
+          )}
+        </>
       )}
-    </>
+    </div>
   );
 }

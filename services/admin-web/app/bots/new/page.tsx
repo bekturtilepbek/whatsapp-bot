@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NewBotForm } from "@/components/NewBotForm";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_PROXY_PATH } from "@/lib/env";
 
@@ -11,11 +13,13 @@ export default async function NewBotPage() {
 
   return (
     <main>
-      <p>
-        <Link href="/bots">← Назад к списку</Link>
-      </p>
-      <h1>Новый бот</h1>
-      <NewBotForm apiBaseUrl={API_PROXY_PATH} />
+      <Link href="/bots" className="text-sm text-ink-soft hover:text-ink">
+        ← Назад к списку
+      </Link>
+      <PageHeader title="Новый бот" />
+      <Card className="max-w-sm p-5">
+        <NewBotForm apiBaseUrl={API_PROXY_PATH} />
+      </Card>
     </main>
   );
 }

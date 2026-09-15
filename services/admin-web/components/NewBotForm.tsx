@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { createBot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 
@@ -34,20 +36,21 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)}>
-      <label>
+      <label className="mb-4 block text-sm font-medium text-ink">
         Имя
-        <input
+        <Input
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Название бота"
           aria-label="Имя"
           autoFocus
+          className="mt-1.5"
         />
       </label>
-      <button type="submit" disabled={creating}>
+      <Button type="submit" disabled={creating}>
         {creating ? "Создаём…" : "Создать"}
-      </button>
+      </Button>
     </form>
   );
 }

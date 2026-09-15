@@ -14,7 +14,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="m-0 flex min-h-screen bg-canvas font-sans text-ink">
         <ToastProvider>
           <Sidebar />
-          <div className="min-w-0 flex-1 overflow-x-hidden px-8 py-7">{children}</div>
+          {/* Без overflow-x-hidden здесь: он делал этот div скролл-контейнером,
+              и на узком окне Next.js после client-side навигации переводит
+              фокус на <h1> страницы — браузер сам горизонтально проскраливал
+              этот контейнер, чтобы показать фокус, обрезая заголовок и первые
+              вкладки слева (живая проверка, docker compose, 2026-09-15).
+              Горизонтальный overflow при нехватке места теперь — забота
+              самой Tabs (components/ui/Tabs.tsx), не всей страницы. */}
+          <div className="min-w-0 flex-1 px-8 py-7">{children}</div>
         </ToastProvider>
       </body>
     </html>

@@ -252,10 +252,6 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
         </Card>
       )}
 
-      <Button type="submit" disabled={saving}>
-        {saving ? "Сохраняем…" : "Сохранить"}
-      </Button>
-
       {product && (
         <Card className="p-5">
           <h2 className="mb-4 text-[15px] font-semibold text-ink">Фото</h2>
@@ -269,9 +265,10 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
                 />
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="danger"
                   className="mt-2 w-full justify-center"
                   disabled={photoBusy || photos.length <= 1}
+                  title={photos.length <= 1 ? "Нельзя удалить единственное фото" : undefined}
                   onClick={() => void handleDeletePhoto(photo.id)}
                 >
                   Удалить фото
@@ -292,6 +289,10 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           </label>
         </Card>
       )}
+
+      <Button type="submit" disabled={saving}>
+        {saving ? "Сохраняем…" : "Сохранить"}
+      </Button>
     </form>
   );
 }

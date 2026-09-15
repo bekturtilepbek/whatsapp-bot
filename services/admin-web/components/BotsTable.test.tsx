@@ -57,5 +57,5 @@ it("shows a paused badge for a disabled bot", () => {
 it("shows the pending status for a bot mid-connection", () => {
   const pending: Bot[] = [{ ...bots[0], status: "qr", linked_at: null }];
   render(<BotsTable bots={pending} />);
-  expect(screen.getByText("Ждёт QR")).toBeInTheDocument();
+  expect(screen.getByText("Подключается")).toBeInTheDocument();
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { BotsTable } from "@/components/BotsTable";
-import { BUTTON_BASE_CLASSES, BUTTON_VARIANT_CLASSES } from "@/components/ui/Button";
+import { buttonClasses } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchBots } from "@/lib/api";
 import { currentUserIsOwner } from "@/lib/currentUser";
@@ -16,10 +16,7 @@ export default async function BotsPage() {
         subtitle={`Ботов: ${bots.length}`}
         action={
           isOwner ? (
-            <Link
-              href="/bots/new"
-              className={`${BUTTON_BASE_CLASSES} ${BUTTON_VARIANT_CLASSES.primary}`}
-            >
+            <Link href="/bots/new" className={buttonClasses()}>
               Создать бота →
             </Link>
           ) : undefined

@@ -13,7 +13,7 @@ interface StatusConfig {
 
 const STATUS_CONFIG: Record<BotConnectionStatus, StatusConfig> = {
   connected: { label: "Подключён", dotClass: "bg-success", labelClass: "text-success", animated: true },
-  pending: { label: "Ждёт QR", dotClass: "bg-warning", labelClass: "text-warning", animated: false },
+  pending: { label: "Подключается", dotClass: "bg-warning", labelClass: "text-warning", animated: false },
   disconnected: {
     label: "Не подключён",
     dotClass: "bg-ink-faint",

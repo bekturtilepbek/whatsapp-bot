@@ -47,3 +47,15 @@ it("shows an explanatory message instead of a table when there are no bots", () 
   ).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
 });
+
+it("shows a paused badge for a disabled bot", () => {
+  const paused: Bot[] = [{ ...bots[0], enabled: false }];
+  render(<BotsTable bots={paused} />);
+  expect(screen.getByText("на паузе")).toBeInTheDocument();
+});
+
+it("shows the pending status for a bot mid-connection", () => {
+  const pending: Bot[] = [{ ...bots[0], status: "qr", linked_at: null }];
+  render(<BotsTable bots={pending} />);
+  expect(screen.getByText("Ждёт QR")).toBeInTheDocument();
+});

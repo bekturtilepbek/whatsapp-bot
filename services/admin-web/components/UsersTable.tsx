@@ -10,6 +10,12 @@ import {
 } from "@/lib/api";
 import type { Bot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
+import { Switch } from "@/components/ui/Switch";
+import { Table } from "@/components/ui/Table";
 
 interface UsersTableProps {
   apiBaseUrl: string;
@@ -78,68 +84,85 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
     }
   };
 
+  const clientRows = rows.filter((u) => !u.is_platform_owner);
+
   return (
-    <>
-      <form onSubmit={(event) => void handleCreate(event)}>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="client@example.com"
-          aria-label="Email"
+    <div className="space-y-5">
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Новый пользователь</h2>
+        <form onSubmit={(event) => void handleCreate(event)} className="flex flex-wrap items-end gap-3">
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Email
+            <Input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="client@example.com"
+              className="mt-1.5 max-w-xs"
+            />
+          </label>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Пароль
+            <Input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="Пароль"
+              className="mt-1.5 max-w-xs"
+            />
+          </label>
+          <Button type="submit" disabled={creating}>
+            {creating ? "Создаём…" : "Создать пользователя"}
+          </Button>
+        </form>
+      </Card>
+
+      {clientRows.length === 0 ? (
+        <EmptyState
+          title="Пользователей пока нет"
+          description="Создайте первого клиента формой выше, затем выдайте доступ к нужным ботам."
         />
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="Пароль"
-          aria-label="Пароль"
-        />
-        <button type="submit" disabled={creating}>
-          {creating ? "Создаём…" : "Создать пользователя"}
-        </button>
-      </form>
-      <table>
-        <thead>
-          <tr>
-            <th>Email</th>
-            <th>Активен</th>
-            {bots.map((bot) => (
-              <th key={bot.id}>{bot.name}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows
-            .filter((u) => !u.is_platform_owner)
-            .map((user) => (
-              <tr key={user.id}>
-                <td>{user.email}</td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={user.is_active}
-                    onChange={() => void toggleActive(user.id, user.is_active)}
-                    aria-label={`Активен: ${user.email}`}
-                  />
-                </td>
-                {bots.map((bot) => {
-                  const hasAccess = user.bot_ids.includes(bot.id);
-                  return (
-                    <td key={bot.id}>
-                      <input
-                        type="checkbox"
-                        checked={hasAccess}
-                        onChange={() => void toggleAccess(user.id, bot.id, hasAccess)}
-                        aria-label={`${bot.name}: ${user.email}`}
-                      />
-                    </td>
-                  );
-                })}
+      ) : (
+        <Table>
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Активен</th>
+                {bots.map((bot) => (
+                  <th key={bot.id}>{bot.name}</th>
+                ))}
               </tr>
-            ))}
-        </tbody>
-      </table>
-    </>
+            </thead>
+            <tbody>
+              {clientRows.map((user) => (
+                <tr key={user.id}>
+                  <td>{user.email}</td>
+                  <td>
+                    <Switch
+                      checked={user.is_active}
+                      onChange={() => void toggleActive(user.id, user.is_active)}
+                      aria-label={`Активен: ${user.email}`}
+                    />
+                  </td>
+                  {bots.map((bot) => {
+                    const hasAccess = user.bot_ids.includes(bot.id);
+                    return (
+                      <td key={bot.id}>
+                        <Switch
+                          checked={hasAccess}
+                          onChange={() => void toggleAccess(user.id, bot.id, hasAccess)}
+                          aria-label={`${bot.name}: ${user.email}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Table>
+      )}
+    </div>
   );
 }

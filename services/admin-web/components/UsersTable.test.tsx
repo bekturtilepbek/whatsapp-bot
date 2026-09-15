@@ -195,3 +195,9 @@ it("shows an error and reverts the checkbox when toggling active status fails", 
   });
   expect(checkbox.checked).toBe(true);
 });
+
+it("shows an empty state when there are no non-owner users", () => {
+  render(<UsersTable apiBaseUrl="http://api" users={[owner]} bots={bots} />);
+  expect(screen.getByText("Пользователей пока нет")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

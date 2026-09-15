@@ -25,7 +25,7 @@ export default function LoginPage() {
   }, [pending, error, showError]);
 
   return (
-    <main className="flex h-full items-center justify-center">
+    <main className="flex min-h-full items-center justify-center">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2">
           <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-xs font-semibold text-white">

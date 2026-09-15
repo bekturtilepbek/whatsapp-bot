@@ -3,6 +3,12 @@
 import { useState } from "react";
 import { patchBotSettings, type BotSettings } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Input";
+import { NumberField } from "@/components/ui/NumberField";
+import { Switch } from "@/components/ui/Switch";
+import { Textarea } from "@/components/ui/Textarea";
 
 const BYTES_PER_MB = 1024 * 1024;
 // Не «сколько разрешает WhatsApp» — свой предохранитель поверх лимита
@@ -120,85 +126,85 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
     // об ошибке, а показала бы (или не показала бы — зависит от браузера)
     // нативный тултип, при этом другие поля без min/max (текстовые) шли бы
     // через кастомную ошибку — несогласованно.
-    <form noValidate onSubmit={(e) => void handleSubmit(e)}>
-      <section>
-        <h2>Батчинг</h2>
-        <label>
+    <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Батчинг</h2>
+        <label className="block text-sm font-medium text-ink">
           Таймаут батчинга, сек
-          <input
-            type="number"
+          <NumberField
             min={0}
             step={0.1}
             value={settings.batch_timeout_seconds}
             onChange={(e) =>
               setSettings({ ...settings, batch_timeout_seconds: Number(e.target.value) })
             }
+            className="mt-1.5 max-w-xs"
           />
         </label>
-      </section>
+      </Card>
 
-      <section>
-        <h2>Хэндофф</h2>
-        <label>
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Хэндофф</h2>
+        <label className="block text-sm font-medium text-ink">
           Авто-возврат после ответа менеджера, мин
-          <input
-            type="number"
+          <NumberField
             min={0}
             step={1}
             value={settings.auto_release_minutes}
             onChange={(e) =>
               setSettings({ ...settings, auto_release_minutes: Number(e.target.value) })
             }
+            className="mt-1.5 max-w-xs"
           />
         </label>
-      </section>
+      </Card>
 
-      <section>
-        <h2>Напоминания</h2>
-        <label>
-          <input
-            type="checkbox"
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Напоминания</h2>
+        <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
+          <Switch
             checked={settings.reminder_enabled}
             onChange={(e) => setSettings({ ...settings, reminder_enabled: e.target.checked })}
           />
           Включены
         </label>
-        <label>
+        <label className="mb-4 block text-sm font-medium text-ink">
           Задержка, мин
-          <input
-            type="number"
+          <NumberField
             min={0}
             step={1}
             value={settings.reminder_delay_minutes}
             onChange={(e) =>
               setSettings({ ...settings, reminder_delay_minutes: Number(e.target.value) })
             }
+            className="mt-1.5 max-w-xs"
           />
         </label>
-        <label>
+        <label className="block text-sm font-medium text-ink">
           Текст напоминания
-          <textarea
+          <Textarea
             rows={3}
             value={settings.reminder_message}
             onChange={(e) => setSettings({ ...settings, reminder_message: e.target.value })}
+            className="mt-1.5"
           />
         </label>
-      </section>
+      </Card>
 
-      <section>
-        <h2>Медиа</h2>
-        <label>
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Медиа</h2>
+        <label className="mb-4 block text-sm font-medium text-ink">
           Заглушка на неподдерживаемое медиа
-          <textarea
+          <Textarea
             rows={3}
             value={settings.media_fallback_text}
             onChange={(e) => setSettings({ ...settings, media_fallback_text: e.target.value })}
+            className="mt-1.5"
           />
         </label>
-        <label>
+        <label className="mb-4 block text-sm font-medium text-ink">
           Макс. размер входящего медиа, МБ
-          <input
-            type="number"
+          <NumberField
             min={0}
             max={MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB}
             step={0.1}
@@ -209,11 +215,11 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
                 media_max_size_bytes: Math.round(Number(e.target.value) * BYTES_PER_MB),
               })
             }
+            className="mt-1.5 max-w-xs"
           />
         </label>
-        <label>
-          <input
-            type="checkbox"
+        <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
+          <Switch
             checked={settings.media_reaction_enabled}
             onChange={(e) =>
               setSettings({ ...settings, media_reaction_enabled: e.target.checked })
@@ -221,19 +227,20 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           />
           Реагировать эмодзи на входящее фото/файл/видео
         </label>
-        <label>
+        <label className="block text-sm font-medium text-ink">
           Эмодзи реакции
-          <input
+          <Input
             type="text"
             value={settings.media_reaction_emoji}
             onChange={(e) => setSettings({ ...settings, media_reaction_emoji: e.target.value })}
+            className="mt-1.5 max-w-xs"
           />
         </label>
-      </section>
+      </Card>
 
-      <button type="submit" disabled={saving}>
+      <Button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
-      </button>
+      </Button>
     </form>
   );
 }

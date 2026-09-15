@@ -21,7 +21,7 @@ export default async function BotPromptsPage({
   ]);
 
   return (
-    <main className="space-y-5">
+    <main className="space-y-10">
       <PromptEditor
         botId={id}
         apiBaseUrl={API_PROXY_PATH}

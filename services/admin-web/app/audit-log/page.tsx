@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuditLogTable } from "@/components/AuditLogTable";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchAuditLog, fetchBots } from "@/lib/api";
 import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
@@ -18,7 +19,7 @@ export default async function AuditLogPage() {
 
   return (
     <main>
-      <h1>Аудит-лог</h1>
+      <PageHeader title="Аудит-лог" />
       <AuditLogTable
         apiBaseUrl={API_PROXY_PATH}
         entries={entries}

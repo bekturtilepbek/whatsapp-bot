@@ -100,3 +100,9 @@ it("shows an error when loading more fails", async () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/load failed/i);
   });
 });
+
+it("shows an empty state when there are no entries", () => {
+  render(<AuditLogTable apiBaseUrl="http://api" entries={[]} bots={bots} pageSize={50} />);
+  expect(screen.getByText("Записей аудит-лога пока нет")).toBeInTheDocument();
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});

@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { fetchAuditLog, type AuditLogEntry, type Bot } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Select } from "@/components/ui/Select";
+import { Table } from "@/components/ui/Table";
 
 interface AuditLogTableProps {
   apiBaseUrl: string;
@@ -64,13 +68,14 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
   };
 
   return (
-    <>
-      <label>
+    <div className="space-y-5">
+      <label className="mb-0 block max-w-xs text-sm font-medium text-ink">
         Бот
-        <select
+        <Select
           value={botFilter}
           onChange={(e) => void handleFilterChange(e.target.value)}
           aria-label="Фильтр по боту"
+          className="mt-1.5"
         >
           <option value="">Все боты</option>
           {bots.map((bot) => (
@@ -78,49 +83,57 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
               {bot.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
-      {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
+
+      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+      {rows.length === 0 ? (
+        <EmptyState title="Записей аудит-лога пока нет" />
+      ) : (
+        <>
+          <Table>
+            <table>
+              <thead>
+                <tr>
+                  <th>Время (UTC)</th>
+                  <th>Кто</th>
+                  <th>Бот</th>
+                  <th>Действие</th>
+                  <th>Payload</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((entry) => (
+                  <tr key={entry.id}>
+                    <td className="font-mono">{formatTimestamp(entry.created_at)}</td>
+                    <td>{entry.actor_email}</td>
+                    <td>{entry.bot_name ?? "—"}</td>
+                    <td>
+                      <code className="font-mono text-xs">{entry.action}</code>
+                    </td>
+                    <td>
+                      {entry.payload && (
+                        <details>
+                          <summary className="cursor-pointer text-sm text-accent">показать</summary>
+                          <pre className="mt-1.5 max-w-md overflow-x-auto rounded-md bg-surface-alt p-2 text-xs">
+                            {JSON.stringify(entry.payload, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Table>
+          {hasMore && (
+            <Button variant="secondary" onClick={() => void handleLoadMore()} disabled={loading}>
+              {loading ? "Загружаем…" : "Показать ещё"}
+            </Button>
+          )}
+        </>
       )}
-      <table>
-        <thead>
-          <tr>
-            <th>Время (UTC)</th>
-            <th>Кто</th>
-            <th>Бот</th>
-            <th>Действие</th>
-            <th>Payload</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((entry) => (
-            <tr key={entry.id}>
-              <td>{formatTimestamp(entry.created_at)}</td>
-              <td>{entry.actor_email}</td>
-              <td>{entry.bot_name ?? "—"}</td>
-              <td>
-                <code>{entry.action}</code>
-              </td>
-              <td>
-                {entry.payload && (
-                  <details>
-                    <summary>показать</summary>
-                    <pre>{JSON.stringify(entry.payload, null, 2)}</pre>
-                  </details>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {hasMore && (
-        <button onClick={() => void handleLoadMore()} disabled={loading}>
-          {loading ? "Загружаем…" : "Показать ещё"}
-        </button>
-      )}
-    </>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
 import { RenameBotForm } from "@/components/RenameBotForm";
+import { Card } from "@/components/ui/Card";
 import { DEFAULT_BOT_SETTINGS, fetchBot } from "@/lib/api";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
@@ -19,12 +19,10 @@ export default async function BotSettingsPage({
   const initialSettings = { ...DEFAULT_BOT_SETTINGS, ...bot.settings };
 
   return (
-    <main>
-      <p>
-        <Link href={`/bots/${id}`}>← Назад к боту</Link>
-      </p>
-      <h1>{bot.name} — настройки</h1>
-      <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
+    <main className="space-y-5">
+      <Card className="p-5">
+        <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
+      </Card>
       <BotSettingsForm botId={id} apiBaseUrl={API_PROXY_PATH} initialSettings={initialSettings} />
     </main>
   );

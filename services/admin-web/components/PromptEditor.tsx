@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { fetchPromptVersions, patchBotPrompt, type PromptKind, type PromptVersion } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Table } from "@/components/ui/Table";
+import { Textarea } from "@/components/ui/Textarea";
 
 interface PromptEditorProps {
   botId: string;
@@ -42,29 +46,62 @@ export function PromptEditor({
   };
 
   return (
-    <section>
-      <h2>{label}</h2>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} />
-      <div>
-        <button onClick={() => void save(body)} disabled={saving}>
-          {saving ? "Сохраняем…" : "Сохранить"}
-        </button>
-      </div>
-      <ul>
-        {versions.map((version) => (
-          <li key={version.id}>
-            {/* Чистая строковая операция над ISO-текстом, не new Date(...) —
-             * иначе разное форматирование на SSR и на клиенте даёт
-             * hydration-mismatch (урок QR-экрана, components/QrPanel.tsx). */}
-            <span>{version.created_at.slice(0, 16).replace("T", " ")}</span>{" "}
-            <span>{version.author}</span>{" "}
-            <span>{(version.body ?? "").slice(0, 60)}</span>{" "}
-            <button onClick={() => void save(version.body ?? "")} disabled={saving}>
-              Откатить
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <div className="space-y-5">
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">{label}</h2>
+        <label className="mb-0 block text-sm font-medium text-ink">
+          Текст промпта
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={6}
+            className="mt-1.5"
+          />
+        </label>
+        <div className="mt-3">
+          <Button onClick={() => void save(body)} disabled={saving}>
+            {saving ? "Сохраняем…" : "Сохранить"}
+          </Button>
+        </div>
+      </Card>
+
+      {versions.length > 0 && (
+        <Table>
+          <table>
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Автор</th>
+                <th>Текст</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {versions.map((version) => (
+                <tr key={version.id}>
+                  {/* Чистая строковая операция над ISO-текстом, не new Date(...) —
+                   * иначе разное форматирование на SSR и на клиенте даёт
+                   * hydration-mismatch (урок QR-экрана, components/QrPanel.tsx). */}
+                  <td className="font-mono">
+                    {version.created_at.slice(0, 16).replace("T", " ")}
+                  </td>
+                  <td>{version.author}</td>
+                  <td>{(version.body ?? "").slice(0, 60)}</td>
+                  <td>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void save(version.body ?? "")}
+                      disabled={saving}
+                    >
+                      Откатить
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Table>
+      )}
+    </div>
   );
 }

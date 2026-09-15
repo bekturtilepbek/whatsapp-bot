@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PromptEditor } from "@/components/PromptEditor";
 import { fetchBot, fetchPromptVersions } from "@/lib/api";
@@ -22,11 +21,7 @@ export default async function BotPromptsPage({
   ]);
 
   return (
-    <main>
-      <p>
-        <Link href={`/bots/${id}`}>← Назад к боту</Link>
-      </p>
-      <h1>{bot.name} — промпты</h1>
+    <main className="space-y-5">
       <PromptEditor
         botId={id}
         apiBaseUrl={API_PROXY_PATH}

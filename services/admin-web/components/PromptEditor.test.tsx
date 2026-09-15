@@ -132,3 +132,17 @@ it("shows an error when saving fails", async () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
   });
 });
+
+it("renders version history as a table", () => {
+  render(
+    <PromptEditor
+      botId="1"
+      apiBaseUrl="http://api"
+      kind="main"
+      label="Основной промпт"
+      initialBody="текущий текст"
+      initialVersions={[existingVersion]}
+    />,
+  );
+  expect(screen.getByRole("table")).toBeInTheDocument();
+});

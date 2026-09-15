@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchBot, logoutBot, qrImageUrl, type Bot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 interface QrPanelProps {
   initialBot: Bot;
@@ -69,32 +71,42 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
 
   if (bot.linked_at) {
     return (
-      <div>
-        <p>Подключён: {bot.phone}</p>
-        <button onClick={() => void handleLogout()} disabled={loggingOut}>
-          {loggingOut ? "Отключаем…" : "Отключить"}
-        </button>
+      <Card className="p-5">
+        <p className="text-sm text-ink">
+          Подключён: <span className="font-mono">{bot.phone}</span>
+        </p>
+        <div className="mt-3">
+          <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
+            {loggingOut ? "Отключаем…" : "Отключить"}
+          </Button>
+        </div>
         {pollError && (
-          <p role="alert" style={{ color: "crimson" }}>
+          <p role="alert" className="mt-3 text-sm text-danger">
             {pollError}
           </p>
         )}
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div>
-      <p>Отсканируйте QR в WhatsApp на телефоне</p>
+    <Card className="p-5">
+      <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
       {qrUrl && (
         // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
-        <img src={qrUrl} alt="QR-код для подключения WhatsApp" width={300} height={300} />
+        <img
+          src={qrUrl}
+          alt="QR-код для подключения WhatsApp"
+          width={300}
+          height={300}
+          className="mt-3 rounded-md border border-border"
+        />
       )}
       {pollError && (
-        <p role="alert" style={{ color: "crimson" }}>
+        <p role="alert" className="mt-3 text-sm text-danger">
           {pollError}
         </p>
       )}
-    </div>
+    </Card>
   );
 }

@@ -23,6 +23,7 @@ from llm.client import (
     complete_with_image,
     complete_with_images,
     complete_with_tools,
+    transcribe_audio,
 )
 
 
@@ -512,3 +513,67 @@ async def test_complete_with_tools_uses_explicit_model_override_when_given() -> 
     spec = ToolSpec(name="search", description="d", parameters_schema={})
     await complete_with_tools("SYS", [], [spec], model="gpt-4o", client=client)  # type: ignore[arg-type]
     assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o"
+
+
+@dataclass
+class _FakeTranscription:
+    text: str
+
+
+class _FakeAudioTranscriptions:
+    def __init__(self, text: str | None = None, error: Exception | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.last_call_kwargs: dict[str, object] | None = None
+
+    async def create(self, **kwargs: object) -> _FakeTranscription:
+        self.last_call_kwargs = kwargs
+        if self.error is not None:
+            raise self.error
+        assert self.text is not None
+        return _FakeTranscription(text=self.text)
+
+
+class _FakeAudio:
+    def __init__(self, transcriptions: _FakeAudioTranscriptions) -> None:
+        self.transcriptions = transcriptions
+
+
+class _FakeAudioClient:
+    def __init__(self, transcriptions: _FakeAudioTranscriptions) -> None:
+        self.audio = _FakeAudio(transcriptions)
+
+
+async def test_transcribe_audio_returns_the_transcribed_text() -> None:
+    transcriptions = _FakeAudioTranscriptions(text="Здравствуйте, есть доставка?")
+    client = _FakeAudioClient(transcriptions)
+    result = await transcribe_audio(b"raw audio bytes", "voice.mp3", client=client)  # type: ignore[arg-type]
+    assert result == "Здравствуйте, есть доставка?"
+
+
+async def test_transcribe_audio_sends_whisper_model_and_filename() -> None:
+    transcriptions = _FakeAudioTranscriptions(text="ok")
+    client = _FakeAudioClient(transcriptions)
+    await transcribe_audio(b"raw audio bytes", "voice.mp3", client=client)  # type: ignore[arg-type]
+    kwargs = transcriptions.last_call_kwargs
+    assert kwargs is not None
+    assert kwargs["model"] == "whisper-1"
+    assert kwargs["file"] == ("voice.mp3", b"raw audio bytes")
+
+
+async def test_transcribe_audio_passes_timeout_through_to_sdk() -> None:
+    transcriptions = _FakeAudioTranscriptions(text="ok")
+    client = _FakeAudioClient(transcriptions)
+    await transcribe_audio(
+        b"raw audio bytes", "voice.mp3", client=client, timeout_seconds=12.5
+    )  # type: ignore[arg-type]
+    assert transcriptions.last_call_kwargs["timeout"] == 12.5
+
+
+async def test_transcribe_audio_propagates_sdk_errors_without_retrying() -> None:
+    """В отличие от complete() — STT-ретраи не делаем в этой итерации
+    (подтверждено пользователем), сбой уходит наружу как есть."""
+    transcriptions = _FakeAudioTranscriptions(error=TimeoutError("stt timed out"))
+    client = _FakeAudioClient(transcriptions)
+    with pytest.raises(TimeoutError):
+        await transcribe_audio(b"raw audio bytes", "voice.mp3", client=client)  # type: ignore[arg-type]

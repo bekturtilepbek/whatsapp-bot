@@ -323,3 +323,27 @@ async def complete_with_tools(
         tools=_tool_specs_to_openai(tools),
         tool_choice="none" if force_text else "auto",
     )
+
+
+TRANSCRIPTION_MODEL = "whisper-1"
+
+
+async def transcribe_audio(
+    audio_bytes: bytes,
+    filename: str,
+    *,
+    client: AsyncOpenAI | None = None,
+    timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+) -> str:
+    """FEATURES.md 2.2: голосовое -> текст (worker перед вызовом уже
+    перекодировал байты в формат, который принимает Whisper — эта функция
+    просто шлёт готовые байты). Без ретраев (в отличие от _call_and_extract)
+    — подтверждено пользователем, сбой STT уходит наружу как есть, вызывающий
+    (worker) решает деградировать в fallback."""
+    active_client = client or _default_client()
+    response = await active_client.audio.transcriptions.create(
+        model=TRANSCRIPTION_MODEL,
+        file=(filename, audio_bytes),
+        timeout=timeout_seconds,
+    )
+    return response.text

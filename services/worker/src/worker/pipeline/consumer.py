@@ -56,7 +56,13 @@ from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
 from llm.catalog_context import ProductInfo, catalog_context
-from llm.client import HistoryMessage, complete, complete_with_images, complete_with_tools
+from llm.client import (
+    HistoryMessage,
+    complete,
+    complete_with_images,
+    complete_with_tools,
+    transcribe_audio,
+)
 from llm.documents_context import DocumentInfo, documents_context
 from llm.pdf_extract import extract_pdf_text
 from llm.pricing import compute_cost
@@ -71,6 +77,7 @@ from tools.tool_loop import OverrideReply, run_tool_loop
 
 from ..bus import IN_STREAM, OUT_STREAM, StreamEntry, ensure_group, publish, read_group
 from . import batching, handoff, lock
+from .audio import convert_to_mp3
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content, quote_prefix
@@ -98,6 +105,8 @@ STORAGE_READ_TIMEOUT_SECONDS = 20.0
 # этим ходом (не падение, не ошибка), лишние фото сверх лимита молча
 # отбрасываются, реалистичный сценарий "клиент шлёт 2-4 фото" далеко внутри.
 MAX_BATCH_VISION_IMAGES = 10
+# Та же защита, что и у MAX_BATCH_VISION_IMAGES, но для голосовых (FEATURES.md 2.2).
+MAX_BATCH_VOICE_MESSAGES = 10
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
 # Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
@@ -245,6 +254,12 @@ async def _process_entry(
         await batching.register_image_arrival(
             redis, bot_id_str, event.chat_id, event.wa_msg_id, _batch_timeout_seconds(bot)
         )
+    if event.media_type == "audio" and event.storage_key is not None:
+        # Тот же приём, что и с фото — копим ВСЕ голосовые окна батчинга
+        # (FEATURES.md 2.2), лидер после wait_for_quiet транскрибирует их все.
+        await batching.register_audio_arrival(
+            redis, bot_id_str, event.chat_id, event.wa_msg_id, _batch_timeout_seconds(bot)
+        )
 
     became_leader = await batching.register_arrival(
         redis, bot_id_str, event.chat_id, _batch_timeout_seconds(bot)
@@ -263,6 +278,9 @@ async def _process_entry(
             batch_image_wa_msg_ids = await batching.pop_batch_images(
                 redis, bot_id_str, event.chat_id
             )
+            batch_audio_wa_msg_ids = await batching.pop_batch_audio(
+                redis, bot_id_str, event.chat_id
+            )
             # Условие ниже — строгий надмножество старого
             # (event.media_type == "image" and event.storage_key is not None):
             # register_image_arrival зовётся и для лидера тоже, так что
@@ -273,6 +291,19 @@ async def _process_entry(
                 await _reply_with_vision(
                     event, bot, contact.id, redis, session_factory, storage, batch_image_wa_msg_ids
                 )
+            elif batch_audio_wa_msg_ids:
+                # В отличие от vision/pdf — своего "текущего хода" не строим:
+                # успешная транскрипция пишется прямо в messages.content, и
+                # дальше ведёт обычный _reply() (каталог, тулзы, без единой
+                # правки в нём). Сбой на любом голосовом пачки — общий
+                # fallback, как и у vision/pdf.
+                transcribed = await _transcribe_batch_audio(
+                    event, bot, contact.id, session_factory, storage, batch_audio_wa_msg_ids
+                )
+                if transcribed:
+                    await _reply(event, bot, contact.id, redis, session_factory, storage)
+                else:
+                    await _reply_with_media_fallback(event, bot, contact.id, redis, session_factory)
             elif (
                 event.media_type == "document"
                 and event.mime_type == "application/pdf"
@@ -646,6 +677,55 @@ async def _reply_with_vision(
         )
         await session.commit()
     await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
+
+
+async def _transcribe_batch_audio(
+    event: InboundText,
+    bot: Bot,
+    contact_id: uuid.UUID,
+    session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
+    batch_wa_msg_ids: Sequence[str],
+) -> bool:
+    """FEATURES.md 2.2: транскрибирует все голосовые текущего батча (лидер +
+    фолловеры). В отличие от vision/pdf — своего "текущего хода" не строим:
+    транскрипт пишется прямо в messages.content ВМЕСТО плейсхолдера
+    [голосовое сообщение] (заодно чинит просмотр переписки, 6.14 — оператор
+    видит реальный текст) — дальше обычный _reply() видит его как часть
+    штатной истории, специального кода не нужно.
+
+    Любой сбой (storage/ffmpeg/STT) на ЛЮБОМ голосовом пачки — вся пачка не
+    засчитывается (False), вызывающий деградирует в fallback; уже
+    смутированные, но не закоммиченные строки отбрасываются вместе с
+    сессией — не полу-транскрибированная история.
+    """
+    try:
+        batch_ids = set(batch_wa_msg_ids) | {event.wa_msg_id}
+        async with session_factory() as session:
+            history_rows = await fetch_recent_history(session, contact_id)
+            batch_rows = [
+                m for m in history_rows if m.wa_msg_id in batch_ids and m.media_ref is not None
+            ]
+            if not batch_rows:
+                return False
+            for row in batch_rows[:MAX_BATCH_VOICE_MESSAGES]:
+                media_ref = row.media_ref
+                assert media_ref is not None  # уже отфильтровано выше
+                raw = await asyncio.wait_for(
+                    storage.get(media_ref["storage_key"]), timeout=STORAGE_READ_TIMEOUT_SECONDS
+                )
+                mp3_bytes = await convert_to_mp3(raw)
+                row.content = await transcribe_audio(mp3_bytes, f"{row.wa_msg_id}.mp3")
+            await session.commit()
+        return True
+    except Exception:
+        logger.warning(
+            "voice transcription failed, falling back to media placeholder",
+            bot_id=str(event.bot_id),
+            chat_id=event.chat_id,
+            exc_info=True,
+        )
+        return False
 
 
 async def _reply_with_pdf(

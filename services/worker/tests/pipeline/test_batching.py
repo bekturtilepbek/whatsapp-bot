@@ -7,8 +7,10 @@ import time
 
 from fakeredis.aioredis import FakeRedis
 from worker.pipeline.batching import (
+    pop_batch_audio,
     pop_batch_images,
     register_arrival,
+    register_audio_arrival,
     register_image_arrival,
     wait_for_quiet,
 )
@@ -122,5 +124,37 @@ async def test_batch_images_do_not_leak_across_chats_or_bots() -> None:
         assert await pop_batch_images(redis, "bot-1", "chat-1") == ["wamsg-1"]
         assert await pop_batch_images(redis, "bot-1", "chat-2") == ["wamsg-2"]
         assert await pop_batch_images(redis, "bot-2", "chat-1") == ["wamsg-3"]
+    finally:
+        await redis.aclose()
+
+
+async def test_pop_batch_audio_returns_registered_ids_in_arrival_order() -> None:
+    redis = FakeRedis()
+    try:
+        await register_audio_arrival(redis, "bot-1", "chat-1", "wamsg-1", TIMEOUT)
+        await register_audio_arrival(redis, "bot-1", "chat-1", "wamsg-2", TIMEOUT)
+        assert await pop_batch_audio(redis, "bot-1", "chat-1") == ["wamsg-1", "wamsg-2"]
+    finally:
+        await redis.aclose()
+
+
+async def test_pop_batch_audio_clears_the_list() -> None:
+    redis = FakeRedis()
+    try:
+        await register_audio_arrival(redis, "bot-1", "chat-1", "wamsg-1", TIMEOUT)
+        await pop_batch_audio(redis, "bot-1", "chat-1")
+        assert await pop_batch_audio(redis, "bot-1", "chat-1") == []
+    finally:
+        await redis.aclose()
+
+
+async def test_audio_and_image_batches_do_not_leak_into_each_other() -> None:
+    redis = FakeRedis()
+    try:
+        await register_image_arrival(redis, "bot-1", "chat-1", "img-1", TIMEOUT)
+        await register_audio_arrival(redis, "bot-1", "chat-1", "audio-1", TIMEOUT)
+
+        assert await pop_batch_images(redis, "bot-1", "chat-1") == ["img-1"]
+        assert await pop_batch_audio(redis, "bot-1", "chat-1") == ["audio-1"]
     finally:
         await redis.aclose()

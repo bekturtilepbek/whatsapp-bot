@@ -23,28 +23,53 @@ _SUCCESS_MESSAGE = "Заявка отправлена менеджерам."
 logger = structlog.get_logger("tools.telegram_lead")
 
 
-def _format_lead_message(client_name: str, phone: str, details: str, wa_link: str | None) -> str:
-    """Эталон V1 (sendToTelegramGroup) — нейтральный текст, не привязанный
-    к нише клиента (в архиве было под конкретный бизнес каждой копии).
+_DEFAULT_MESSAGE_TEMPLATE = (
+    "<b>Новая заявка</b>\n\n"
+    "<b>Клиент:</b> {client_name}\n"
+    "<b>Телефон:</b> <code>{phone}</code>\n"
+    "<b>Детали:</b> {details}"
+    "{wa_link}"
+)
+
+
+def _format_lead_message(
+    client_name: str, phone: str, details: str, wa_link: str | None, template: str | None = None
+) -> str:
+    """Эталон V1 (sendToTelegramGroup) — нейтральный текст по умолчанию, не
+    привязанный к нише клиента (в архиве было под конкретный бизнес каждой
+    копии); владелец бота может переопределить его через
+    tool_bindings.config["message_template"] (Волна 4, FEATURES.md 4.7).
     HTML parse_mode + html.escape() на всех интерполируемых полях — client_name/
     details это свободный текст, который LLM извлекает из сообщения клиента;
     Telegram legacy Markdown-режим ломает ВСЮ отправку на несбалансированном
     *_`[ в этом тексте (эталон V1 такого экранирования не делал и был подвержен
     этому классу сбоев — найдено финальным ревью этой ветки).
-    wa_link — None только если у контакта почему-то нет wa_id (LID-only,
-    переходный случай FEATURES.md 9.2, где wa_id может оказаться LID-номером,
-    а не телефоном, — тогда строку ссылки не добавляем вовсе, а не рендерим
-    невалидный URL)."""
-    parts = [
-        "<b>Новая заявка</b>",
-        "",
-        f"<b>Клиент:</b> {html.escape(client_name)}",
-        f"<b>Телефон:</b> <code>{html.escape(phone)}</code>",
-        f"<b>Детали:</b> {html.escape(details)}",
-    ]
-    if wa_link:
-        parts += ["", f'<a href="{html.escape(wa_link)}">Написать в WhatsApp</a>']
-    return "\n".join(parts)
+
+    wa_link — готовый HTML-фрагмент (с ведущими переводами строк) или пустая
+    строка, а не голый URL: None только если у контакта почему-то нет wa_id
+    (LID-only, переходный случай FEATURES.md 9.2) — тогда строка ссылки не
+    добавляется вовсе, а не рендерит невалидный URL; шаблон (в т.ч.
+    дефолтный) просто подставляет {wa_link} куда написал автор шаблона, не
+    заботясь об условности этой строки.
+
+    Опечатка в кастомном шаблоне (незнакомый плейсхолдер, несбалансированная
+    скобка) не должна ронять отправку заявки — деградируем в дефолтный текст,
+    а не бросаем исключение наружу."""
+    wa_link_block = (
+        f'\n\n<a href="{html.escape(wa_link)}">Написать в WhatsApp</a>' if wa_link else ""
+    )
+    values = {
+        "client_name": html.escape(client_name),
+        "phone": html.escape(phone),
+        "details": html.escape(details),
+        "wa_link": wa_link_block,
+    }
+    if template:
+        try:
+            return template.format(**values)
+        except (KeyError, IndexError, ValueError):
+            logger.warning("broken telegram lead message_template, falling back to default")
+    return _DEFAULT_MESSAGE_TEMPLATE.format(**values)
 
 
 class TelegramLeadTool:
@@ -83,8 +108,9 @@ class TelegramLeadTool:
         client_name = str(arguments.get("client_name", ""))
         details = str(arguments.get("details", ""))
         wa_link = f"https://wa.me/{wa_id}" if wa_id else None
+        template = ctx.config.get("message_template")
 
-        message = _format_lead_message(client_name, phone, details, wa_link)
+        message = _format_lead_message(client_name, phone, details, wa_link, template)
 
         try:
             await send_message(str(chat_id), message)

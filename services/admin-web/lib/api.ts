@@ -39,7 +39,15 @@ export interface BotSettings {
   // полноценного ответа), без LLM/тулз.
   media_reaction_enabled?: boolean;
   media_reaction_emoji?: string;
+  // Волна 4 — модель LLM per bot. Захардкоженный список на фронте
+  // (подтверждено пользователем) — свободный текст рискует тихо сломать
+  // бота опечаткой/несуществующей моделью. Отсутствует у ботов, заведённых
+  // до этой настройки — падает в платформенный OPENAI_MODEL (см.
+  // libs/llm/src/llm/client.py::current_model).
+  model?: string;
 }
+
+export const AVAILABLE_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
 
 export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   batch_timeout_seconds: 1,
@@ -52,6 +60,7 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   media_max_size_bytes: 16 * 1024 * 1024,
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
+  model: AVAILABLE_MODELS[0],
 };
 
 /** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/
@@ -209,6 +218,49 @@ export async function patchBotSettings(
     throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
+}
+
+// FEATURES.md 4.13/4.7 — реестр тулз бота. Сейчас в кабинете есть UI только
+// под send_telegram_lead (components/TelegramLeadToolForm.tsx); список/save/
+// delete — общие ручки, подойдут под будущие тулзы без изменений здесь.
+export interface ToolBinding {
+  tool_name: string;
+  config: Record<string, unknown>;
+}
+
+export async function fetchBotTools(baseUrl: string, id: string): Promise<ToolBinding[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/tools`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${id}/tools failed: ${res.status}`);
+  }
+  return (await res.json()) as ToolBinding[];
+}
+
+export async function saveBotTool(
+  baseUrl: string,
+  id: string,
+  toolName: string,
+  config: Record<string, unknown>,
+): Promise<ToolBinding> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/tools`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool_name: toolName, config }),
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${id}/tools failed: ${res.status}`);
+  }
+  return (await res.json()) as ToolBinding;
+}
+
+export async function deleteBotTool(baseUrl: string, id: string, toolName: string): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/tools/${toolName}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`DELETE /bots/${id}/tools/${toolName} failed: ${res.status}`);
+  }
 }
 
 // Decimal (Pydantic v2) сериализуется бэкендом как JSON-строка ("5000.00"),

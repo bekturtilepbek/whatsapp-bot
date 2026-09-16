@@ -23,6 +23,7 @@ fallback-текст, что увидел бы реальный клиент, б�
 
 from __future__ import annotations
 
+import functools
 import uuid
 from typing import Any
 
@@ -125,13 +126,17 @@ async def send_sandbox_message(
     )
     executor = _mute_side_effecting_tools(base_executor)
 
+    # bots.settings["model"] (Волна 4) — та же логика, что и в реальном
+    # пайплайне (worker/pipeline/consumer.py::_reply): песочница должна
+    # тестировать промпт на ТОЙ ЖЕ модели, что реально отвечает клиентам.
+    model = bot.settings.get("model")
     loop_result = await run_tool_loop(
         system_prompt,
         history,
         tool_specs,
         executor,
-        complete_fn=complete,
-        complete_with_tools_fn=complete_with_tools,
+        complete_fn=functools.partial(complete, model=model),
+        complete_with_tools_fn=functools.partial(complete_with_tools, model=model),
     )
 
     if loop_result.override_replies:
@@ -240,7 +245,12 @@ async def send_sandbox_media_message(
             return fallback
         system_prompt = "\n\n".join(section for section in (bot.image_prompt, time_ctx) if section)
         result = await complete_with_image(
-            system_prompt, history_messages, caption or "", data, content_type
+            system_prompt,
+            history_messages,
+            caption or "",
+            data,
+            content_type,
+            model=bot.settings.get("model"),
         )
     else:
         if not bot.pdf_prompt:
@@ -253,7 +263,7 @@ async def send_sandbox_media_message(
         document_turn = f"Текст документа:\n{pdf_text}"
         current_turn = f"{caption}\n\n{document_turn}" if caption else document_turn
         history_messages.append(HistoryMessage(role="user", content=current_turn))
-        result = await complete(system_prompt, history_messages)
+        result = await complete(system_prompt, history_messages, model=bot.settings.get("model"))
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     await record_usage(session, bot_id, result.model, result.tokens_in, result.tokens_out, cost)

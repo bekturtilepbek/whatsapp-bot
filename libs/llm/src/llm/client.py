@@ -150,14 +150,19 @@ async def complete(
     system_prompt: str,
     history: list[HistoryMessage],
     *,
+    model: str | None = None,
     client: AsyncOpenAI | None = None,
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
     """Любой внешний вызов — с таймаутом (CLAUDE.md). Таймаут — нативный
     httpx-таймаут SDK, не обёртка снаружи: так отменяется сам HTTP-запрос,
     а не только ожидание его результата.
+
+    model — переопределение per bot (bots.settings["model"], Волна 4);
+    None (боты без настроенной модели — все на момент введения этого
+    параметра) сохраняет старое поведение — платформенный OPENAI_MODEL.
     """
-    model = current_model()
+    model = model or current_model()
     messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
     messages += [{"role": m.role, "content": m.content} for m in history]
     active_client = client or _default_client()
@@ -174,6 +179,7 @@ async def complete_with_image(
     image_bytes: bytes,
     image_mime_type: str,
     *,
+    model: str | None = None,
     client: AsyncOpenAI | None = None,
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
@@ -185,6 +191,7 @@ async def complete_with_image(
         history,
         caption,
         [(image_bytes, image_mime_type)],
+        model=model,
         client=client,
         timeout_seconds=timeout_seconds,
     )
@@ -196,6 +203,7 @@ async def complete_with_images(
     caption: str,
     images: Sequence[tuple[bytes, str]],
     *,
+    model: str | None = None,
     client: AsyncOpenAI | None = None,
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
@@ -213,8 +221,11 @@ async def complete_with_images(
     base64 data URL, а не Files API/публичный URL — картинки уже лежат у нас
     байтами (Storage.get), а не в общедоступном месте: data URL не требует
     отдельного аплоада и не "утекает" наружу.
+
+    model — переопределение per bot (bots.settings["model"], Волна 4), см.
+    complete().
     """
-    model = current_model()
+    model = model or current_model()
     content: list[dict[str, object]] = [
         {"type": "text", "text": caption or _EMPTY_CAPTION_PLACEHOLDER}
     ]
@@ -279,6 +290,7 @@ async def complete_with_tools(
     exchange: Sequence[ToolExchangeTurn] = (),
     *,
     force_text: bool = False,
+    model: str | None = None,
     client: AsyncOpenAI | None = None,
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
@@ -294,8 +306,11 @@ async def complete_with_tools(
     force_text=True форсирует tool_choice="none" — модель обязана ответить
     текстом по уже собранным в exchange результатам, а не запросить ещё
     одну тулзу (используется, когда исчерпан лимит раундов цикла).
+
+    model — переопределение per bot (bots.settings["model"], Волна 4), см.
+    complete().
     """
-    model = current_model()
+    model = model or current_model()
     messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
     messages += [{"role": m.role, "content": m.content} for m in history]
     messages += _exchange_to_messages(exchange)

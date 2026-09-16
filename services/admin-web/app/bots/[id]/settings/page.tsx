@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
 import { RenameBotForm } from "@/components/RenameBotForm";
+import { TelegramLeadToolForm } from "@/components/TelegramLeadToolForm";
 import { Card } from "@/components/ui/Card";
-import { DEFAULT_BOT_SETTINGS, fetchBot } from "@/lib/api";
+import { DEFAULT_BOT_SETTINGS, fetchBot, fetchBotTools } from "@/lib/api";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotSettingsPage({
@@ -17,6 +18,8 @@ export default async function BotSettingsPage({
   }
 
   const initialSettings = { ...DEFAULT_BOT_SETTINGS, ...bot.settings };
+  const tools = await fetchBotTools(API_INTERNAL_URL, id);
+  const telegramLeadBinding = tools.find((t) => t.tool_name === "send_telegram_lead") ?? null;
 
   return (
     <main className="space-y-5">
@@ -25,6 +28,11 @@ export default async function BotSettingsPage({
         <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
       </Card>
       <BotSettingsForm botId={id} apiBaseUrl={API_PROXY_PATH} initialSettings={initialSettings} />
+      <TelegramLeadToolForm
+        botId={id}
+        apiBaseUrl={API_PROXY_PATH}
+        initialBinding={telegramLeadBinding}
+      />
     </main>
   );
 }

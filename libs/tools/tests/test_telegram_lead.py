@@ -210,6 +210,119 @@ async def test_network_failure_returns_error_text_without_raising(
     assert result.content == "Не удалось отправить заявку в Telegram."
 
 
+async def test_custom_message_template_is_used_when_configured(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Волна 4: владелец бота может задать свой текст уведомления
+    (bots.settings через tool_bindings.config, не через промпт)."""
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000016")
+
+    await TelegramLeadTool().execute(
+        {"client_name": "Нурлан", "details": "Хочет 3-комнатную"},
+        _make_ctx(
+            bot,
+            contact_id,
+            session_factory,
+            config={
+                "chat_id": "-100999",
+                "message_template": "Заявка от {client_name}: {details}",
+            },
+        ),
+    )
+
+    assert captured["text"] == "Заявка от Нурлан: Хочет 3-комнатную"
+
+
+async def test_custom_message_template_values_are_still_html_escaped(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000017")
+
+    await TelegramLeadTool().execute(
+        {"client_name": "<script>", "details": "d"},
+        _make_ctx(
+            bot,
+            contact_id,
+            session_factory,
+            config={"chat_id": "-100999", "message_template": "{client_name}: {details}"},
+        ),
+    )
+
+    assert "<script>" not in str(captured["text"])
+    assert "&lt;script&gt;" in str(captured["text"])
+
+
+async def test_broken_custom_template_falls_back_to_default_instead_of_crashing(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Опечатка в кастомном шаблоне (например, одиночная `{`) не должна
+    ронять отправку заявки целиком."""
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000018")
+
+    result = await TelegramLeadTool().execute(
+        {"client_name": "Клиент", "details": "Детали"},
+        _make_ctx(
+            bot,
+            contact_id,
+            session_factory,
+            config={"chat_id": "-100999", "message_template": "Сломанный шаблон {"},
+        ),
+    )
+
+    assert result.content == "Заявка отправлена менеджерам."
+    assert "Новая заявка" in str(captured["text"])  # дефолтный шаблон
+
+
+async def test_unknown_placeholder_in_custom_template_falls_back_to_default(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000019")
+
+    await TelegramLeadTool().execute(
+        {"client_name": "Клиент", "details": "Детали"},
+        _make_ctx(
+            bot,
+            contact_id,
+            session_factory,
+            config={"chat_id": "-100999", "message_template": "{неизвестное_поле}"},
+        ),
+    )
+
+    assert "Новая заявка" in str(captured["text"])  # дефолтный шаблон
+
+
 async def test_details_with_special_characters_are_html_escaped(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:

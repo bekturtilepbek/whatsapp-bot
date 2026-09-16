@@ -22,6 +22,7 @@ const initialSettings: Required<BotSettings> = {
   media_max_size_bytes: 16 * 1024 * 1024,
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
+  model: "gpt-4o-mini",
 };
 
 afterEach(() => {
@@ -39,6 +40,7 @@ it("renders current settings", () => {
   expect(screen.getByLabelText(/макс\. размер/i)).toHaveValue(16);
   expect(screen.getByLabelText(/реагировать эмодзи/i)).toBeChecked();
   expect(screen.getByLabelText(/эмодзи реакции/i)).toHaveValue("👍");
+  expect(screen.getByLabelText(/модель llm/i)).toHaveValue("gpt-4o-mini");
 });
 
 it("saves only the fields that were actually changed", async () => {
@@ -98,6 +100,18 @@ it("saves changed media reaction settings (FEATURES.md 9.10)", async () => {
       media_reaction_enabled: false,
       media_reaction_emoji: "🎉",
     });
+  });
+});
+
+it("saves a changed model (Волна 4)", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  fireEvent.change(screen.getByLabelText(/модель llm/i), { target: { value: "gpt-4o" } });
+  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { model: "gpt-4o" });
   });
 });
 

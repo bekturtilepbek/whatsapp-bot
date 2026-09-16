@@ -482,3 +482,33 @@ async def test_complete_without_tools_does_not_send_tools_key() -> None:
     await complete("SYS", [], client=client)  # type: ignore[arg-type]
     assert "tools" not in client.chat.completions.last_call_kwargs
     assert "tool_choice" not in client.chat.completions.last_call_kwargs
+
+
+async def test_complete_uses_explicit_model_override_when_given() -> None:
+    """Волна 4 — выбор модели per bot (bots.settings["model"])."""
+    client = _client_with_response("ok", 1, 1)
+    result = await complete("SYS", [], model="gpt-4o", client=client)  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o"
+    assert result.model == "gpt-4o"
+
+
+async def test_complete_falls_back_to_platform_default_when_model_not_given() -> None:
+    """Регрессия: боты без настроенной модели (все сейчас) не меняют поведение."""
+    client = _client_with_response("ok", 1, 1)
+    await complete("SYS", [], client=client)  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o-mini"
+
+
+async def test_complete_with_images_uses_explicit_model_override_when_given() -> None:
+    client = _client_with_response("ok", 1, 1)
+    await complete_with_images(
+        "SYS", [], "caption", [(b"abc", "image/jpeg")], model="gpt-4o", client=client
+    )  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o"
+
+
+async def test_complete_with_tools_uses_explicit_model_override_when_given() -> None:
+    client = _client_with_response("ok", 1, 1)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    await complete_with_tools("SYS", [], [spec], model="gpt-4o", client=client)  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o"

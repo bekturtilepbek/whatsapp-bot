@@ -26,6 +26,7 @@ usage_events (LLM-ветки, включая vision и PDF).
 from __future__ import annotations
 
 import asyncio
+import functools
 import random
 import uuid
 from collections.abc import Sequence
@@ -509,13 +510,20 @@ async def _reply(
     tool_specs = tool_specs_for_bindings(bindings)
     executor = build_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)
 
+    # bots.settings["model"] (Волна 4) — переопределение per bot; отсутствует
+    # у всех ботов, заведённых до этой настройки, тогда complete()/
+    # complete_with_tools() сами падают в платформенный OPENAI_MODEL.
+    # functools.partial, а не правка сигнатуры run_tool_loop — она уже
+    # принимает complete_fn/complete_with_tools_fn как параметры (нужны
+    # тестам), про model знать ей незачем.
+    model = bot.settings.get("model")
     loop_result = await run_tool_loop(
         system_prompt,
         history,
         tool_specs,
         executor,
-        complete_fn=complete,
-        complete_with_tools_fn=complete_with_tools,
+        complete_fn=functools.partial(complete, model=model),
+        complete_with_tools_fn=functools.partial(complete_with_tools, model=model),
     )
     if loop_result.override_replies:
         # FEATURES.md 4.3/4.4: тулза(ы) нашли товар(ы) — клиенту уходят
@@ -609,7 +617,9 @@ async def _reply_with_vision(
         assert bot.image_prompt is not None  # гарантировано веткой в _process_entry
         system_prompt = f"{bot.image_prompt}\n\n{time_context(bot.timezone)}"
         caption = quote_prefix(event.quoted_text, event.quoted_media_type) + event.text
-        result = await complete_with_images(system_prompt, history, caption, images)
+        result = await complete_with_images(
+            system_prompt, history, caption, images, model=bot.settings.get("model")
+        )
         if not result.text.strip():
             logger.warning(
                 "vision LLM returned empty text, falling back", bot_id=str(event.bot_id)
@@ -681,7 +691,7 @@ async def _reply_with_pdf(
             current_turn = f"{quoted_and_text}\n\n{current_turn}"
         history.append(HistoryMessage(role="user", content=current_turn))
 
-        result = await complete(system_prompt, history)
+        result = await complete(system_prompt, history, model=bot.settings.get("model"))
         if not result.text.strip():
             logger.warning(
                 "pdf LLM returned empty text, falling back", bot_id=str(event.bot_id)

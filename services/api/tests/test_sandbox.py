@@ -146,7 +146,7 @@ async def _make_bot(
 def _fake_complete(
     captured_prompts: list[str], captured_histories: list[list[object]], reply: str = "Привет!"
 ):
-    async def fake_complete(system_prompt: str, history: list[object]) -> LLMResult:
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
         captured_prompts.append(system_prompt)
         captured_histories.append(history)
         return LLMResult(text=reply, tokens_in=11, tokens_out=7, model="gpt-4o-mini")
@@ -408,7 +408,7 @@ async def test_sandbox_message_unknown_tool_binding_uses_fast_path(
         await enable_tool_binding(session, bot_id, "phantom_tool", {})
         await session.commit()
 
-    async def fake_complete(system_prompt: str, history: list[object]) -> LLMResult:
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
         return LLMResult(text="ok, без тулз", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
 
     async def fail_complete_with_tools(*args: object, **kwargs: object) -> LLMResult:
@@ -493,7 +493,12 @@ async def test_sandbox_media_message_vision_happy_path(
     captured: dict[str, object] = {}
 
     async def fake_complete_with_image(
-        system_prompt: str, history: list[object], caption: str, image_bytes: bytes, mime_type: str
+        system_prompt: str,
+        history: list[object],
+        caption: str,
+        image_bytes: bytes,
+        mime_type: str,
+        **_: object,
     ) -> LLMResult:
         captured["system_prompt"] = system_prompt
         captured["history"] = history

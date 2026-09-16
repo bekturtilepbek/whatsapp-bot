@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { patchBotSettings, type BotSettings } from "@/lib/api";
+import { AVAILABLE_MODELS, patchBotSettings, type BotSettings } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { NumberField } from "@/components/ui/NumberField";
+import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
 
@@ -55,6 +56,9 @@ function diffSettings(
   }
   if (current.media_reaction_emoji !== baseline.media_reaction_emoji) {
     changed.media_reaction_emoji = current.media_reaction_emoji;
+  }
+  if (current.model !== baseline.model) {
+    changed.model = current.model;
   }
   return changed;
 }
@@ -127,6 +131,24 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
     // нативный тултип, при этом другие поля без min/max (текстовые) шли бы
     // через кастомную ошибку — несогласованно.
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Модель</h2>
+        <label className="mb-0 block text-sm font-medium text-ink">
+          Модель LLM
+          <Select
+            value={settings.model}
+            onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+            className="mt-1.5 max-w-xs"
+          >
+            {AVAILABLE_MODELS.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </Card>
+
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Батчинг</h2>
         <label className="mb-0 block text-sm font-medium text-ink">

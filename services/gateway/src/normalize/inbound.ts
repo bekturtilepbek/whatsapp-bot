@@ -15,6 +15,27 @@ const MEDIA_TYPE_BY_CONTENT_KEY: Partial<Record<string, string>> = {
   stickerMessage: "sticker",
 };
 
+interface LocationMessageContent {
+  degreesLatitude?: number | null;
+  degreesLongitude?: number | null;
+  name?: string | null;
+  address?: string | null;
+}
+
+// FEATURES.md 9.x — геолокация клиента раньше пропадала целиком (ни текста,
+// ни известного media_type — gateway отбрасывал сообщение полностью). Своего
+// поля контракта не заводим: координаты рендерятся читаемым текстом и идут
+// обычным текстовым путём — LLM видит их как часть диалога без изменений
+// на стороне worker'а.
+function extractLocationText(location: LocationMessageContent): string {
+  const lat = location.degreesLatitude;
+  const long = location.degreesLongitude;
+  if (lat == null || long == null) return "";
+  const label = [location.name, location.address].filter(Boolean).join(", ");
+  const prefix = label ? `[Геолокация] ${label}` : "[Геолокация]";
+  return `${prefix}\nhttps://maps.google.com/?q=${lat},${long}`;
+}
+
 function extractText(contentType: string | undefined, content: Record<string, unknown> | undefined): string {
   if (!contentType || !content) return "";
   switch (contentType) {
@@ -23,6 +44,10 @@ function extractText(contentType: string | undefined, content: Record<string, un
     case "extendedTextMessage":
       return typeof content.extendedTextMessage === "object" && content.extendedTextMessage
         ? ((content.extendedTextMessage as { text?: string }).text ?? "")
+        : "";
+    case "locationMessage":
+      return typeof content.locationMessage === "object" && content.locationMessage
+        ? extractLocationText(content.locationMessage as LocationMessageContent)
         : "";
     default: {
       // Медиа-сообщения могут нести подпись (caption) — считаем это текстом.

@@ -27,6 +27,7 @@ from ..documents import (
 from ..schemas.documents import DocumentOut
 from ..security import BotAccessUser
 from ..storage import StorageDep
+from ..video import VideoCompressionError, compress_video
 
 router = APIRouter(prefix="/bots", tags=["documents"])
 
@@ -64,6 +65,15 @@ async def create_document_route(
     key = build_document_storage_key(bot_id, document_id)
     mime_type = file.content_type or "application/octet-stream"
     data = await file.read()
+    if mime_type.startswith("video/"):
+        # FEATURES.md 4.9 ревизия: видео грузится как есть, в отличие от
+        # фото товара (product_photos.py), которое ужимается всегда —
+        # отклоняем загрузку, а не сохраняем необработанный оригинал молча.
+        try:
+            data = await compress_video(data)
+        except VideoCompressionError as exc:
+            raise HTTPException(status_code=422, detail=f"video compression failed: {exc}") from exc
+        mime_type = "video/mp4"  # compress_video всегда перекодирует в mp4
     try:
         await storage.put(key, data, mime_type)
     except Exception as exc:

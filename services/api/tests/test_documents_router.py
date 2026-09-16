@@ -177,6 +177,76 @@ async def test_create_too_large_returns_422(
     assert response.status_code == 422
 
 
+async def test_video_upload_is_compressed_before_storing(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routers import documents as documents_router
+
+    async def fake_compress_video(raw: bytes) -> bytes:
+        assert raw == b"raw video bytes"
+        return b"compressed video bytes"
+
+    monkeypatch.setattr(documents_router, "compress_video", fake_compress_video)
+
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/documents",
+        files=[("file", ("clip.mp4", b"raw video bytes", "video/quicktime"))],
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mime_type"] == "video/mp4"  # всегда перекодируется в mp4
+
+    key = f"bots/{bot_id}/documents/{body['id']}"
+    assert fake_storage.objects[key] == (b"compressed video bytes", "video/mp4")
+
+
+async def test_video_compression_failure_returns_422_without_storing(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routers import documents as documents_router
+    from api.video import VideoCompressionError
+
+    async def failing_compress_video(raw: bytes) -> bytes:
+        raise VideoCompressionError("corrupt input")
+
+    monkeypatch.setattr(documents_router, "compress_video", failing_compress_video)
+
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/documents",
+        files=[("file", ("clip.mp4", b"garbage", "video/mp4"))],
+    )
+    assert response.status_code == 422
+    assert fake_storage.objects == {}
+
+    listing = await client.get(f"/bots/{bot_id}/documents")
+    assert listing.json() == []
+
+
+async def test_non_video_upload_is_not_passed_through_compression(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.routers import documents as documents_router
+
+    async def fail_if_called(raw: bytes) -> bytes:
+        raise AssertionError("compress_video must not be called for non-video uploads")
+
+    monkeypatch.setattr(documents_router, "compress_video", fail_if_called)
+
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(f"/bots/{bot_id}/documents", files=[_doc_file()])
+    assert response.status_code == 201
+
+
 async def test_create_accepts_any_mime_type(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

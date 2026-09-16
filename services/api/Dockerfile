@@ -1,6 +1,10 @@
 # Контекст сборки — корень репозитория (нужен доступ к libs/*)
 FROM python:3.12-slim
 
+# FEATURES.md 4.9 ревизия — сжатие видео при загрузке (api/video.py).
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY libs /app/libs

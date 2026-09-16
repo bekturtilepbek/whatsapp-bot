@@ -95,6 +95,32 @@ describe("normalizeInboundMessage", () => {
     expect(event?.from_me).toBe(true);
   });
 
+  it("turns a location message into a readable text with a maps link", () => {
+    const msg = baseMessage({
+      message: { locationMessage: { degreesLatitude: 42.8746, degreesLongitude: 74.5698 } },
+    });
+    const event = normalizeInboundMessage(BOT_ID, msg);
+    expect(event?.media_type).toBeNull();
+    expect(event?.text).toBe("[Геолокация]\nhttps://maps.google.com/?q=42.8746,74.5698");
+  });
+
+  it("includes the name/address the client attached to a location message", () => {
+    const msg = baseMessage({
+      message: {
+        locationMessage: {
+          degreesLatitude: 42.8746,
+          degreesLongitude: 74.5698,
+          name: "ЦУМ",
+          address: "ул. Советская 136, Бишкек",
+        },
+      },
+    });
+    const event = normalizeInboundMessage(BOT_ID, msg);
+    expect(event?.text).toBe(
+      "[Геолокация] ЦУМ, ул. Советская 136, Бишкек\nhttps://maps.google.com/?q=42.8746,74.5698",
+    );
+  });
+
   it("returns null for unsupported content (e.g. reaction) with no text/media", () => {
     const msg = baseMessage({ message: { reactionMessage: { text: "👍" } } });
     expect(normalizeInboundMessage(BOT_ID, msg)).toBeNull();

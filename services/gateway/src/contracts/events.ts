@@ -14,6 +14,7 @@ export const InboundText = z
     from_me: z.boolean(),
     text: z.string(),
     quoted_text: z.string().nullable().optional(),
+    quoted_media_type: z.string().nullable().optional(),
     media_type: z.string().nullable().optional(),
     storage_key: z.string().nullable().optional(),
     mime_type: z.string().nullable().optional(),

@@ -29,6 +29,7 @@ describe("normalizeInboundMessage", () => {
       from_me: false,
       text: "Привет",
       quoted_text: null,
+      quoted_media_type: null,
       media_type: null,
       ts: 1756800000000,
     });
@@ -51,7 +52,23 @@ describe("normalizeInboundMessage", () => {
     });
     const event = normalizeInboundMessage(BOT_ID, msg);
     expect(event?.quoted_text).toBe("Товар ещё в наличии?");
+    expect(event?.quoted_media_type).toBeNull();
   });
+
+  it("sets quoted_media_type when the quoted message is media without a caption", () => {
+    const msg = baseMessage({
+      message: {
+        extendedTextMessage: {
+          text: "А это видно на фото?",
+          contextInfo: { quotedMessage: { imageMessage: { mimetype: "image/jpeg" } } },
+        },
+      },
+    });
+    const event = normalizeInboundMessage(BOT_ID, msg);
+    expect(event?.quoted_text).toBeNull();
+    expect(event?.quoted_media_type).toBe("image");
+  });
+
 
   it("maps image message to media_type and picks up caption as text", () => {
     const msg = baseMessage({

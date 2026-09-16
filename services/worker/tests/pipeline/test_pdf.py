@@ -134,6 +134,36 @@ async def test_bot_with_pdf_prompt_sends_pdf_reply_and_records_usage(
         await redis.aclose()
 
 
+async def test_quoted_text_is_mixed_into_pdf_current_turn(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 1.4: клиент цитирует предыдущее сообщение и присылает
+    PDF — контекст цитаты подмешивается перед текстом сообщения, который
+    склеивается с извлечённым текстом документа."""
+    captured_histories: list[list[object]] = []
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        captured_histories.append(list(history))
+        return LLMResult(text="Вот условия.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    bot_id = await _make_bot(session_factory, pdf_prompt="Изучи документ и ответь клиенту.")
+    payload = {
+        **_inbound_pdf_payload_with_storage(bot_id, text="а какие условия?"),
+        "quoted_text": "Пришлите договор",
+    }
+    redis = FakeRedis(decode_responses=True)
+    try:
+        pdf_bytes = (FIXTURES / "sample.pdf").read_bytes()
+        await _process_entry(payload, redis, session_factory, _FakeStorage(data=pdf_bytes))
+        current_turn = captured_histories[0][-1].content
+        assert current_turn.startswith('[В ответ на: "Пришлите договор"]\nа какие условия?\n\n')
+    finally:
+        await redis.aclose()
+
+
 async def test_bot_without_pdf_prompt_falls_back_and_skips_llm(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

@@ -72,7 +72,7 @@ from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
 from . import batching, handoff, lock
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
-from .media import incoming_content
+from .media import incoming_content, quote_prefix
 
 GROUP = "worker"
 
@@ -195,7 +195,9 @@ async def _process_entry(
         contact = await match_or_create_contact(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )
-        content = incoming_content(event.text, event.media_type)
+        content = quote_prefix(event.quoted_text, event.quoted_media_type) + incoming_content(
+            event.text, event.media_type
+        )
         media_ref = (
             {
                 "storage_key": event.storage_key,
@@ -558,8 +560,9 @@ async def _reply_with_vision(
         assert bot.image_prompt is not None  # гарантировано веткой в _process_entry
         system_prompt = f"{bot.image_prompt}\n\n{time_context(bot.timezone)}"
         mime_type = event.mime_type or "image/jpeg"
+        caption = quote_prefix(event.quoted_text, event.quoted_media_type) + event.text
         result = await complete_with_image(
-            system_prompt, history, event.text, image_bytes, mime_type
+            system_prompt, history, caption, image_bytes, mime_type
         )
         if not result.text.strip():
             logger.warning(
@@ -627,8 +630,9 @@ async def _reply_with_pdf(
         assert bot.pdf_prompt is not None  # гарантировано веткой в _process_entry
         system_prompt = f"{bot.pdf_prompt}\n\n{time_context(bot.timezone)}"
         current_turn = f"Текст документа:\n{pdf_text}"
-        if event.text:
-            current_turn = f"{event.text}\n\n{current_turn}"
+        quoted_and_text = quote_prefix(event.quoted_text, event.quoted_media_type) + event.text
+        if quoted_and_text:
+            current_turn = f"{quoted_and_text}\n\n{current_turn}"
         history.append(HistoryMessage(role="user", content=current_turn))
 
         result = await complete(system_prompt, history)

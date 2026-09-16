@@ -19,6 +19,7 @@
         "from_me": { "type": "boolean" },
         "text": { "type": "string" },
         "quoted_text": { "type": ["string", "null"] },
+        "quoted_media_type": { "type": ["string", "null"] },
         "media_type": { "type": ["string", "null"] },
         "storage_key": { "type": ["string", "null"] },
         "mime_type": { "type": ["string", "null"] },

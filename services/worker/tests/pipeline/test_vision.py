@@ -138,6 +138,40 @@ async def test_bot_with_image_prompt_sends_vision_reply_and_records_usage(
         await redis.aclose()
 
 
+async def test_quoted_text_is_mixed_into_vision_caption(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 1.4: клиент цитирует предыдущее сообщение и присылает
+    фото — контекст цитаты подмешивается в caption, а не теряется."""
+    captured_captions: list[str] = []
+
+    async def fake_complete_with_image(
+        system_prompt: str,
+        history: object,
+        caption: str,
+        image_bytes: bytes,
+        mime_type: str,
+        **_: object,
+    ) -> LLMResult:
+        captured_captions.append(caption)
+        return LLMResult(text="Да, это он.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete_with_image", fake_complete_with_image)
+
+    bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
+    payload = {
+        **_inbound_image_payload_with_storage(bot_id, text="такой же?"),
+        "quoted_text": "Есть синие кроссовки?",
+    }
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(payload, redis, session_factory, _FakeStorage(data=b"fake-jpeg-bytes"))
+        assert captured_captions == ['[В ответ на: "Есть синие кроссовки?"]\nтакой же?']
+    finally:
+        await redis.aclose()
+
+
 async def test_bot_without_image_prompt_falls_back_and_skips_llm(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

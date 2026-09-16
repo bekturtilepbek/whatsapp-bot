@@ -32,17 +32,26 @@ function extractText(contentType: string | undefined, content: Record<string, un
   }
 }
 
-function extractQuotedText(
+interface QuotedContext {
+  text: string | null;
+  mediaType: string | null;
+}
+
+function extractQuotedContext(
   contentType: string | undefined,
   content: Record<string, unknown> | undefined,
-): string | null {
-  if (!contentType || !content) return null;
+): QuotedContext {
+  if (!contentType || !content) return { text: null, mediaType: null };
   const body = content[contentType] as { contextInfo?: { quotedMessage?: WAMessage["message"] } } | undefined;
   const quoted = body?.contextInfo?.quotedMessage;
-  if (!quoted) return null;
+  if (!quoted) return { text: null, mediaType: null };
   const quotedType = getContentType(quoted);
   const text = extractText(quotedType, quoted as Record<string, unknown>);
-  return text || null;
+  if (text) return { text, mediaType: null };
+  // Цитата на медиа без подписи — в V1 (resolveQuotedContext) контекст всё
+  // равно не терялся, боту передавался тип цитируемого сообщения.
+  const mediaType = quotedType ? (MEDIA_TYPE_BY_CONTENT_KEY[quotedType] ?? null) : null;
+  return { text: null, mediaType };
 }
 
 /**
@@ -67,6 +76,7 @@ export function normalizeInboundMessage(botId: string, msg: WAMessage): InboundT
   // на уровне сообщения (см. FEATURES.md 9.2) — пишем то, что реально пришло,
   // sender_lid не заполняем здесь; матчинг wa_id<->lid — задача Block 2.
   const senderWaId = decoded?.user ?? senderJid;
+  const quoted = extractQuotedContext(contentType, content);
 
   return {
     type: "inbound.text",
@@ -77,7 +87,8 @@ export function normalizeInboundMessage(botId: string, msg: WAMessage): InboundT
     sender_lid: null,
     from_me: msg.key.fromMe ?? false,
     text,
-    quoted_text: extractQuotedText(contentType, content),
+    quoted_text: quoted.text,
+    quoted_media_type: quoted.mediaType,
     media_type: mediaType,
     ts: toNumber(msg.messageTimestamp) * 1000,
   };

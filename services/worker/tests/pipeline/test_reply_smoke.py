@@ -11,6 +11,7 @@ fakeredis (тот же выбор, что и для dedup/batching/lock-тест
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -116,6 +117,54 @@ async def test_inbound_text_produces_reply_history_and_usage(
             assert usage[0].model == "gpt-4o-mini"
 
         assert await redis.get(_lock_key(str(bot_id), "996700000000@s.whatsapp.net")) is None
+    finally:
+        await redis.aclose()
+
+
+async def test_quoted_text_is_mixed_into_stored_content_and_llm_history(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 1.4: цитата клиента подмешивается в начало content —
+    и то, что уходит в БД (для будущих ходов), и то, что видит LLM в этом же
+    ходе (fetch_recent_history подхватывает только что вставленную строку)."""
+    captured_histories: list[list[object]] = []
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        captured_histories.append(list(history))
+        return LLMResult(text="Да, актуально.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    bot_id = await _make_bot(session_factory)
+    payload = {
+        **_inbound_payload(bot_id),
+        "text": "да, беру",
+        "quoted_text": "Товар ещё в наличии?",
+        # fetch_recent_history фильтрует по реальному 24-часовому окну от
+        # текущего времени — фиксированный ts из _inbound_payload() слишком
+        # старый, история для него всегда пустая (не важно для тестов, не
+        # проверяющих сам history, но важно для этого).
+        "ts": int(datetime.now(UTC).timestamp() * 1000),
+    }
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(payload, redis, session_factory, _NullStorage())
+
+        expected_content = '[В ответ на: "Товар ещё в наличии?"]\nда, беру'
+        async with session_factory() as session:
+            messages = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert messages[0].content == expected_content
+
+        assert captured_histories[0][-1].content == expected_content
     finally:
         await redis.aclose()
 

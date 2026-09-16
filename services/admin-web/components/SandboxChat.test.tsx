@@ -42,6 +42,7 @@ it("sends the message and renders the reply with token usage", async () => {
     tokens_in: 11,
     tokens_out: 7,
     model: "gpt-4o-mini",
+    media: [],
   });
   renderChat();
 
@@ -68,7 +69,13 @@ it("shows a typing indicator while waiting for the reply", async () => {
   expect(screen.getByLabelText("Бот печатает")).toBeInTheDocument();
   expect(screen.getByText("печатает…")).toBeInTheDocument();
 
-  resolveReply({ reply: "Здравствуйте!", tokens_in: 1, tokens_out: 1, model: "gpt-4o-mini" });
+  resolveReply({
+    reply: "Здравствуйте!",
+    tokens_in: 1,
+    tokens_out: 1,
+    model: "gpt-4o-mini",
+    media: [],
+  });
   await waitFor(() => {
     expect(screen.queryByLabelText("Бот печатает")).not.toBeInTheDocument();
   });
@@ -80,6 +87,7 @@ it("sends on Enter and inserts a newline on Shift+Enter instead", async () => {
     tokens_in: 1,
     tokens_out: 1,
     model: "gpt-4o-mini",
+    media: [],
   });
   renderChat();
   const textarea = screen.getByLabelText("Сообщение клиента");
@@ -106,6 +114,7 @@ it("sends prior turns as history on the second message", async () => {
     tokens_in: 1,
     tokens_out: 1,
     model: "gpt-4o-mini",
+    media: [],
   });
   renderChat();
 
@@ -117,6 +126,7 @@ it("sends prior turns as history on the second message", async () => {
     tokens_in: 2,
     tokens_out: 2,
     model: "gpt-4o-mini",
+    media: [],
   });
   sendMessage("Что у вас есть?");
 
@@ -150,4 +160,54 @@ it("shows an error toast and drops the optimistic bubble on failure", async () =
     expect(screen.getByRole("alert")).toHaveTextContent("boom");
   });
   expect(screen.queryByText("Привет")).not.toBeInTheDocument();
+});
+
+it("renders image media from a tool call inline in the bot bubble", async () => {
+  vi.mocked(api.sendSandboxMessage).mockResolvedValue({
+    reply: "*Кроссовки*\nЦена: 5000",
+    tokens_in: 5,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [
+      { storage_key: "bots/b1/products/img-1.jpg", mime_type: "image/jpeg", filename: null },
+    ],
+  });
+  renderChat();
+
+  sendMessage("Есть кроссовки?");
+
+  await waitFor(() => {
+    const image = screen.getByRole("img", { name: /кроссовки/i });
+    expect(image).toHaveAttribute(
+      "src",
+      "http://api/bots/b1/sandbox/media?key=bots%2Fb1%2Fproducts%2Fimg-1.jpg&mime_type=image%2Fjpeg",
+    );
+  });
+});
+
+it("renders non-image media as a download link with the filename", async () => {
+  vi.mocked(api.sendSandboxMessage).mockResolvedValue({
+    reply: "Отправляю файл price-list.pdf.",
+    tokens_in: 5,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [
+      {
+        storage_key: "bots/b1/documents/price-list.pdf",
+        mime_type: "application/pdf",
+        filename: "price-list.pdf",
+      },
+    ],
+  });
+  renderChat();
+
+  sendMessage("Пришли прайс");
+
+  await waitFor(() => {
+    const link = screen.getByRole("link", { name: /price-list\.pdf/ });
+    expect(link).toHaveAttribute(
+      "href",
+      "http://api/bots/b1/sandbox/media?key=bots%2Fb1%2Fdocuments%2Fprice-list.pdf&mime_type=application%2Fpdf",
+    );
+  });
 });

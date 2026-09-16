@@ -20,8 +20,15 @@ class SandboxMessageIn(BaseModel):
     message: str
 
 
+class SandboxMediaOut(BaseModel):
+    storage_key: str
+    mime_type: str
+    filename: str | None = None
+
+
 class SandboxMessageOut(BaseModel):
     reply: str
     tokens_in: int
     tokens_out: int
     model: str
+    media: list[SandboxMediaOut] = Field(default_factory=list)

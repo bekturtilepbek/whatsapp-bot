@@ -20,6 +20,7 @@ _NOT_FOUND_ERROR = 'Файл "{filename}" не найден.'
 class SendDocumentTool:
     name = "send_document"
     description = "Отправляет клиенту файл или видео по точному имени из списка доступных файлов."
+    side_effecting = False
     parameters_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {

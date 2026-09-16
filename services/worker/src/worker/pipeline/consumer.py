@@ -48,13 +48,13 @@ from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.documents import list_documents
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
-from db.models import Bot, ToolBinding
+from db.models import Bot
 from db.products import list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
 from llm.catalog_context import ProductInfo, catalog_context
-from llm.client import HistoryMessage, ToolSpec, complete, complete_with_image, complete_with_tools
+from llm.client import HistoryMessage, complete, complete_with_image, complete_with_tools
 from llm.documents_context import DocumentInfo, documents_context
 from llm.pricing import compute_cost
 from llm.time_context import time_context
@@ -63,8 +63,8 @@ from redis.asyncio import Redis
 from scheduling.celery_app import celery_app
 from scheduling.task_names import FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from tools.base import ToolContext, ToolExecutionResult
-from tools.registry import get_tool
+from tools.executor import build_tool_executor, tool_specs_for_bindings
+from tools.tool_loop import OverrideReply, run_tool_loop
 
 from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
 from . import batching, handoff, lock
@@ -72,7 +72,6 @@ from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
 from .pdf_extract import extract_pdf_text
-from .tool_loop import OverrideReply, ToolExecutor, run_tool_loop
 
 GROUP = "worker"
 
@@ -481,8 +480,8 @@ async def _reply(
     sections = [bot.system_prompt, catalog, docs_ctx, time_ctx]
     system_prompt = "\n\n".join(section for section in sections if section)
 
-    tool_specs = _tool_specs_for_bindings(bindings)
-    executor = _make_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)
+    tool_specs = tool_specs_for_bindings(bindings)
+    executor = build_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)
 
     loop_result = await run_tool_loop(
         system_prompt,
@@ -521,56 +520,6 @@ async def _reply(
         )
         await session.commit()
     await _schedule_follow_up(bot, event.chat_id, contact_id, outgoing_seq)
-
-
-def _tool_specs_for_bindings(bindings: list[ToolBinding]) -> list[ToolSpec]:
-    """Тулзы, включённые боту (tool_bindings), но отсутствующие в реестре
-    libs/tools — молча пропускаются: рассинхрон между БД и деплоем кода не
-    должен ронять диалог (FEATURES.md 4.13)."""
-    specs: list[ToolSpec] = []
-    for binding in bindings:
-        tool = get_tool(binding.tool_name)
-        if tool is None:
-            logger.warning(
-                "tool binding references unknown tool, skipping",
-                tool_name=binding.tool_name,
-            )
-            continue
-        specs.append(
-            ToolSpec(
-                name=tool.name,
-                description=tool.description,
-                parameters_schema=tool.parameters_schema,
-            )
-        )
-    return specs
-
-
-def _make_tool_executor(
-    bot: Bot,
-    contact_id: uuid.UUID,
-    session_factory: async_sessionmaker[AsyncSession],
-    redis: Redis,
-    storage: Storage,
-    bindings: list[ToolBinding],
-) -> ToolExecutor:
-    config_by_name = {binding.tool_name: binding.config for binding in bindings}
-
-    async def executor(name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
-        tool = get_tool(name)
-        if tool is None:
-            raise LookupError(f"tool not in registry: {name}")
-        ctx = ToolContext(
-            bot=bot,
-            contact_id=contact_id,
-            session_factory=session_factory,
-            redis=redis,
-            storage=storage,
-            config=config_by_name.get(name, {}),
-        )
-        return await tool.execute(arguments, ctx)
-
-    return executor
 
 
 async def _reply_with_vision(

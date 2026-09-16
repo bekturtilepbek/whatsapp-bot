@@ -1,40 +1,82 @@
 """POST /bots/{bot_id}/sandbox/messages (FEATURES.md 9.6) — тестовый прогон
 промпта без реальных клиентов, owner-only (тратит реальные токены OpenAI).
 
-Сознательно урезано против настоящего пайплайна (services/worker/src/worker/
-pipeline/consumer.py::_reply): БЕЗ tool loop — вызовы тулз (карточки товара,
-файлы/видео, Telegram-лид) отложены отдельной итерацией (подтверждено
-пользователем при брейншторме FEATURES.md 9.6). Поэтому не нужен ни Redis,
-ни ToolContext — простой system prompt (промпт бота + каталог + время) и
-один вызов complete(). История — целиком в теле запроса (админка хранит её
-в браузере), ничего не пишется в contacts/messages: это не реальный диалог.
-usage_events пишется как обычно — тестовые сообщения реально стоят токенов
-и должны быть видны в /usage (FEATURES.md 6.15), это ожидаемо.
+Часть A (тулзы, 2026-09-16): тулзы бота (tool_bindings) подключены через
+run_tool_loop — тот же контракт, что и в реальном пайплайне
+(worker/pipeline/consumer.py::_reply), тулзы и цикл — общий код из
+libs/tools (ADR-002 не запрещает импортировать тулзы напрямую, запрещает
+только публиковать события САМИМ тулзам). Отличия от реального диалога:
+ничего не пишется в contacts/messages (история — целиком в теле запроса);
+side_effecting-тулзы (сейчас только send_telegram_lead) глушатся
+каноническим ответом вместо реального вызова — тестировщик не должен
+случайно разослать что-то реальное, тестируя промпт. contact_id для
+ToolContext — одноразовая заглушка (uuid4()): ни одна НЕ заглушённая тулза
+его не читает (единственная, кто читает, — send_telegram_lead, а она
+всегда заглушена раньше, до обращения к contact_id).
+
+vision/PDF от клиента — отдельная, ещё не реализованная часть (FEATURES.md
+9.6 часть B).
 """
 
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from db.bots import get_bot
 from db.products import DEFAULT_CATALOG_LIMIT, list_products
+from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, Response
 from llm.catalog_context import ProductInfo, catalog_context
-from llm.client import HistoryMessage, complete
+from llm.client import HistoryMessage, complete, complete_with_tools
 from llm.pricing import compute_cost
 from llm.time_context import time_context
+from tools.base import ToolExecutionResult
+from tools.executor import ToolExecutor, build_tool_executor, tool_specs_for_bindings
+from tools.registry import get_tool
+from tools.tool_loop import run_tool_loop
 
-from ..db import SessionDep
-from ..schemas.sandbox import SandboxMessageIn, SandboxMessageOut
+from ..db import SessionDep, SessionFactoryDep
+from ..redis_client import RedisDep
+from ..schemas.sandbox import SandboxMediaOut, SandboxMessageIn, SandboxMessageOut
 from ..security import PlatformOwner
+from ..storage import StorageDep
 
 router = APIRouter(prefix="/bots", tags=["sandbox"])
+
+# side_effecting-тулзы (libs/tools/src/tools/base.py) в песочнице не
+# вызываются по-настоящему — LLM получает канонический ответ и продолжает
+# диалог естественно, реального похода вовне (Telegram и т.п.) не
+# происходит. Пер-тулзовый текст — там, где известен правдоподобный
+# реальный успех; дефолт — для будущих side_effecting тулз без записи здесь.
+_SANDBOX_MUTED_RESPONSES: dict[str, str] = {
+    "send_telegram_lead": "Заявка отправлена менеджерам.",
+}
+_DEFAULT_SANDBOX_MUTED_RESPONSE = "Действие выполнено."
+
+
+def _mute_side_effecting_tools(base_executor: ToolExecutor) -> ToolExecutor:
+    async def executor(name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
+        tool = get_tool(name)
+        if tool is not None and tool.side_effecting:
+            return ToolExecutionResult(
+                content=_SANDBOX_MUTED_RESPONSES.get(name, _DEFAULT_SANDBOX_MUTED_RESPONSE)
+            )
+        return await base_executor(name, arguments)
+
+    return executor
 
 
 @router.post("/{bot_id}/sandbox/messages", response_model=SandboxMessageOut)
 async def send_sandbox_message(
-    bot_id: uuid.UUID, body: SandboxMessageIn, session: SessionDep, _owner: PlatformOwner
+    bot_id: uuid.UUID,
+    body: SandboxMessageIn,
+    session: SessionDep,
+    session_factory: SessionFactoryDep,
+    redis: RedisDep,
+    storage: StorageDep,
+    _owner: PlatformOwner,
 ) -> SandboxMessageOut:
     if not body.message.strip():
         raise HTTPException(status_code=422, detail="message must not be empty")
@@ -62,14 +104,69 @@ async def send_sandbox_message(
     history = [HistoryMessage(role=item.role, content=item.content) for item in body.history]
     history.append(HistoryMessage(role="user", content=body.message))
 
-    result = await complete(system_prompt, history)
-    cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
-    await record_usage(session, bot_id, result.model, result.tokens_in, result.tokens_out, cost)
+    bindings = await list_enabled_tool_bindings(session, bot_id)
+    tool_specs = tool_specs_for_bindings(bindings)
+    base_executor = build_tool_executor(
+        bot, uuid.uuid4(), session_factory, redis, storage, bindings
+    )
+    executor = _mute_side_effecting_tools(base_executor)
+
+    loop_result = await run_tool_loop(
+        system_prompt,
+        history,
+        tool_specs,
+        executor,
+        complete_fn=complete,
+        complete_with_tools_fn=complete_with_tools,
+    )
+
+    if loop_result.override_replies:
+        reply_text = "\n\n".join(reply.text for reply in loop_result.override_replies)
+        media = [
+            SandboxMediaOut(
+                storage_key=item.storage_key, mime_type=item.mime_type, filename=item.filename
+            )
+            for reply in loop_result.override_replies
+            for item in reply.media
+        ]
+    else:
+        reply_text = loop_result.text
+        media = []
+
+    cost = compute_cost(loop_result.model, loop_result.tokens_in, loop_result.tokens_out)
+    await record_usage(
+        session, bot_id, loop_result.model, loop_result.tokens_in, loop_result.tokens_out, cost
+    )
     await session.commit()
 
     return SandboxMessageOut(
-        reply=result.text,
-        tokens_in=result.tokens_in,
-        tokens_out=result.tokens_out,
-        model=result.model,
+        reply=reply_text,
+        tokens_in=loop_result.tokens_in,
+        tokens_out=loop_result.tokens_out,
+        model=loop_result.model,
+        media=media,
     )
+
+
+@router.get("/{bot_id}/sandbox/media")
+async def get_sandbox_media(
+    bot_id: uuid.UUID,
+    storage: StorageDep,
+    _owner: PlatformOwner,
+    key: str = Query(...),
+    mime_type: str = Query(...),
+) -> Response:
+    """Байты медиа, которое тулза вернула в этом ходе песочницы (карточка
+    товара, файл) — эфемерные, нигде в БД для песочницы не хранятся, поэтому
+    mime_type передаётся явно (не вычитывается из строки в БД, как у
+    products.photos/documents). Префикс ключа — единственная проверка,
+    что запрашивается объект именно ЭТОГО бота, не чужой (owner и так видит
+    все боты, но эндпоинт не должен превращаться в открытое чтение
+    произвольных ключей Storage по названию)."""
+    if not key.startswith(f"bots/{bot_id}/"):
+        raise HTTPException(status_code=404, detail="media not found")
+    try:
+        data = await storage.get(key)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="media not found") from exc
+    return Response(content=data, media_type=mime_type)

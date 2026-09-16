@@ -59,6 +59,7 @@ def _format_card_text(
 class ProductSearchTool:
     name = "search_products"
     description = "Ищет товар в каталоге бота по названию или похожему описанию."
+    side_effecting = False
     parameters_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {

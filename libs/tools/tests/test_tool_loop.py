@@ -15,7 +15,7 @@ from llm.client import (
     ToolSpec,
 )
 from tools.base import MediaToSend, ToolExecutionResult
-from worker.pipeline.tool_loop import OverrideReply, ToolLoopResult, run_tool_loop
+from tools.tool_loop import OverrideReply, ToolLoopResult, run_tool_loop
 
 _SPEC = ToolSpec(name="search", description="ищет товар", parameters_schema={"type": "object"})
 

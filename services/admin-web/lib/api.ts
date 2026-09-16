@@ -665,11 +665,18 @@ export interface SandboxHistoryItem {
   content: string;
 }
 
+export interface SandboxMediaItem {
+  storage_key: string;
+  mime_type: string;
+  filename: string | null;
+}
+
 export interface SandboxMessageResult {
   reply: string;
   tokens_in: number;
   tokens_out: number;
   model: string;
+  media: SandboxMediaItem[];
 }
 
 export async function sendSandboxMessage(
@@ -688,4 +695,19 @@ export async function sendSandboxMessage(
     throw new Error(`POST /bots/${botId}/sandbox/messages failed: ${res.status}`);
   }
   return (await res.json()) as SandboxMessageResult;
+}
+
+// Медиа из тулзы (карточка товара, файл) — эфемерное, не хранится нигде для
+// песочницы отдельно, поэтому mime_type передаётся в самом URL (см.
+// services/api/src/api/routers/sandbox.py::get_sandbox_media).
+export function sandboxMediaUrl(
+  baseUrl: string,
+  botId: string,
+  storageKey: string,
+  mimeType: string,
+): string {
+  const base = normalizeBaseUrl(baseUrl);
+  const key = encodeURIComponent(storageKey);
+  const mime = encodeURIComponent(mimeType);
+  return `${base}/bots/${botId}/sandbox/media?key=${key}&mime_type=${mime}`;
 }

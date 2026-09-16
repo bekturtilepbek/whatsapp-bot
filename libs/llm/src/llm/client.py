@@ -260,9 +260,9 @@ async def complete_with_tools(
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
     """Один вызов LLM с доступными тулзами (FEATURES.md 4.13, инфраструктура).
-    Цикл по нескольким раундам — НЕ здесь, а в
-    services/worker/pipeline/tool_loop.py (ADR-002: этот пакет — только
-    механика вызова OpenAI, оркестрация цикла — бизнес-логика worker).
+    Цикл по нескольким раундам — НЕ здесь, а в libs/tools/src/tools/tool_loop.py
+    (используется и worker'ом, и api-песочницей, FEATURES.md 9.6 часть A;
+    этот пакет — только механика одного вызова OpenAI).
 
     exchange — уже случившиеся в ТЕКУЩЕМ раунде реплики (assistant с
     tool_calls + результаты тулз), эфемерны в рамках одного вызова

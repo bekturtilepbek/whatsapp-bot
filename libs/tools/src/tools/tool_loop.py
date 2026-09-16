@@ -1,7 +1,10 @@
 """Цикл LLM↔tool-calls (FEATURES.md 4.13, инфраструктура; FEATURES.md
-4.3/4.4 — прокидка override_reply_text/media от тулзы наверх). Оркестрация
-— здесь (ADR-002: worker = бизнес-логика); механика одного вызова OpenAI —
-libs/llm. См. docs/superpowers/specs/2026-09-05-tool-calling-infra-design.md
+4.3/4.4 — прокидка override_reply_text/media от тулзы наверх). Раньше жило
+в services/worker/src/worker/pipeline/tool_loop.py — вынесено в libs/tools
+(FEATURES.md 9.6 часть A, песочница): сама функция не имеет ничего
+worker-специфичного (ни Redis, ни wa:out), а нужна теперь и api (песочница
+собирает executor так же, как _reply() в worker, не проходя через шину).
+См. docs/superpowers/specs/2026-09-05-tool-calling-infra-design.md
 и docs/superpowers/specs/2026-09-05-product-card-sending-design.md
 
 При пустом списке тулз — один вызов complete_fn(), форма запроса и
@@ -30,14 +33,15 @@ from llm.client import (
 )
 from llm.client import complete as _default_complete
 from llm.client import complete_with_tools as _default_complete_with_tools
-from tools.base import MediaToSend, ToolExecutionResult
 
-logger = structlog.get_logger("worker.pipeline.tool_loop")
+from tools.base import MediaToSend, ToolExecutionResult
+from tools.executor import ToolExecutor
+
+logger = structlog.get_logger("tools.tool_loop")
 
 MAX_TOOL_ROUNDS = 5
 TOOL_CALL_TIMEOUT_SECONDS = 20.0
 
-ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[ToolExecutionResult]]
 _CompleteFn = Callable[[str, list[HistoryMessage]], Awaitable[LLMResult]]
 _CompleteWithToolsFn = Callable[..., Awaitable[LLMResult]]
 

@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { sendSandboxMessage, type SandboxHistoryItem } from "@/lib/api";
+import {
+  sendSandboxMessage,
+  sandboxMediaUrl,
+  type SandboxHistoryItem,
+  type SandboxMediaItem,
+} from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 
 interface SandboxChatProps {
@@ -15,6 +20,9 @@ interface DisplayMessage extends SandboxHistoryItem {
   // Только у ответов бота — своя строка под пузырём (FEATURES.md 9.6:
   // тестовые сообщения тратят реальные токены, полезно видеть сразу).
   usage?: { tokensIn: number; tokensOut: number; model: string };
+  // Карточка товара/файл от тулзы (FEATURES.md 9.6 часть A) — эфемерное,
+  // отдаётся через ..api/sandbox/media, ничего не хранится в БД для песочницы.
+  media?: SandboxMediaItem[];
 }
 
 const TEXTAREA_MAX_HEIGHT_PX = 120;
@@ -75,6 +83,7 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
             tokensOut: result.tokens_out,
             model: result.model,
           },
+          media: result.media,
         },
       ]);
     } catch (err) {
@@ -97,9 +106,10 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
   return (
     <div>
       <p className="sbx-note">
-        Без вызова тулз (товары/файлы/Telegram-лид) — только текстовый диалог. Тратит реальные
-        токены OpenAI, видно в «Расходы». История не сохраняется — обновление страницы начинает
-        тест заново.
+        Тулзы бота (товары/файлы) работают по-настоящему; заявки в Telegram и другие тулзы с
+        реальным эффектом — глушатся тестовым ответом, реально никуда не уходят. Без фото/PDF от
+        клиента. Тратит реальные токены OpenAI, видно в «Расходы». История не сохраняется —
+        обновление страницы начинает тест заново.
       </p>
 
       <div className="sbx-phone">
@@ -120,6 +130,27 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           {messages.map((m, i) => (
             <div className={`sbx-row sbx-${m.role}`} key={i}>
               <div className={`sbx-bubble sbx-${m.role}`}>
+                {m.media?.map((item, j) =>
+                  item.mime_type.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- внешний URL с query-параметрами, next/image тут не нужен
+                    <img
+                      key={j}
+                      className="sbx-bubble-media-image"
+                      src={sandboxMediaUrl(apiBaseUrl, botId, item.storage_key, item.mime_type)}
+                      alt={m.content}
+                    />
+                  ) : (
+                    <a
+                      key={j}
+                      className="sbx-bubble-media-file"
+                      href={sandboxMediaUrl(apiBaseUrl, botId, item.storage_key, item.mime_type)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      📎 {item.filename ?? item.storage_key}
+                    </a>
+                  ),
+                )}
                 <span className="sbx-bubble-text">{m.content}</span>
                 <span className="sbx-bubble-time">{m.time}</span>
               </div>
@@ -296,6 +327,21 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
         .sbx-bubble-text {
           white-space: pre-wrap;
           word-break: break-word;
+        }
+
+        .sbx-bubble-media-image {
+          display: block;
+          max-width: 100%;
+          border-radius: 6px;
+          margin-bottom: 0.3rem;
+        }
+
+        .sbx-bubble-media-file {
+          display: block;
+          color: inherit;
+          text-decoration: underline;
+          margin-bottom: 0.3rem;
+          word-break: break-all;
         }
 
         .sbx-bubble-time {

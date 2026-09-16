@@ -30,3 +30,9 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+# Для мест, которым нужен сам session_factory (не одна сессия на запрос) —
+# например песочница (FEATURES.md 9.6), собирающая ToolContext для тулз так
+# же, как worker/pipeline/consumer.py. Depends(...), а не прямой вызов
+# get_session_factory() — иначе тесты не могли бы подменить его через
+# dependency_overrides, как и с SessionDep.
+SessionFactoryDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]

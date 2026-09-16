@@ -14,7 +14,7 @@ worker — было продублировано байт-в-байт в 11 фа
 `testcontainers.postgres` импортируется ЛЕНИВО, внутри `database_url` —
 не на уровне модуля: в этой же директории есть тесты БЕЗ Postgres
 (test_batching.py, test_dedup.py, test_filters.py, test_lock.py,
-test_media.py, test_pdf_extract.py, test_tool_loop.py) — conftest.py
+test_media.py, test_pdf_extract.py) — conftest.py
 подгружается для ВСЕХ тестов директории, и безусловный импорт здесь
 сломал бы их сборку в окружении без testcontainers (сейчас у них такой
 зависимости нет вообще, сохраняем это).

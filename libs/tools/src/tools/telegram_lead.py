@@ -50,6 +50,7 @@ def _format_lead_message(client_name: str, phone: str, details: str, wa_link: st
 class TelegramLeadTool:
     name = "send_telegram_lead"
     description = "Отправляет заявку клиента менеджерам в Telegram-группу."
+    side_effecting = True
     parameters_schema: ClassVar[dict[str, Any]] = {
         "type": "object",
         "properties": {

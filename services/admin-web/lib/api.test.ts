@@ -14,6 +14,7 @@ import {
   patchBotSettings,
   productPhotoUrl,
   qrImageUrl,
+  sandboxMediaUrl,
   updateProduct,
 } from "@/lib/api";
 
@@ -437,5 +438,15 @@ describe("deleteProduct", () => {
   it("throws when the response is not ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     await expect(deleteProduct("http://api", "1", "p1")).rejects.toThrow();
+  });
+});
+
+describe("sandboxMediaUrl", () => {
+  it("builds the media URL with an encoded key and mime_type", () => {
+    expect(
+      sandboxMediaUrl("http://api/", "1", "bots/1/products/img 1.jpg", "image/jpeg"),
+    ).toBe(
+      "http://api/bots/1/sandbox/media?key=bots%2F1%2Fproducts%2Fimg%201.jpg&mime_type=image%2Fjpeg",
+    );
   });
 });

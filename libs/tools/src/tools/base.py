@@ -54,6 +54,10 @@ class ToolExecutionResult:
 class Tool(Protocol):
     name: str
     description: str
+    # True — тулза производит реальный побочный эффект вовне (шлёт
+    # сообщение, деньги и т.п.); песочница (FEATURES.md 9.6) глушит такие
+    # тулзы каноническим ответом вместо реального вызова execute().
+    side_effecting: bool
 
     @property
     def parameters_schema(self) -> dict[str, Any]: ...

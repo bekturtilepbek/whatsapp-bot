@@ -55,7 +55,7 @@ from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
 from llm.catalog_context import ProductInfo, catalog_context
-from llm.client import HistoryMessage, complete, complete_with_image, complete_with_tools
+from llm.client import HistoryMessage, complete, complete_with_images, complete_with_tools
 from llm.documents_context import DocumentInfo, documents_context
 from llm.pdf_extract import extract_pdf_text
 from llm.pricing import compute_cost
@@ -68,7 +68,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tools.executor import build_tool_executor, tool_specs_for_bindings
 from tools.tool_loop import OverrideReply, run_tool_loop
 
-from ..bus import IN_STREAM, OUT_STREAM, ensure_group, publish, read_group
+from ..bus import IN_STREAM, OUT_STREAM, StreamEntry, ensure_group, publish, read_group
 from . import batching, handoff, lock
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
@@ -92,6 +92,11 @@ DEFAULT_MEDIA_REACTION_EMOJI = "👍"
 PHOTO_JITTER_MIN_SECONDS = 1.0
 PHOTO_JITTER_MAX_SECONDS = 1.5
 STORAGE_READ_TIMEOUT_SECONDS = 20.0
+# Защита от случайного спама большим числом фото в одной пачке батчинга
+# (FEATURES.md 2.1 ревизия) — остальные фото пачки просто не анализируются
+# этим ходом (не падение, не ошибка), лишние фото сверх лимита молча
+# отбрасываются, реалистичный сценарий "клиент шлёт 2-4 фото" далеко внутри.
+MAX_BATCH_VISION_IMAGES = 10
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
 # Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
@@ -232,6 +237,14 @@ async def _process_entry(
     if event.media_type is not None and _media_reaction_enabled(bot):
         await _react_to_media(event, bot, redis)
 
+    if event.media_type == "image" and event.storage_key is not None:
+        # Копим wa_msg_id КАЖДОГО фото этого окна батчинга — лидера и
+        # фолловеров — чтобы после wait_for_quiet собрать их все в один
+        # vision-вызов (FEATURES.md 2.1 ревизия), а не только фото лидера.
+        await batching.register_image_arrival(
+            redis, bot_id_str, event.chat_id, event.wa_msg_id, _batch_timeout_seconds(bot)
+        )
+
     became_leader = await batching.register_arrival(
         redis, bot_id_str, event.chat_id, _batch_timeout_seconds(bot)
     )
@@ -246,8 +259,19 @@ async def _process_entry(
 
     try:
         async with lock.keep_alive(redis, bot_id_str, event.chat_id):
-            if event.media_type == "image" and event.storage_key is not None and bot.image_prompt:
-                await _reply_with_vision(event, bot, contact.id, redis, session_factory, storage)
+            batch_image_wa_msg_ids = await batching.pop_batch_images(
+                redis, bot_id_str, event.chat_id
+            )
+            # Условие ниже — строгий надмножество старого
+            # (event.media_type == "image" and event.storage_key is not None):
+            # register_image_arrival зовётся и для лидера тоже, так что
+            # "лидер сам фото, без фолловеров" продолжает работать без
+            # спецкейсов; но теперь фото, прилетевшее ПОСЛЕ текстового
+            # лидера в том же окне, тоже попадает в vision-путь.
+            if batch_image_wa_msg_ids and bot.image_prompt:
+                await _reply_with_vision(
+                    event, bot, contact.id, redis, session_factory, storage, batch_image_wa_msg_ids
+                )
             elif (
                 event.media_type == "document"
                 and event.mime_type == "application/pdf"
@@ -531,9 +555,14 @@ async def _reply_with_vision(
     redis: Redis,
     session_factory: async_sessionmaker[AsyncSession],
     storage: Storage,
+    batch_wa_msg_ids: Sequence[str],
 ) -> None:
-    """FEATURES.md 2.1: один вызов LLM на фото — image_prompt бота как system
-    prompt, ответ модели уходит клиенту напрямую (без второго прохода).
+    """FEATURES.md 2.1: один вызов LLM на фото (одно или несколько, если
+    клиент прислал их пачкой в одном окне батчинга) — image_prompt бота как
+    system prompt, ответ модели уходит клиенту напрямую (без второго
+    прохода). event — событие-лидер пачки: его text/quoted_* используются
+    как caption, даже если сам лидер — текст, а фото прилетели следом
+    (batch_wa_msg_ids в этом случае всё равно их содержит).
 
     Любой сбой на этом пути (чтение из storage, таймаут, сам вызов LLM,
     пустой ответ) — НЕ бросаем наружу: тихо деградируем в
@@ -545,25 +574,42 @@ async def _reply_with_vision(
     try:
         async with session_factory() as session:
             history_rows = await fetch_recent_history(session, contact_id)
-        # Последняя строка — плейсхолдер текущего фото ("[фото]"), уже
-        # вставленный insert_incoming выше по _process_entry; текущий ход
-        # собирается заново из самих байтов картинки, а не из плейсхолдера.
+        # batch_ids — все фото ЭТОГО хода (лидер + фолловеры одного окна
+        # батчинга); event.wa_msg_id добавлен defensively — на случай гонки
+        # с TTL Redis-списка, лидер должен остаться в выборке в любом случае.
+        batch_ids = set(batch_wa_msg_ids) | {event.wa_msg_id}
+        batch_rows = [
+            m for m in history_rows if m.wa_msg_id in batch_ids and m.media_ref is not None
+        ]
+        # Всё, что НЕ входит в эту пачку, — обычная предыдущая история;
+        # плейсхолдеры пачки ("[фото]") исключены целиком, не только
+        # последняя строка — фото могло быть не одно.
         history = [
-            HistoryMessage(role=m.role, content=m.content) for m in history_rows[:-1]
+            HistoryMessage(role=m.role, content=m.content)
+            for m in history_rows
+            if m.wa_msg_id not in batch_ids
         ]
 
-        assert event.storage_key is not None  # гарантировано веткой в _process_entry
-        image_bytes = await asyncio.wait_for(
-            storage.get(event.storage_key), timeout=STORAGE_READ_TIMEOUT_SECONDS
-        )
+        if not batch_rows:
+            # Не должно происходить по построению (register_image_arrival
+            # зовётся для каждого фото-события) — но если Redis-список
+            # почему-то пуст (TTL/гонка), лучше честно деградировать в
+            # fallback, чем упасть с IndexError на пустом content.
+            raise RuntimeError("no batch images found for vision reply")
+
+        images: list[tuple[bytes, str]] = []
+        for row in batch_rows[:MAX_BATCH_VISION_IMAGES]:
+            media_ref = row.media_ref
+            assert media_ref is not None  # уже отфильтровано выше
+            image_bytes = await asyncio.wait_for(
+                storage.get(media_ref["storage_key"]), timeout=STORAGE_READ_TIMEOUT_SECONDS
+            )
+            images.append((image_bytes, media_ref.get("mime_type") or "image/jpeg"))
 
         assert bot.image_prompt is not None  # гарантировано веткой в _process_entry
         system_prompt = f"{bot.image_prompt}\n\n{time_context(bot.timezone)}"
-        mime_type = event.mime_type or "image/jpeg"
         caption = quote_prefix(event.quoted_text, event.quoted_media_type) + event.text
-        result = await complete_with_image(
-            system_prompt, history, caption, image_bytes, mime_type
-        )
+        result = await complete_with_images(system_prompt, history, caption, images)
         if not result.text.strip():
             logger.warning(
                 "vision LLM returned empty text, falling back", bot_id=str(event.bot_id)
@@ -688,6 +734,25 @@ async def _reply_with_media_fallback(
         await session.commit()
 
 
+async def _process_and_ack(
+    entry: StreamEntry,
+    redis: Redis,
+    session_factory: async_sessionmaker[AsyncSession],
+    storage: Storage,
+) -> None:
+    """Обработка одной записи в собственной задаче (см. run_pipeline_consumer)
+    — сбой здесь не должен пробрасываться наружу и обрывать соседние задачи
+    того же батча чтения; ACK — всегда, в finally, независимо от исхода
+    (ретраи — Волна 1, необработанное сообщение просто дропается)."""
+    try:
+        if entry.payload is not None:
+            await _process_entry(entry.payload, redis, session_factory, storage)
+    except Exception:
+        logger.exception("processing wa:in entry failed", entry_id=entry.entry_id)
+    finally:
+        await redis.xack(IN_STREAM, GROUP, entry.entry_id)
+
+
 async def run_pipeline_consumer(
     redis: Redis,
     session_factory: async_sessionmaker[AsyncSession],
@@ -702,16 +767,36 @@ async def run_pipeline_consumer(
     async for. Без перехвата здесь оно пробросилось бы наружу и убило бы
     всю задачу консюмера навсегда (никто её больше не await'ит и не
     перезапускает) — а не просто одно сообщение.
+
+    Каждая запись обрабатывается СВОЕЙ задачей (не await по очереди) — иначе
+    лидер батча (FEATURES.md 1.3/2.1 ревизия), ожидая тишину в
+    wait_for_quiet(), блокирует чтение следующей записи из стрима: фолловер
+    физически не успевает зарегистрироваться, пока лидер спит, и к моменту,
+    когда цикл наконец до него доходит, становится отдельным новым лидером
+    своего окна — батчинг молча не работает (найдено живой проверкой
+    группировки фото). Redis-примитивы батчинга/дедупа/лока и так рассчитаны
+    на конкурентный доступ нескольких РЕПЛИК воркера — конкурентность внутри
+    одного процесса не создаёт нового класса гонок.
     """
     await ensure_group(redis, IN_STREAM, GROUP)
-    while True:
-        try:
-            async for entry in read_group(redis, IN_STREAM, GROUP, consumer_name):
-                try:
-                    if entry.payload is not None:
-                        await _process_entry(entry.payload, redis, session_factory, storage)
-                finally:
-                    await redis.xack(IN_STREAM, GROUP, entry.entry_id)
-        except Exception:
-            logger.exception("wa:in read loop failed, retrying")
-            await asyncio.sleep(1)
+    in_flight: set[asyncio.Task[None]] = set()
+    try:
+        while True:
+            try:
+                async for entry in read_group(redis, IN_STREAM, GROUP, consumer_name):
+                    task = asyncio.create_task(
+                        _process_and_ack(entry, redis, session_factory, storage)
+                    )
+                    in_flight.add(task)
+                    task.add_done_callback(in_flight.discard)
+            except Exception:
+                logger.exception("wa:in read loop failed, retrying")
+                await asyncio.sleep(1)
+    finally:
+        # Отмена самой задачи run_pipeline_consumer (рестарт/shutdown, см.
+        # main.py) не должна бросать необработанные записи — дожидаемся уже
+        # запущенных обработчиков (они сами ACK'ают в своём finally).
+        for task in in_flight:
+            task.cancel()
+        if in_flight:
+            await asyncio.gather(*in_flight, return_exceptions=True)

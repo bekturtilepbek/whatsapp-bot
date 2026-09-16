@@ -21,6 +21,7 @@ from llm.client import (
     ToolSpec,
     complete,
     complete_with_image,
+    complete_with_images,
     complete_with_tools,
 )
 
@@ -248,6 +249,44 @@ async def test_image_call_passes_timeout_through_to_sdk() -> None:
         "SYS", [], "", b"abc", "image/jpeg", client=client, timeout_seconds=12.5
     )  # type: ignore[arg-type]
     assert client.chat.completions.last_call_kwargs["timeout"] == 12.5
+
+
+async def test_multiple_images_sent_as_content_array_with_one_block_each() -> None:
+    """FEATURES.md 2.1, батч из нескольких фото — один вызов LLM, все фото
+    в порядке прихода после одного text-блока."""
+    client = _client_with_response("На фото кроссовки и коробка.", tokens_in=300, tokens_out=20)
+    images = [(b"\xff\xd8\xff", "image/jpeg"), (b"\x89PNG", "image/png")]
+    result = await complete_with_images("SYS", [], "Что на фото?", images, client=client)  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    content = sent[-1]["content"]
+    assert content[0] == {"type": "text", "text": "Что на фото?"}
+    first_b64 = base64.b64encode(images[0][0]).decode("ascii")
+    second_b64 = base64.b64encode(images[1][0]).decode("ascii")
+    assert content[1] == {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{first_b64}"},
+    }
+    assert content[2] == {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/png;base64,{second_b64}"},
+    }
+    assert len(content) == 3
+    assert result.text == "На фото кроссовки и коробка."
+
+
+async def test_complete_with_image_is_a_thin_wrapper_around_complete_with_images() -> None:
+    """Обёртка сохраняет поведение единственного вызывающего с одной
+    картинкой (services/api/src/api/routers/sandbox.py, часть B песочницы) —
+    не должна была измениться."""
+    client = _client_with_response("ok", 1, 1)
+    await complete_with_image("SYS", [], "caption", b"abc", "image/jpeg", client=client)  # type: ignore[arg-type]
+
+    sent = client.chat.completions.last_call_kwargs["messages"]
+    content = sent[-1]["content"]
+    assert len(content) == 2
+    assert content[0] == {"type": "text", "text": "caption"}
+    assert content[1]["type"] == "image_url"
 
 
 async def test_retries_on_rate_limit_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,7 +7,9 @@ system prompt, ответ уходит клиенту напрямую. Дегр
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -28,13 +30,21 @@ pytestmark = pytest.mark.skipif(
 
 
 class _FakeStorage:
-    def __init__(self, data: bytes | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        data: bytes | None = None,
+        error: Exception | None = None,
+        data_by_key: dict[str, bytes] | None = None,
+    ) -> None:
         self._data = data
         self._error = error
+        self._data_by_key = data_by_key or {}
 
     async def get(self, key: str) -> bytes:
         if self._error is not None:
             raise self._error
+        if key in self._data_by_key:
+            return self._data_by_key[key]
         assert self._data is not None
         return self._data
 
@@ -74,7 +84,12 @@ def _inbound_image_payload_with_storage(
         "storage_key": f"bots/{bot_id}/media/wamsg-vision-1",
         "mime_type": "image/jpeg",
         "size_bytes": 12345,
-        "ts": 1756900000000,
+        # fetch_recent_history фильтрует по реальному 24-часовому окну от
+        # текущего времени (см. память fetch-recent-history-24h-window-
+        # gotcha) — _reply_with_vision теперь собирает фото пачки именно
+        # через эту историю (не только через event.storage_key напрямую),
+        # фиксированный старый ts здесь ломал бы сборку картинок.
+        "ts": int(datetime.now(UTC).timestamp() * 1000),
     }
 
 
@@ -82,16 +97,15 @@ async def test_bot_with_image_prompt_sends_vision_reply_and_records_usage(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_complete_with_image(
+    async def fake_complete_with_images(
         system_prompt: str,
         history: object,
         caption: str,
-        image_bytes: bytes,
-        mime_type: str,
+        images: list[tuple[bytes, str]],
         **_: object,
     ) -> LLMResult:
         assert "Опиши товар" in system_prompt  # bot.image_prompt подмешан
-        assert image_bytes == b"fake-jpeg-bytes"
+        assert images == [(b"fake-jpeg-bytes", "image/jpeg")]
         return LLMResult(
             text="На фото синие кроссовки 42 размера.",
             tokens_in=300,
@@ -99,7 +113,7 @@ async def test_bot_with_image_prompt_sends_vision_reply_and_records_usage(
             model="gpt-4o-mini",
         )
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", fake_complete_with_image)
+    monkeypatch.setattr(consumer_module, "complete_with_images", fake_complete_with_images)
 
     bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
     redis = FakeRedis(decode_responses=True)
@@ -146,18 +160,17 @@ async def test_quoted_text_is_mixed_into_vision_caption(
     фото — контекст цитаты подмешивается в caption, а не теряется."""
     captured_captions: list[str] = []
 
-    async def fake_complete_with_image(
+    async def fake_complete_with_images(
         system_prompt: str,
         history: object,
         caption: str,
-        image_bytes: bytes,
-        mime_type: str,
+        images: list[tuple[bytes, str]],
         **_: object,
     ) -> LLMResult:
         captured_captions.append(caption)
         return LLMResult(text="Да, это он.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", fake_complete_with_image)
+    monkeypatch.setattr(consumer_module, "complete_with_images", fake_complete_with_images)
 
     bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
     payload = {
@@ -179,7 +192,7 @@ async def test_bot_without_image_prompt_falls_back_and_skips_llm(
     async def fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("vision LLM не должен вызываться без image_prompt")
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", fail_if_called)
+    monkeypatch.setattr(consumer_module, "complete_with_images", fail_if_called)
 
     bot_id = await _make_bot(session_factory, image_prompt=None)  # регрессия — старое поведение
     redis = FakeRedis(decode_responses=True)
@@ -207,7 +220,7 @@ async def test_storage_read_failure_falls_back_without_crashing_or_double_reply(
     async def fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("vision LLM не должен вызываться при сбое storage")
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", fail_if_called)
+    monkeypatch.setattr(consumer_module, "complete_with_images", fail_if_called)
 
     bot_id = await _make_bot(session_factory, image_prompt="Опиши товар.")
     redis = FakeRedis(decode_responses=True)
@@ -239,7 +252,7 @@ async def test_vision_llm_failure_falls_back_without_crashing(
     async def failing_complete(*args: object, **kwargs: object) -> LLMResult:
         raise TimeoutError("OpenAI vision timed out")
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", failing_complete)
+    monkeypatch.setattr(consumer_module, "complete_with_images", failing_complete)
 
     bot_id = await _make_bot(session_factory, image_prompt="Опиши товар.")
     redis = FakeRedis(decode_responses=True)
@@ -253,5 +266,133 @@ async def test_vision_llm_failure_falls_back_without_crashing(
         out_entries = await redis.xrange("wa:out")
         assert len(out_entries) == 3
         assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[2][1]["payload"]
+    finally:
+        await redis.aclose()
+
+
+async def test_multiple_photos_in_one_batch_are_combined_into_one_vision_call(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 2.1 ревизия: клиент шлёт несколько фото подряд в одном
+    окне батчинга — раньше анализировалось только фото лидера, остальные
+    оставались [фото]-заглушками в истории, никогда не увиденными vision-
+    моделью. Теперь все фото пачки уходят одним мультимодальным вызовом."""
+    captured_images: list[list[tuple[bytes, str]]] = []
+    captured_histories: list[list[object]] = []
+
+    async def fake_complete_with_images(
+        system_prompt: str,
+        history: list[object],
+        caption: str,
+        images: list[tuple[bytes, str]],
+        **_: object,
+    ) -> LLMResult:
+        captured_images.append(images)
+        captured_histories.append(list(history))
+        return LLMResult(text="Вижу оба фото.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete_with_images", fake_complete_with_images)
+
+    bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    payload1 = {
+        **_inbound_image_payload_with_storage(bot_id),
+        "wa_msg_id": "wamsg-batch-1",
+        "storage_key": "bots/x/media/photo-1",
+        "ts": now_ms,
+    }
+    payload2 = {
+        **_inbound_image_payload_with_storage(bot_id),
+        "wa_msg_id": "wamsg-batch-2",
+        "storage_key": "bots/x/media/photo-2",
+        "ts": now_ms,
+    }
+    storage = _FakeStorage(
+        data_by_key={
+            "bots/x/media/photo-1": b"photo-one-bytes",
+            "bots/x/media/photo-2": b"photo-two-bytes",
+        }
+    )
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        leader_task = asyncio.create_task(_process_entry(payload1, redis, session_factory, storage))
+        await asyncio.sleep(0.005)  # даём лидеру зарегистрироваться и уйти в wait_for_quiet
+        await _process_entry(payload2, redis, session_factory, storage)  # фолловер — вернётся сразу
+        await leader_task
+
+        assert len(captured_images) == 1  # один объединённый вызов, не два отдельных ответа клиенту
+        assert captured_images[0] == [
+            (b"photo-one-bytes", "image/jpeg"),
+            (b"photo-two-bytes", "image/jpeg"),
+        ]
+        # обе заглушки этой же пачки исключены из истории — это первые
+        # сообщения контакта, значит для этого хода history пустая
+        assert captured_histories[0] == []
+    finally:
+        await redis.aclose()
+
+
+async def test_photo_arriving_after_a_text_leader_is_still_analyzed(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Раньше диспетчеризация (vision/pdf/fallback/текст) решалась только по
+    типу СОБЫТИЯ-ЛИДЕРА — если клиент сначала написал текст, а фото прислал
+    следом в том же окне батчинга, весь ход уходил по текстовому пути и
+    фото никогда не анализировалось. Теперь достаточно, чтобы фото было
+    ГДЕ-ТО в пачке."""
+    captured_captions: list[str] = []
+    captured_images: list[list[tuple[bytes, str]]] = []
+
+    async def fake_complete_with_images(
+        system_prompt: str,
+        history: list[object],
+        caption: str,
+        images: list[tuple[bytes, str]],
+        **_: object,
+    ) -> LLMResult:
+        captured_captions.append(caption)
+        captured_images.append(images)
+        return LLMResult(text="Да, есть такое.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    async def fail_if_called(*args: object, **kwargs: object) -> LLMResult:
+        raise AssertionError("текстовый путь не должен сработать — в пачке есть фото")
+
+    monkeypatch.setattr(consumer_module, "complete_with_images", fake_complete_with_images)
+    monkeypatch.setattr(consumer_module, "complete", fail_if_called)
+
+    bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    text_payload = {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-text-leader",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "Такое есть?",
+        "ts": now_ms,
+    }
+    photo_payload = {
+        **_inbound_image_payload_with_storage(bot_id),
+        "wa_msg_id": "wamsg-photo-follower",
+        "storage_key": "bots/x/media/photo-follower",
+        "ts": now_ms,
+    }
+    storage = _FakeStorage(data_by_key={"bots/x/media/photo-follower": b"photo-bytes"})
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        leader_task = asyncio.create_task(
+            _process_entry(text_payload, redis, session_factory, storage)
+        )
+        await asyncio.sleep(0.005)
+        await _process_entry(photo_payload, redis, session_factory, storage)
+        await leader_task
+
+        assert captured_captions == ["Такое есть?"]
+        assert captured_images == [[(b"photo-bytes", "image/jpeg")]]
     finally:
         await redis.aclose()

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -57,6 +58,14 @@ async def read_group(
         ),
     )
     if not reply:
+        # Явная кооперативная уступка event loop'у: реальный Redis блокирует
+        # соединение на стороне сервера (BLOCK реально спит), но встречаются
+        # реализации (в т.ч. FakeRedis в тестах), где пустой ответ приходит
+        # мгновенно — без этого `while True` в run_pipeline_consumer крутится
+        # без единого реального await и полностью останавливает event loop
+        # (найдено при живой отладке батчинга фото: даже посторонний
+        # asyncio.sleep() в другой корутине зависал навсегда).
+        await asyncio.sleep(0)
         return
     for _stream_name, entries in reply:
         for entry_id, fields in entries:

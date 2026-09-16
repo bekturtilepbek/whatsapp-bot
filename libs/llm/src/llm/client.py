@@ -177,35 +177,58 @@ async def complete_with_image(
     client: AsyncOpenAI | None = None,
     timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
 ) -> LLMResult:
-    """FEATURES.md 2.1: единственный вызов LLM на сообщение с фото —
-    image_prompt бота используется КАК system prompt, ответ модели уходит
-    клиенту напрямую (без второго прохода "описание -> ещё один LLM-вызов").
+    """Обёртка над `complete_with_images` для единственного фото — сигнатура
+    сохранена ради `services/api/src/api/routers/sandbox.py` (часть B
+    песочницы: там всегда ровно одно загруженное фото, батчинга нет)."""
+    return await complete_with_images(
+        system_prompt,
+        history,
+        caption,
+        [(image_bytes, image_mime_type)],
+        client=client,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+async def complete_with_images(
+    system_prompt: str,
+    history: list[HistoryMessage],
+    caption: str,
+    images: Sequence[tuple[bytes, str]],
+    *,
+    client: AsyncOpenAI | None = None,
+    timeout_seconds: float = REQUEST_TIMEOUT_SECONDS,
+) -> LLMResult:
+    """FEATURES.md 2.1: один вызов LLM на сообщение с фото (одним или
+    несколькими — если клиент прислал их пачкой, FEATURES.md 1.3/2.1
+    ревизия) — image_prompt бота используется КАК system prompt, ответ
+    модели уходит клиенту напрямую (без второго прохода "описание -> ещё
+    один LLM-вызов").
 
     history — ТОЛЬКО предыдущие ходы, без текущего: текущий ход собирается
-    здесь явно из caption + картинки (текущая строка истории в БД — это
-    плейсхолдер вроде "[фото]", отправлять его в LLM как текст бессмысленно
+    здесь явно из caption + картинок (текущие строки истории в БД — это
+    плейсхолдеры вроде "[фото]", отправлять их в LLM как текст бессмысленно
     и вводит модель в заблуждение).
 
-    base64 data URL, а не Files API/публичный URL — картинка уже лежит у нас
+    base64 data URL, а не Files API/публичный URL — картинки уже лежат у нас
     байтами (Storage.get), а не в общедоступном месте: data URL не требует
     отдельного аплоада и не "утекает" наружу.
     """
     model = current_model()
-    b64 = base64.b64encode(image_bytes).decode("ascii")
+    content: list[dict[str, object]] = [
+        {"type": "text", "text": caption or _EMPTY_CAPTION_PLACEHOLDER}
+    ]
+    for image_bytes, image_mime_type in images:
+        b64 = base64.b64encode(image_bytes).decode("ascii")
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image_mime_type};base64,{b64}"},
+            }
+        )
     messages: list[dict[str, object]] = [{"role": "system", "content": system_prompt}]
     messages += [{"role": m.role, "content": m.content} for m in history]
-    messages.append(
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": caption or _EMPTY_CAPTION_PLACEHOLDER},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{image_mime_type};base64,{b64}"},
-                },
-            ],
-        }
-    )
+    messages.append({"role": "user", "content": content})
     active_client = client or _default_client()
     return await _call_and_extract(active_client, model, messages, timeout_seconds)
 

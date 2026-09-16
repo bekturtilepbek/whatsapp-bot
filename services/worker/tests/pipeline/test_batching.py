@@ -6,7 +6,12 @@ import asyncio
 import time
 
 from fakeredis.aioredis import FakeRedis
-from worker.pipeline.batching import register_arrival, wait_for_quiet
+from worker.pipeline.batching import (
+    pop_batch_images,
+    register_arrival,
+    register_image_arrival,
+    wait_for_quiet,
+)
 
 TIMEOUT = 0.15  # секунды — короткое окно, но с запасом от дребезга шедулера ОС
 
@@ -75,5 +80,47 @@ async def test_leader_claim_is_released_after_quiet_window() -> None:
         # прошлый батч завершился — новое сообщение начинает новый цикл лидерства
         became_leader = await register_arrival(redis, "bot-1", "chat-1", TIMEOUT)
         assert became_leader is True
+    finally:
+        await redis.aclose()
+
+
+async def test_pop_batch_images_returns_registered_ids_in_arrival_order() -> None:
+    redis = FakeRedis()
+    try:
+        await register_image_arrival(redis, "bot-1", "chat-1", "wamsg-1", TIMEOUT)
+        await register_image_arrival(redis, "bot-1", "chat-1", "wamsg-2", TIMEOUT)
+        assert await pop_batch_images(redis, "bot-1", "chat-1") == ["wamsg-1", "wamsg-2"]
+    finally:
+        await redis.aclose()
+
+
+async def test_pop_batch_images_clears_the_list() -> None:
+    redis = FakeRedis()
+    try:
+        await register_image_arrival(redis, "bot-1", "chat-1", "wamsg-1", TIMEOUT)
+        await pop_batch_images(redis, "bot-1", "chat-1")
+        assert await pop_batch_images(redis, "bot-1", "chat-1") == []
+    finally:
+        await redis.aclose()
+
+
+async def test_pop_batch_images_returns_empty_list_when_nothing_registered() -> None:
+    redis = FakeRedis()
+    try:
+        assert await pop_batch_images(redis, "bot-1", "chat-1") == []
+    finally:
+        await redis.aclose()
+
+
+async def test_batch_images_do_not_leak_across_chats_or_bots() -> None:
+    redis = FakeRedis()
+    try:
+        await register_image_arrival(redis, "bot-1", "chat-1", "wamsg-1", TIMEOUT)
+        await register_image_arrival(redis, "bot-1", "chat-2", "wamsg-2", TIMEOUT)
+        await register_image_arrival(redis, "bot-2", "chat-1", "wamsg-3", TIMEOUT)
+
+        assert await pop_batch_images(redis, "bot-1", "chat-1") == ["wamsg-1"]
+        assert await pop_batch_images(redis, "bot-1", "chat-2") == ["wamsg-2"]
+        assert await pop_batch_images(redis, "bot-2", "chat-1") == ["wamsg-3"]
     finally:
         await redis.aclose()

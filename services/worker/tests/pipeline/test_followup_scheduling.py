@@ -229,7 +229,7 @@ async def test_media_fallback_never_schedules_follow_up(
     async def fail_if_called(*args: object, **kwargs: object) -> None:
         raise AssertionError("vision LLM не должен вызываться без image_prompt")
 
-    monkeypatch.setattr(consumer_module, "complete_with_image", fail_if_called)
+    monkeypatch.setattr(consumer_module, "complete_with_images", fail_if_called)
     fake_celery = _FakeCeleryApp()
     monkeypatch.setattr(consumer_module, "celery_app", fake_celery)
 

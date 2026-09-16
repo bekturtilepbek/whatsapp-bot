@@ -4,17 +4,20 @@ price/sku/description опциональны, display_custom — "всё или 
 db.product_search._resolve_display_config, не меняется).
 
 Эмбеддинг (FEATURES.md 4.1) строится только из name+description
-(llm.embeddings.product_embedding_input) — синхронная попытка в этом же
-HTTP-запросе (generate_embedding уже со своим ретраем); если и она не
-удалась — товар всё равно сохраняется, ставится идемпотентная Celery-
-задача-подстраховка (services/celery/src/tasks/products.py). См.
-docs/superpowers/specs/2026-09-10-product-crud-design.md — этот дизайн
-пользователь пометил как вероятного кандидата на пересмотр.
+(llm.embeddings.product_embedding_input) — строго синхронно в этом же
+HTTP-запросе, ДО commit (generate_embedding уже со своим ретраем ×3).
+Строгое V1-поведение (пересмотр 2026-09-16, см. память
+product-embedding-retry-design — первая версия этого дизайна сохраняла
+товар всё равно и ставила Celery-подстраховку в фоне, пользователь явно
+попросил вернуться к V1): если эмбеддинг не удалось посчитать — операция
+(создание ИЛИ патч, если он меняет name/description) отклоняется целиком,
+ничего не коммитится. Известный принятый компромисс: уже загруженные в
+Storage фото при отклонении создания не удаляются (у Storage пока нет
+метода delete() ни в одном бэкенде) — редкий и дешёвый по цене мусор.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from decimal import Decimal
@@ -41,8 +44,6 @@ from db.products import (
 )
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from llm.embeddings import generate_embedding, product_embedding_input
-from scheduling.celery_app import celery_app
-from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionDep
@@ -59,8 +60,6 @@ from ..storage import StorageDep
 
 router = APIRouter(prefix="/bots", tags=["products"])
 logger = structlog.get_logger("api.products")
-
-PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS = 5.0
 
 # Дефолт этого роута == db.products.DEFAULT_CATALOG_LIMIT (=200) — сознательно,
 # чтобы не повторить в меньшем масштабе тот же баг, который правит вся эта
@@ -89,40 +88,15 @@ def _parse_display_custom(raw: str | None) -> dict[str, Any]:
     return parsed
 
 
-async def _recompute_embedding(session: AsyncSession, product: Product) -> None:
-    """Синхронная попытка (с уже встроенным в generate_embedding ретраем);
-    при сбое — не роняем запрос, ставим Celery-подстраховку. upsert_embedding
-    и commit — тоже часть этой попытки: сбой записи (БД недоступна,
-    несовпадение размерности вектора, конфликт транзакции) должен уйти в тот
-    же fallback, а не 500-ить уже сохранённый товар."""
+async def _compute_and_store_embedding(session: AsyncSession, product: Product) -> None:
+    """Строгое V1-поведение: сбой здесь должен провалить ВЕСЬ вызывающий
+    запрос (create/patch) — исключение сознательно не перехватывается тут,
+    вызывающий код ловит его сам, делает rollback и возвращает 502.
+    upsert_embedding — часть той же попытки, но ещё не commit (коммитит
+    вызывающий код одной транзакцией вместе с товаром/фото)."""
     text = product_embedding_input(product.name, product.description)
-    try:
-        embedding = await generate_embedding(text)
-        await upsert_embedding(session, product.id, embedding)
-        await session.commit()
-    except Exception:
-        logger.warning(
-            "embedding generation failed, scheduling retry",
-            product_id=str(product.id),
-            exc_info=True,
-        )
-        await _schedule_embedding_retry(product.id)
-
-
-async def _schedule_embedding_retry(product_id: uuid.UUID) -> None:
-    try:
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                celery_app.send_task,
-                RECOMPUTE_PRODUCT_EMBEDDING,
-                args=[str(product_id)],
-            ),
-            timeout=PRODUCT_EMBEDDING_SCHEDULE_TIMEOUT_SECONDS,
-        )
-    except Exception:
-        logger.warning(
-            "failed to schedule embedding recompute", product_id=str(product_id), exc_info=True
-        )
+    embedding = await generate_embedding(text)
+    await upsert_embedding(session, product.id, embedding)
 
 
 @router.get("/{bot_id}/products", response_model=list[ProductOut])
@@ -197,11 +171,16 @@ async def create_product_route(
         await session.rollback()
         raise HTTPException(status_code=502, detail="failed to store product photo") from exc
 
+    try:
+        await _compute_and_store_embedding(session, product)
+    except Exception as exc:
+        await session.rollback()
+        raise HTTPException(status_code=502, detail="failed to generate product embedding") from exc
+
     await session.commit()
 
     created_product = await get_product(session, bot_id, product.id, with_images=True)
     assert created_product is not None  # только что закоммитили
-    await _recompute_embedding(session, created_product)
     return ProductOut.model_validate(created_product)
 
 
@@ -244,14 +223,23 @@ async def patch_product_route(
         display_custom=data.get("display_custom"),
     )
     assert product is not None  # проверено выше через before
+
+    if product.name != old_name or product.description != old_description:
+        try:
+            await _compute_and_store_embedding(session, product)
+        except Exception as exc:
+            # rollback откатывает и update_product() выше — сбой эмбеддинга
+            # отклоняет ВЕСЬ патч целиком, включая несвязанные поля вроде
+            # price в том же запросе (строгое V1-поведение).
+            await session.rollback()
+            raise HTTPException(
+                status_code=502, detail="failed to generate product embedding"
+            ) from exc
+
     await session.commit()
 
     product = await get_product(session, bot_id, product_id, with_images=True)
     assert product is not None  # только что успешно обновили выше
-
-    if product.name != old_name or product.description != old_description:
-        await _recompute_embedding(session, product)
-
     return ProductOut.model_validate(product)
 
 

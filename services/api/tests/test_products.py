@@ -1,7 +1,10 @@
 """GET/POST/PATCH/DELETE /bots/{bot_id}/products (FEATURES.md 6.8, CRUD +
-обязательное фото) + автопересчёт эмбеддинга при create/update.
-generate_embedding и celery_app подменяются моками — реальный OpenAI/Celery
-в юнит-тестах не участвуют (живой прогон — docker compose, см. план, Task 8).
+обязательное фото) + расчёт эмбеддинга при create/update. Строгое
+V1-поведение (пересмотр 2026-09-16, см. память product-embedding-retry-
+design): если generate_embedding() не удался — товар не создаётся/патч не
+применяется вообще, никакой Celery-подстраховки в фоне больше нет.
+generate_embedding подменяется моком — реальный OpenAI в юнит-тестах не
+участвует (живой прогон — docker compose).
 
 Требует Docker (testcontainers-postgres). Без него — skip, не fail.
 """
@@ -27,7 +30,6 @@ from api.routers import products as products_module
 from api.storage import get_storage
 from db.engine import make_engine, make_session_factory
 from db.models import Bot
-from scheduling.task_names import RECOMPUTE_PRODUCT_EMBEDDING
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
@@ -66,21 +68,6 @@ def database_url() -> AsyncIterator[str]:
 def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
     engine = make_engine(database_url)
     return make_session_factory(engine)
-
-
-class _FakeCeleryApp:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
-
-    def send_task(self, name: str, args: list[object]) -> None:
-        self.calls.append({"name": name, "args": args})
-
-
-@pytest.fixture
-def fake_celery(monkeypatch: pytest.MonkeyPatch) -> _FakeCeleryApp:
-    fake = _FakeCeleryApp()
-    monkeypatch.setattr(products_module, "celery_app", fake)
-    return fake
 
 
 class _FakeStorage:
@@ -408,12 +395,15 @@ async def test_patch_description_same_value_does_not_recompute_embedding(
     assert calls == 1
 
 
-async def test_create_falls_back_to_celery_when_embedding_fails(
+async def test_create_rejects_product_when_embedding_fails(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
-    fake_celery: _FakeCeleryApp,
 ) -> None:
+    """Строгое V1-поведение (пересмотр 2026-09-16): сбой генерации
+    эмбеддинга отклоняет всё создание товара целиком — ни строки products,
+    ни загруженных фото не остаётся. Никакой Celery-подстраховки в фоне
+    больше нет."""
     monkeypatch.setattr(products_module, "generate_embedding", _failing_generate_embedding)
     bot_id = await _make_bot(session_factory)
 
@@ -421,13 +411,38 @@ async def test_create_falls_back_to_celery_when_embedding_fails(
         f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
     )
 
-    # Товар всё равно создаётся, несмотря на сбой эмбеддинга.
-    assert response.status_code == 201
-    product_id = response.json()["id"]
+    assert response.status_code == 502
+    listed = await client.get(f"/bots/{bot_id}/products")
+    assert listed.json() == []
 
-    assert len(fake_celery.calls) == 1
-    assert fake_celery.calls[0]["name"] == RECOMPUTE_PRODUCT_EMBEDDING
-    assert fake_celery.calls[0]["args"] == [product_id]
+
+async def test_patch_rejects_update_when_embedding_fails(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Строгое V1-поведение: сбой пересчёта эмбеддинга (из-за смены
+    description) отклоняет ВЕСЬ патч целиком — даже несвязанное поле price
+    в том же запросе не применяется."""
+    monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+    created = await client.post(
+        f"/bots/{bot_id}/products",
+        data={"name": "Товар", "description": "Старое", "price": "100"},
+        files=[_photo_file()],
+    )
+    product_id = created.json()["id"]
+
+    monkeypatch.setattr(products_module, "generate_embedding", _failing_generate_embedding)
+    response = await client.patch(
+        f"/bots/{bot_id}/products/{product_id}",
+        json={"description": "Новое", "price": 999},
+    )
+
+    assert response.status_code == 502
+    unchanged = await client.get(f"/bots/{bot_id}/products/{product_id}")
+    assert unchanged.json()["description"] == "Старое"
+    assert unchanged.json()["price"] == "100.00"
 
 
 async def test_delete_product_removes_it(

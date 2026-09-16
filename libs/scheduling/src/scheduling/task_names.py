@@ -7,4 +7,3 @@ libs/core/redis_keys.py для имён Redis-ключей).
 from __future__ import annotations
 
 FOLLOW_UP_REMINDER = "tasks.followup.send_reminder"
-RECOMPUTE_PRODUCT_EMBEDDING = "tasks.products.recompute_embedding"

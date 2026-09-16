@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   sendSandboxMessage,
+  sendSandboxMediaMessage,
   sandboxMediaUrl,
   type SandboxHistoryItem,
   type SandboxMediaItem,
@@ -23,6 +24,16 @@ interface DisplayMessage extends SandboxHistoryItem {
   // Карточка товара/файл от тулзы (FEATURES.md 9.6 часть A) — эфемерное,
   // отдаётся через ..api/sandbox/media, ничего не хранится в БД для песочницы.
   media?: SandboxMediaItem[];
+  // Фото/PDF, которое "клиент" прикрепил в этом ходе (FEATURES.md 9.6 часть
+  // B) — превью только локальное (blob URL), на бэкенд файл нигде не
+  // сохраняется, поэтому это не SandboxMediaItem.
+  attachment?: { name: string; previewUrl?: string };
+}
+
+const SUPPORTED_ATTACHMENT_TYPES = "image/*,application/pdf";
+
+function attachmentPlaceholder(file: File): string {
+  return file.type.startsWith("image/") ? "[фото]" : "[документ]";
 }
 
 const TEXTAREA_MAX_HEIGHT_PX = 120;
@@ -45,8 +56,11 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [attachedPreviewUrl, setAttachedPreviewUrl] = useState<string | undefined>(undefined);
   const messagesRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const el = messagesRef.current;
@@ -60,18 +74,48 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
     el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX_HEIGHT_PX)}px`;
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // сброс — иначе повторный выбор ТОГО ЖЕ файла не даст onChange
+    if (!file) return;
+    setAttachedFile(file);
+    setAttachedPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined);
+  };
+
+  const removeAttachment = () => {
+    if (attachedPreviewUrl) URL.revokeObjectURL(attachedPreviewUrl);
+    setAttachedFile(null);
+    setAttachedPreviewUrl(undefined);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = input.trim();
-    if (!text || sending) return;
+    const file = attachedFile;
+    if (sending || (!text && !file)) return;
 
     const history: SandboxHistoryItem[] = messages.map(({ role, content }) => ({ role, content }));
-    setMessages((current) => [...current, { role: "user", content: text, time: formatTime() }]);
+    setMessages((current) => [
+      ...current,
+      {
+        role: "user",
+        content: file ? text || attachmentPlaceholder(file) : text,
+        time: formatTime(),
+        ...(file ? { attachment: { name: file.name, previewUrl: attachedPreviewUrl } } : {}),
+      },
+    ]);
     setInput("");
+    // Превью в уже отправленном пузыре продолжает жить (blob URL не
+    // отзывается) — отзыв ломает уже отрисованную картинку. Убираем только
+    // рабочее состояние вложения, готовим форму к следующему ходу.
+    setAttachedFile(null);
+    setAttachedPreviewUrl(undefined);
     requestAnimationFrame(resizeTextarea);
     setSending(true);
     try {
-      const result = await sendSandboxMessage(apiBaseUrl, botId, history, text);
+      const result = file
+        ? await sendSandboxMediaMessage(apiBaseUrl, botId, history, file, text || undefined)
+        : await sendSandboxMessage(apiBaseUrl, botId, history, text);
       setMessages((current) => [
         ...current,
         {
@@ -107,9 +151,10 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
     <div>
       <p className="sbx-note">
         Тулзы бота (товары/файлы) работают по-настоящему; заявки в Telegram и другие тулзы с
-        реальным эффектом — глушатся тестовым ответом, реально никуда не уходят. Без фото/PDF от
-        клиента. Тратит реальные токены OpenAI, видно в «Расходы». История не сохраняется —
-        обновление страницы начинает тест заново.
+        реальным эффектом — глушатся тестовым ответом, реально никуда не уходят. Можно прикрепить
+        фото или PDF — ответит vision/PDF-промптом бота, как реальному клиенту. Тратит реальные
+        токены OpenAI, видно в «Расходы». История не сохраняется — обновление страницы начинает
+        тест заново.
       </p>
 
       <div className="sbx-phone">
@@ -130,6 +175,17 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           {messages.map((m, i) => (
             <div className={`sbx-row sbx-${m.role}`} key={i}>
               <div className={`sbx-bubble sbx-${m.role}`}>
+                {m.attachment &&
+                  (m.attachment.previewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- blob URL, next/image тут не нужен
+                    <img
+                      className="sbx-bubble-media-image"
+                      src={m.attachment.previewUrl}
+                      alt={m.attachment.name}
+                    />
+                  ) : (
+                    <span className="sbx-bubble-media-file">📎 {m.attachment.name}</span>
+                  ))}
                 {m.media?.map((item, j) =>
                   item.mime_type.startsWith("image/") ? (
                     // eslint-disable-next-line @next/next/no-img-element -- внешний URL с query-параметрами, next/image тут не нужен
@@ -172,7 +228,33 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           )}
         </div>
 
+        {attachedFile && (
+          <div className="sbx-attachment-preview">
+            {attachedPreviewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- blob URL, next/image тут не нужен
+              <img src={attachedPreviewUrl} alt={attachedFile.name} />
+            ) : (
+              <span className="sbx-bubble-media-file">📎 {attachedFile.name}</span>
+            )}
+            <button type="button" aria-label="Убрать вложение" onClick={removeAttachment}>
+              ×
+            </button>
+          </div>
+        )}
+
         <form className="sbx-input-bar" onSubmit={(e) => void handleSubmit(e)}>
+          <label className="sbx-attach-button">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={SUPPORTED_ATTACHMENT_TYPES}
+              onChange={handleFileChange}
+              disabled={sending}
+              aria-label="Прикрепить файл"
+              hidden
+            />
+            📎
+          </label>
           <textarea
             ref={textareaRef}
             value={input}
@@ -186,7 +268,11 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
             disabled={sending}
             rows={1}
           />
-          <button type="submit" aria-label="Отправить" disabled={sending || !input.trim()}>
+          <button
+            type="submit"
+            aria-label="Отправить"
+            disabled={sending || (!input.trim() && !attachedFile)}
+          >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
               <path d="M2.5 12L21.5 3.5L15 21.5L11 13L2.5 12Z" strokeLinejoin="round" />
             </svg>
@@ -402,6 +488,34 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           }
         }
 
+        .sbx-attachment-preview {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          padding: 0.4rem 0.75rem;
+          background: #f0f0f0;
+          border-top: 1px solid #ddd;
+          flex-shrink: 0;
+        }
+
+        .sbx-attachment-preview img {
+          height: 40px;
+          width: 40px;
+          object-fit: cover;
+          border-radius: 6px;
+        }
+
+        .sbx-attachment-preview button {
+          margin-left: auto;
+          border: none;
+          background: none;
+          font-size: 1.1em;
+          line-height: 1;
+          color: #667781;
+          cursor: pointer;
+          padding: 0.2rem 0.4rem;
+        }
+
         .sbx-input-bar {
           display: flex;
           align-items: flex-end;
@@ -409,6 +523,22 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           padding: 0.5rem;
           background: #f0f0f0;
           flex-shrink: 0;
+        }
+
+        .sbx-attach-button {
+          flex-shrink: 0;
+          width: 36px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          cursor: pointer;
+          font-size: 1.1em;
+        }
+
+        .sbx-attach-button:hover {
+          background: rgba(0, 0, 0, 0.05);
         }
 
         .sbx-input-bar textarea {

@@ -1,10 +1,15 @@
 """POST /bots/{bot_id}/sandbox/messages (FEATURES.md 9.6): owner-only
 тестовый прогон промпта. Часть A (9.6, тулзы) — тулзы бота (tool_bindings)
 подключены через run_tool_loop, как в реальном пайплайне
-(worker/pipeline/consumer.py::_reply), но с той же song, что и раньше:
+(worker/pipeline/consumer.py::_reply), но с тем же принципом, что и раньше:
 ничего не пишется в contacts/messages. side_effecting-тулзы (сейчас только
 send_telegram_lead) глушатся каноническим ответом — реального похода вовне
 из песочницы быть не должно.
+
+Часть B (9.6, vision/PDF) — POST .../sandbox/media-messages: зеркало
+_reply_with_vision/_reply_with_pdf (worker/pipeline/consumer.py) без
+image_prompt/pdf_prompt — тот же fallback-текст, что увидел бы реальный
+клиент, без вызова LLM.
 
 Требует Docker (testcontainers-postgres). Без него — skip, не fail.
 """
@@ -28,6 +33,7 @@ from api.main import app
 from api.redis_client import get_redis
 from api.routers import sandbox as sandbox_module
 from api.storage import get_storage
+from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product, ProductImage, UsageEvent
 from db.tool_bindings import enable as enable_tool_binding
@@ -42,6 +48,7 @@ from tests.auth_helpers import override_non_owner_auth, override_owner_auth
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
+MEDIA_FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def _docker_available() -> bool:
@@ -113,15 +120,22 @@ async def client(
 
 
 async def _make_bot(
-    session_factory: async_sessionmaker[AsyncSession], *, system_prompt: str = "Ты — ассистент."
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    system_prompt: str = "Ты — ассистент.",
+    image_prompt: str | None = None,
+    pdf_prompt: str | None = None,
+    settings: dict[str, object] | None = None,
 ) -> uuid.UUID:
     async with session_factory() as session:
         bot = Bot(
             name="sandbox-test-bot",
             enabled=True,
             system_prompt=system_prompt,
+            image_prompt=image_prompt,
+            pdf_prompt=pdf_prompt,
             timezone="Asia/Bishkek",
-            settings={},
+            settings=settings or {},
         )
         session.add(bot)
         await session.flush()
@@ -454,5 +468,218 @@ async def test_sandbox_media_non_owner_returns_403(
     response = await client.get(
         f"/bots/{bot_id}/sandbox/media",
         params={"key": storage_key, "mime_type": "application/pdf"},
+    )
+    assert response.status_code == 403
+
+
+def _tiny_jpeg_bytes() -> bytes:
+    import base64
+
+    return base64.b64decode(
+        "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    )
+
+
+async def _fail_complete_with_image(*args: object, **kwargs: object) -> LLMResult:
+    raise AssertionError("image_prompt не настроен — complete_with_image не должен вызываться")
+
+
+async def test_sandbox_media_message_vision_happy_path(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(session_factory, image_prompt="Опиши, что на фото.")
+    captured: dict[str, object] = {}
+
+    async def fake_complete_with_image(
+        system_prompt: str, history: list[object], caption: str, image_bytes: bytes, mime_type: str
+    ) -> LLMResult:
+        captured["system_prompt"] = system_prompt
+        captured["history"] = history
+        captured["caption"] = caption
+        captured["image_bytes"] = image_bytes
+        captured["mime_type"] = mime_type
+        return LLMResult(text="Это кроссовки.", tokens_in=20, tokens_out=5, model="gpt-4o-mini")
+
+    monkeypatch.setattr(sandbox_module, "complete_with_image", fake_complete_with_image)
+
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        data={"caption": "Что это?"},
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "reply": "Это кроссовки.",
+        "tokens_in": 20,
+        "tokens_out": 5,
+        "model": "gpt-4o-mini",
+        "media": [],
+    }
+    assert captured["caption"] == "Что это?"
+    assert captured["image_bytes"] == _tiny_jpeg_bytes()
+    assert captured["mime_type"] == "image/jpeg"
+    assert "Опиши, что на фото." in str(captured["system_prompt"])
+
+    async with session_factory() as session:
+        rows = (
+            (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    assert rows[0].tokens_in == 20
+
+
+async def test_sandbox_media_message_pdf_happy_path(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(session_factory, pdf_prompt="Отвечай по документу.")
+    captured_prompts: list[str] = []
+    captured_histories: list[list[object]] = []
+    monkeypatch.setattr(
+        sandbox_module,
+        "complete",
+        _fake_complete(captured_prompts, captured_histories, reply="В документе цены на товары."),
+    )
+
+    pdf_bytes = (MEDIA_FIXTURES / "sample.pdf").read_bytes()
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        data={"caption": "Что тут написано?"},
+        files={"file": ("price.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "В документе цены на товары."
+    assert "Отвечай по документу." in captured_prompts[0]
+    last_turn = captured_histories[0][-1]
+    assert last_turn.role == "user"
+    assert "Что тут написано?" in last_turn.content
+    assert "Hello world from a test PDF fixture" in last_turn.content
+
+
+async def test_sandbox_media_message_image_without_prompt_falls_back(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(session_factory)  # image_prompt не настроен
+    monkeypatch.setattr(sandbox_module, "complete_with_image", _fail_complete_with_image)
+
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == DEFAULT_MEDIA_FALLBACK_TEXT
+    assert body["tokens_in"] == 0
+    assert body["media"] == []
+
+    async with session_factory() as session:
+        rows = (
+            (await session.execute(select(UsageEvent).where(UsageEvent.bot_id == bot_id)))
+            .scalars()
+            .all()
+        )
+    assert rows == []
+
+
+async def test_sandbox_media_message_pdf_without_prompt_falls_back(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(session_factory)  # pdf_prompt не настроен
+    monkeypatch.setattr(sandbox_module, "complete", _fail_complete)
+
+    pdf_bytes = (MEDIA_FIXTURES / "sample.pdf").read_bytes()
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("price.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == DEFAULT_MEDIA_FALLBACK_TEXT
+
+
+async def test_sandbox_media_message_custom_fallback_text_from_settings(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(
+        session_factory, settings={"media_fallback_text": "Свой текст заглушки"}
+    )
+    monkeypatch.setattr(sandbox_module, "complete_with_image", _fail_complete_with_image)
+
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Свой текст заглушки"
+
+
+async def test_sandbox_media_message_pdf_without_text_layer_falls_back(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot_id = await _make_bot(session_factory, pdf_prompt="Отвечай по документу.")
+    monkeypatch.setattr(sandbox_module, "complete", _fail_complete)
+
+    pdf_bytes = (MEDIA_FIXTURES / "no_text_layer.pdf").read_bytes()
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("scan.pdf", pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == DEFAULT_MEDIA_FALLBACK_TEXT
+
+
+async def test_sandbox_media_message_too_large_returns_413(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(
+        session_factory, image_prompt="x", settings={"media_max_size_bytes": 10}
+    )
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 413
+
+
+async def test_sandbox_media_message_unsupported_mime_returns_415(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("note.txt", b"hello", "text/plain")},
+    )
+    assert response.status_code == 415
+
+
+async def test_sandbox_media_message_unknown_bot_returns_404(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        f"/bots/{uuid.uuid4()}/sandbox/media-messages",
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 404
+
+
+async def test_sandbox_media_message_non_owner_returns_403(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    override_non_owner_auth()
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/media-messages",
+        files={"file": ("photo.jpg", _tiny_jpeg_bytes(), "image/jpeg")},
     )
     assert response.status_code == 403

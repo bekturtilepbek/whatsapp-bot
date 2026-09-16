@@ -697,6 +697,32 @@ export async function sendSandboxMessage(
   return (await res.json()) as SandboxMessageResult;
 }
 
+// Фото/PDF от "клиента" в песочнице (FEATURES.md 9.6 часть B) — зеркало
+// _reply_with_vision/_reply_with_pdf, без записи файла в Storage.
+export async function sendSandboxMediaMessage(
+  baseUrl: string,
+  botId: string,
+  history: SandboxHistoryItem[],
+  file: File,
+  caption?: string,
+): Promise<SandboxMessageResult> {
+  const base = normalizeBaseUrl(baseUrl);
+  const form = new FormData();
+  form.append("file", file);
+  form.append("history", JSON.stringify(history));
+  if (caption) {
+    form.append("caption", caption);
+  }
+  const res = await apiFetch(`${base}/bots/${botId}/sandbox/media-messages`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${botId}/sandbox/media-messages failed: ${res.status}`);
+  }
+  return (await res.json()) as SandboxMessageResult;
+}
+
 // Медиа из тулзы (карточка товара, файл) — эфемерное, не хранится нигде для
 // песочницы отдельно, поэтому mime_type передаётся в самом URL (см.
 // services/api/src/api/routers/sandbox.py::get_sandbox_media).

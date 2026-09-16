@@ -8,6 +8,7 @@ dependencies = [
     # zoneinfo полагается на системную tzdata; на Windows и на минимальных
     # Linux-образах (python:3.12-slim) её может не быть — ставим явно.
     "tzdata>=2024.1",
+    "pypdf>=5.0",
 ]
 
 [build-system]

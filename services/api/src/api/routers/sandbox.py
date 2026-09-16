@@ -14,8 +14,11 @@ ToolContext — одноразовая заглушка (uuid4()): ни одна
 его не читает (единственная, кто читает, — send_telegram_lead, а она
 всегда заглушена раньше, до обращения к contact_id).
 
-vision/PDF от клиента — отдельная, ещё не реализованная часть (FEATURES.md
-9.6 часть B).
+Часть B (vision/PDF, 2026-09-16): POST .../sandbox/media-messages —
+зеркало _reply_with_vision/_reply_with_pdf (worker/pipeline/consumer.py).
+Без image_prompt/pdf_prompt (или PDF без текстового слоя) — ТОЧНО тот же
+fallback-текст, что увидел бы реальный клиент, без вызова LLM (подтверждено
+пользователем на брейншторме — парите важнее диагностического сообщения).
 """
 
 from __future__ import annotations
@@ -23,15 +26,18 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.bots import get_bot
 from db.products import DEFAULT_CATALOG_LIMIT, list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from llm.catalog_context import ProductInfo, catalog_context
-from llm.client import HistoryMessage, complete, complete_with_tools
+from llm.client import HistoryMessage, complete, complete_with_image, complete_with_tools
+from llm.pdf_extract import PdfHasNoTextLayerError, extract_pdf_text
 from llm.pricing import compute_cost
 from llm.time_context import time_context
+from pydantic import TypeAdapter, ValidationError
 from tools.base import ToolExecutionResult
 from tools.executor import ToolExecutor, build_tool_executor, tool_specs_for_bindings
 from tools.registry import get_tool
@@ -39,9 +45,17 @@ from tools.tool_loop import run_tool_loop
 
 from ..db import SessionDep, SessionFactoryDep
 from ..redis_client import RedisDep
-from ..schemas.sandbox import SandboxMediaOut, SandboxMessageIn, SandboxMessageOut
+from ..schemas.sandbox import (
+    SandboxHistoryItem,
+    SandboxMediaOut,
+    SandboxMessageIn,
+    SandboxMessageOut,
+)
 from ..security import PlatformOwner
 from ..storage import StorageDep
+
+DEFAULT_MEDIA_MAX_SIZE_BYTES = 16 * 1024 * 1024
+_HistoryAdapter = TypeAdapter(list[SandboxHistoryItem])
 
 router = APIRouter(prefix="/bots", tags=["sandbox"])
 
@@ -170,3 +184,85 @@ async def get_sandbox_media(
     except Exception as exc:
         raise HTTPException(status_code=404, detail="media not found") from exc
     return Response(content=data, media_type=mime_type)
+
+
+def _parse_history(raw: str | None) -> list[HistoryMessage]:
+    if raw is None:
+        return []
+    try:
+        items = _HistoryAdapter.validate_json(raw)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422, detail="history must be valid JSON matching SandboxHistoryItem[]"
+        ) from exc
+    return [HistoryMessage(role=item.role, content=item.content) for item in items]
+
+
+@router.post("/{bot_id}/sandbox/media-messages", response_model=SandboxMessageOut)
+async def send_sandbox_media_message(
+    bot_id: uuid.UUID,
+    session: SessionDep,
+    _owner: PlatformOwner,
+    file: UploadFile = File(...),  # noqa: B008
+    history: str | None = Form(None),
+    caption: str | None = Form(None),
+) -> SandboxMessageOut:
+    """Зеркало _reply_with_vision/_reply_with_pdf (worker/pipeline/
+    consumer.py) — фото/PDF от "клиента" в песочнице. Ничего не пишется в
+    Storage (байты только в памяти запроса) — в отличие от медиа из тулз
+    (GET .../sandbox/media), этому файлу неоткуда взяться повторно, он
+    существует только на время одного запроса.
+    """
+    bot = await get_bot(session, bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="bot not found")
+
+    content_type = file.content_type or ""
+    is_image = content_type.startswith("image/")
+    is_pdf = content_type == "application/pdf"
+    if not is_image and not is_pdf:
+        raise HTTPException(
+            status_code=415, detail="only image/* and application/pdf are supported"
+        )
+
+    data = await file.read()
+    max_size = bot.settings.get("media_max_size_bytes") or DEFAULT_MEDIA_MAX_SIZE_BYTES
+    if len(data) > max_size:
+        raise HTTPException(status_code=413, detail="file too large")
+
+    history_messages = _parse_history(history)
+    time_ctx = time_context(bot.timezone)
+    fallback_text = bot.settings.get("media_fallback_text") or DEFAULT_MEDIA_FALLBACK_TEXT
+    fallback = SandboxMessageOut(reply=fallback_text, tokens_in=0, tokens_out=0, model="", media=[])
+
+    if is_image:
+        if not bot.image_prompt:
+            return fallback
+        system_prompt = "\n\n".join(section for section in (bot.image_prompt, time_ctx) if section)
+        result = await complete_with_image(
+            system_prompt, history_messages, caption or "", data, content_type
+        )
+    else:
+        if not bot.pdf_prompt:
+            return fallback
+        try:
+            pdf_text = extract_pdf_text(data)
+        except PdfHasNoTextLayerError:
+            return fallback
+        system_prompt = "\n\n".join(section for section in (bot.pdf_prompt, time_ctx) if section)
+        document_turn = f"Текст документа:\n{pdf_text}"
+        current_turn = f"{caption}\n\n{document_turn}" if caption else document_turn
+        history_messages.append(HistoryMessage(role="user", content=current_turn))
+        result = await complete(system_prompt, history_messages)
+
+    cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
+    await record_usage(session, bot_id, result.model, result.tokens_in, result.tokens_out, cost)
+    await session.commit()
+
+    return SandboxMessageOut(
+        reply=result.text,
+        tokens_in=result.tokens_in,
+        tokens_out=result.tokens_out,
+        model=result.model,
+        media=[],
+    )

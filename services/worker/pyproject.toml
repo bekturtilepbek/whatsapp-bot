@@ -13,7 +13,6 @@ dependencies = [
     "redis>=5.0",
     "structlog>=24.4",
     "aiohttp>=3.10",
-    "pypdf>=5.0",
 ]
 
 [build-system]

@@ -15,6 +15,7 @@ import {
   productPhotoUrl,
   qrImageUrl,
   sandboxMediaUrl,
+  sendSandboxMediaMessage,
   updateProduct,
 } from "@/lib/api";
 
@@ -448,5 +449,48 @@ describe("sandboxMediaUrl", () => {
     ).toBe(
       "http://api/bots/1/sandbox/media?key=bots%2F1%2Fproducts%2Fimg%201.jpg&mime_type=image%2Fjpeg",
     );
+  });
+});
+
+describe("sendSandboxMediaMessage", () => {
+  it("POSTs the file, history and caption as multipart form data", async () => {
+    const reply = { reply: "Это фото кроссовок.", tokens_in: 20, tokens_out: 5, model: "gpt-4o-mini", media: [] };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => reply });
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+    const history = [{ role: "user" as const, content: "Привет" }];
+
+    const result = await sendSandboxMediaMessage("http://api", "b1", history, file, "Что это?");
+
+    expect(result).toEqual(reply);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api/bots/b1/sandbox/media-messages");
+    expect(init.method).toBe("POST");
+    const form = init.body as FormData;
+    expect(form.get("file")).toBe(file);
+    expect(form.get("history")).toBe(JSON.stringify(history));
+    expect(form.get("caption")).toBe("Что это?");
+  });
+
+  it("omits the caption field when not given", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ reply: "ok", tokens_in: 1, tokens_out: 1, model: "m", media: [] }),
+      }),
+    );
+    const file = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+
+    await sendSandboxMediaMessage("http://api", "b1", [], file);
+
+    const form = (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as FormData;
+    expect(form.has("caption")).toBe(false);
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 415 }));
+    const file = new File(["x"], "note.txt", { type: "text/plain" });
+    await expect(sendSandboxMediaMessage("http://api", "b1", [], file)).rejects.toThrow();
   });
 });

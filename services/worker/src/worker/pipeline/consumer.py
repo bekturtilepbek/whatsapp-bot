@@ -43,6 +43,7 @@ from core.events import (
     OutboundTyping,
     OutboundVideo,
 )
+from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
@@ -56,6 +57,7 @@ from integrations.storage import Storage
 from llm.catalog_context import ProductInfo, catalog_context
 from llm.client import HistoryMessage, complete, complete_with_image, complete_with_tools
 from llm.documents_context import DocumentInfo, documents_context
+from llm.pdf_extract import extract_pdf_text
 from llm.pricing import compute_cost
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
@@ -71,7 +73,6 @@ from . import batching, handoff, lock
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content
-from .pdf_extract import extract_pdf_text
 
 GROUP = "worker"
 
@@ -80,7 +81,6 @@ logger = structlog.get_logger("worker.pipeline")
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
-DEFAULT_MEDIA_FALLBACK_TEXT = "Пока я умею отвечать только на текстовые сообщения"
 DEFAULT_AUTO_RELEASE_MINUTES = 12
 # FEATURES.md 9.10 — авто-реакция на входящее медиа, быстрый фидбек клиенту,
 # пока готовится полноценный ответ. Без tool loop (сознательно, подтверждено

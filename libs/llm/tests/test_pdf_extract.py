@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from worker.pipeline.pdf_extract import PdfHasNoTextLayerError, extract_pdf_text
+from llm.pdf_extract import PdfHasNoTextLayerError, extract_pdf_text
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
 import { SandboxChat } from "@/components/SandboxChat";
 import * as api from "@/lib/api";
@@ -8,7 +8,15 @@ vi.mock("@/lib/api", async () => {
   return {
     ...actual,
     sendSandboxMessage: vi.fn(),
+    sendSandboxMediaMessage: vi.fn(),
   };
+});
+
+beforeEach(() => {
+  // jsdom не реализует URL.createObjectURL/revokeObjectURL — нужны для
+  // локального превью прикреплённой картинки до отправки.
+  URL.createObjectURL = vi.fn(() => "blob:mock-preview-url");
+  URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
@@ -210,4 +218,136 @@ it("renders non-image media as a download link with the filename", async () => {
       "http://api/bots/b1/sandbox/media?key=bots%2Fb1%2Fdocuments%2Fprice-list.pdf&mime_type=application%2Fpdf",
     );
   });
+});
+
+function attachFile(file: File) {
+  const input = screen.getByLabelText("Прикрепить файл") as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
+}
+
+it("has an accessible attach-file input", () => {
+  renderChat();
+  expect(screen.getByLabelText("Прикрепить файл")).toBeInTheDocument();
+});
+
+it("shows an image preview after attaching a photo and enables sending without typed text", () => {
+  renderChat();
+  const file = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+
+  attachFile(file);
+
+  expect(screen.getByAltText("photo.jpg")).toHaveAttribute("src", "blob:mock-preview-url");
+  expect(screen.getByRole("button", { name: /отправить/i })).not.toBeDisabled();
+});
+
+it("shows a filename chip (no image preview) after attaching a PDF", () => {
+  renderChat();
+  const file = new File(["x"], "price.pdf", { type: "application/pdf" });
+
+  attachFile(file);
+
+  expect(screen.getByText("📎 price.pdf")).toBeInTheDocument();
+  expect(screen.queryByRole("img", { name: "price.pdf" })).not.toBeInTheDocument();
+});
+
+it("removing the attachment before sending clears the preview", () => {
+  renderChat();
+  attachFile(new File(["x"], "photo.jpg", { type: "image/jpeg" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Убрать вложение" }));
+
+  expect(screen.queryByAltText("photo.jpg")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /отправить/i })).toBeDisabled();
+});
+
+it("sends an attached image with a caption via sendSandboxMediaMessage", async () => {
+  vi.mocked(api.sendSandboxMediaMessage).mockResolvedValue({
+    reply: "Это кроссовки.",
+    tokens_in: 10,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [],
+  });
+  renderChat();
+  const file = new File(["x"], "photo.jpg", { type: "image/jpeg" });
+  attachFile(file);
+  fireEvent.change(screen.getByLabelText("Сообщение клиента"), {
+    target: { value: "Что это?" },
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: /отправить/i }));
+
+  expect(screen.getByText("Что это?")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText("Это кроссовки.")).toBeInTheDocument();
+  });
+  expect(api.sendSandboxMediaMessage).toHaveBeenCalledWith(
+    "http://api",
+    "b1",
+    [],
+    file,
+    "Что это?",
+  );
+  // Рабочее вложение и подпись очищены после отправки — форма готова к
+  // следующему ходу (сама картинка остаётся видна в уже отправленном пузыре).
+  expect(screen.queryByRole("button", { name: "Убрать вложение" })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Сообщение клиента")).toHaveValue("");
+});
+
+it("sends an attached image without a caption using a placeholder bubble", async () => {
+  vi.mocked(api.sendSandboxMediaMessage).mockResolvedValue({
+    reply: "Вижу кроссовки.",
+    tokens_in: 10,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [],
+  });
+  renderChat();
+  attachFile(new File(["x"], "photo.jpg", { type: "image/jpeg" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /отправить/i }));
+
+  expect(screen.getByText("[фото]")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText("Вижу кроссовки.")).toBeInTheDocument();
+  });
+  expect(api.sendSandboxMediaMessage).toHaveBeenCalledWith(
+    "http://api",
+    "b1",
+    [],
+    expect.any(File),
+    undefined,
+  );
+});
+
+it("sends an attached PDF with a placeholder bubble for documents", async () => {
+  vi.mocked(api.sendSandboxMediaMessage).mockResolvedValue({
+    reply: "В документе цены.",
+    tokens_in: 10,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [],
+  });
+  renderChat();
+  attachFile(new File(["x"], "price.pdf", { type: "application/pdf" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /отправить/i }));
+
+  expect(screen.getByText("[документ]")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText("В документе цены.")).toBeInTheDocument();
+  });
+});
+
+it("shows an error toast and keeps the form usable when a media message fails", async () => {
+  vi.mocked(api.sendSandboxMediaMessage).mockRejectedValue(new Error("boom"));
+  renderChat();
+  attachFile(new File(["x"], "photo.jpg", { type: "image/jpeg" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /отправить/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent("boom");
+  });
+  expect(screen.queryByText("[фото]")).not.toBeInTheDocument();
 });

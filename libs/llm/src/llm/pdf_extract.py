@@ -1,5 +1,10 @@
 """Извлечение текста из PDF (FEATURES.md 2.4). `pypdf` — чистый Python, без
 нативных зависимостей (проще для Docker-образа, чем PyMuPDF/poppler).
+
+Раньше жило в services/worker/src/worker/pipeline/pdf_extract.py —
+вынесено в libs/llm (FEATURES.md 9.6 часть B, песочница): функция не имела
+ничего worker-специфичного, а api-образ не содержит services/worker (та
+же причина, что и у переноса tool_loop в части A).
 """
 
 from __future__ import annotations

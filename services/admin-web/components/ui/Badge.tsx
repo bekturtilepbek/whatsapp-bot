@@ -8,7 +8,7 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 
 const BADGE_VARIANT_CLASSES: Record<BadgeVariant, string> = {
   owner: "bg-accent-soft text-accent",
-  paused: "bg-warning/15 text-warning",
+  paused: "bg-warning-soft text-warning",
   neutral: "bg-surface-alt text-ink-soft",
 };
 

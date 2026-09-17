@@ -6,18 +6,28 @@ interface StatusPulseProps {
 
 interface StatusConfig {
   label: string;
+  pillClass: string;
   dotClass: string;
-  labelClass: string;
   animated: boolean;
 }
 
 const STATUS_CONFIG: Record<BotConnectionStatus, StatusConfig> = {
-  connected: { label: "Подключён", dotClass: "bg-success", labelClass: "text-success", animated: true },
-  pending: { label: "Подключается", dotClass: "bg-warning", labelClass: "text-warning", animated: false },
+  connected: {
+    label: "Подключён",
+    pillClass: "bg-success-soft text-success",
+    dotClass: "bg-success",
+    animated: true,
+  },
+  pending: {
+    label: "Подключается",
+    pillClass: "bg-warning-soft text-warning",
+    dotClass: "bg-warning",
+    animated: false,
+  },
   disconnected: {
     label: "Не подключён",
+    pillClass: "bg-surface-alt text-ink-soft",
     dotClass: "bg-ink-faint",
-    labelClass: "text-ink-soft",
     animated: false,
   },
 };
@@ -25,15 +35,18 @@ const STATUS_CONFIG: Record<BotConnectionStatus, StatusConfig> = {
 export function StatusPulse({ status }: StatusPulseProps) {
   const config = STATUS_CONFIG[status];
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs">
-      <span className={`relative inline-flex h-2 w-2 rounded-full ${config.dotClass}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${config.pillClass}`}
+    >
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full">
         {config.animated && (
           <span
-            className={`absolute -inset-1 rounded-full opacity-60 motion-reduce:hidden ${config.dotClass} animate-ping`}
+            className={`absolute inset-0 rounded-full opacity-75 motion-reduce:hidden ${config.dotClass} animate-ping`}
           />
         )}
+        <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${config.dotClass}`} />
       </span>
-      <span className={config.labelClass}>{config.label}</span>
+      {config.label}
     </span>
   );
 }

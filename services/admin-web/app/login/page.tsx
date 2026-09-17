@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { login } from "./actions";
 import { useToast } from "@/components/ToastProvider";
+import { BrandMark } from "@/components/ui/BrandMark";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -28,10 +29,8 @@ export default function LoginPage() {
     <main className="flex min-h-full items-center justify-center">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-xs font-semibold text-white">
-            Б
-          </span>
-          <span className="text-sm font-semibold text-ink">Платформа ботов</span>
+          <BrandMark />
+          <span className="text-sm font-bold text-ink">Платформа ботов</span>
         </div>
         <Card className="p-8">
           <h1 className="mb-6 text-lg font-semibold text-ink">Вход</h1>

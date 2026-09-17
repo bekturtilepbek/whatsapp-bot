@@ -1,5 +1,6 @@
 import { logout } from "@/app/login/actions";
 import { fetchCurrentUser } from "@/lib/currentUser";
+import { BrandMark } from "@/components/ui/BrandMark";
 import { SidebarNavLink } from "@/components/ui/SidebarNavLink";
 
 export async function Sidebar() {
@@ -9,9 +10,7 @@ export async function Sidebar() {
   return (
     <aside className="sticky top-0 flex h-screen w-[272px] shrink-0 flex-col border-r border-border bg-surface px-3.5 py-5">
       <div className="mb-6 flex items-center gap-2 px-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-xs font-bold text-white">
-          Б
-        </span>
+        <BrandMark />
         <span className="text-sm font-bold text-ink">Платформа ботов</span>
       </div>
 

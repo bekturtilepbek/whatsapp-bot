@@ -8,6 +8,7 @@ interface BannerProps {
   title: string;
   description?: string;
   action?: ReactNode;
+  className?: string;
 }
 
 const SURFACE_CLASSES: Record<BannerVariant, string> = {
@@ -24,10 +25,17 @@ const TITLE_CLASSES: Record<BannerVariant, string> = {
   danger: "text-danger",
 };
 
-export function Banner({ variant = "accent", icon, title, description, action }: BannerProps) {
+export function Banner({
+  variant = "accent",
+  icon,
+  title,
+  description,
+  action,
+  className = "",
+}: BannerProps) {
   return (
     <div
-      className={`mb-5 flex flex-wrap items-start justify-between gap-4 rounded-xl border p-4 shadow-elevated ${SURFACE_CLASSES[variant]}`}
+      className={`mb-5 flex flex-wrap items-start justify-between gap-4 rounded-xl border p-4 shadow-elevated ${SURFACE_CLASSES[variant]} ${className}`}
     >
       <div className="flex items-start gap-3">
         <span className={`mt-0.5 flex-none ${TITLE_CLASSES[variant]}`}>{icon}</span>

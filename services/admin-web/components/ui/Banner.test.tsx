@@ -31,3 +31,10 @@ it("renders every variant without crashing", () => {
   rerender(<Banner icon={<svg aria-hidden="true" />} title="x" variant="danger" />);
   expect(screen.getByText("x")).toBeInTheDocument();
 });
+
+it("merges a caller className with its own", () => {
+  const { container } = render(
+    <Banner icon={<svg aria-hidden="true" />} title="X" className="custom-class" />,
+  );
+  expect(container.firstChild).toHaveClass("custom-class");
+});

@@ -7,6 +7,7 @@ interface IconBadgeProps {
   variant?: IconBadgeVariant;
   size?: IconBadgeSize;
   children: ReactNode;
+  className?: string;
 }
 
 const VARIANT_CLASSES: Record<IconBadgeVariant, string> = {
@@ -21,10 +22,10 @@ const SIZE_CLASSES: Record<IconBadgeSize, string> = {
   lg: "h-[60px] w-[60px] [&_svg]:h-7 [&_svg]:w-7",
 };
 
-export function IconBadge({ variant = "accent", size = "md", children }: IconBadgeProps) {
+export function IconBadge({ variant = "accent", size = "md", children, className = "" }: IconBadgeProps) {
   return (
     <span
-      className={`inline-flex flex-none items-center justify-center rounded-full ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]}`}
+      className={`inline-flex flex-none items-center justify-center rounded-full ${VARIANT_CLASSES[variant]} ${SIZE_CLASSES[size]} ${className}`}
     >
       {children}
     </span>

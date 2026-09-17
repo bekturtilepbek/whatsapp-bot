@@ -21,3 +21,12 @@ it("renders every variant without crashing", () => {
   rerender(<IconBadge variant="danger">x</IconBadge>);
   expect(screen.getByText("x")).toBeInTheDocument();
 });
+
+it("merges a caller className with its own", () => {
+  render(
+    <IconBadge className="custom-class">
+      <svg role="img" aria-label="X" />
+    </IconBadge>,
+  );
+  expect(screen.getByRole("img", { name: "X" }).parentElement).toHaveClass("custom-class");
+});

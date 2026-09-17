@@ -5,7 +5,7 @@ interface TableProps {
 }
 
 const WRAPPER_CLASSES = [
-  "overflow-x-auto rounded-lg border border-border bg-surface",
+  "overflow-x-auto rounded-2xl border border-border bg-surface shadow-card",
   "[&_table]:w-full [&_table]:border-collapse",
   "[&_th]:border-b [&_th]:border-border [&_th]:bg-surface-alt [&_th]:px-4 [&_th]:py-2.5",
   "[&_th]:text-left [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase",

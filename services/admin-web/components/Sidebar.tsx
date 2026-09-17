@@ -1,52 +1,42 @@
-import Link from "next/link";
 import { logout } from "@/app/login/actions";
 import { fetchCurrentUser } from "@/lib/currentUser";
-
-const NAV_LINK_CLASSES = "rounded-md px-2.5 py-2 text-sm hover:bg-white/5 hover:text-sidebar-ink";
+import { SidebarNavLink } from "@/components/ui/SidebarNavLink";
 
 export async function Sidebar() {
   const user = await fetchCurrentUser();
   if (!user) return null;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col bg-sidebar px-3.5 py-5 text-sidebar-ink-soft">
+    <aside className="sticky top-0 flex h-screen w-[272px] shrink-0 flex-col border-r border-border bg-surface px-3.5 py-5">
       <div className="mb-6 flex items-center gap-2 px-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-xs font-semibold text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-xs font-bold text-white">
           Б
         </span>
-        <span className="text-sm font-semibold text-sidebar-ink">Платформа ботов</span>
+        <span className="text-sm font-bold text-ink">Платформа ботов</span>
       </div>
 
       <nav aria-label="Основная" className="flex flex-col gap-0.5">
-        <Link href="/bots" className={NAV_LINK_CLASSES}>
+        <SidebarNavLink href="/bots" exact={false}>
           Боты
-        </Link>
+        </SidebarNavLink>
       </nav>
 
       {user.is_platform_owner && (
         <nav aria-label="Платформа" className="mt-5 flex flex-col gap-0.5">
-          <div className="px-2.5 pb-1.5 text-[10.5px] uppercase tracking-wide text-sidebar-ink-soft">
+          <div className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-wider text-ink-faint">
             Платформа
           </div>
-          <Link href="/dashboard" className={NAV_LINK_CLASSES}>
-            Дашборд
-          </Link>
-          <Link href="/users" className={NAV_LINK_CLASSES}>
-            Пользователи
-          </Link>
-          <Link href="/audit-log" className={NAV_LINK_CLASSES}>
-            Аудит-лог
-          </Link>
-          <Link href="/usage" className={NAV_LINK_CLASSES}>
-            Расходы
-          </Link>
+          <SidebarNavLink href="/dashboard">Дашборд</SidebarNavLink>
+          <SidebarNavLink href="/users">Пользователи</SidebarNavLink>
+          <SidebarNavLink href="/audit-log">Аудит-лог</SidebarNavLink>
+          <SidebarNavLink href="/usage">Расходы</SidebarNavLink>
         </nav>
       )}
 
-      <div className="mt-auto flex items-center gap-2 border-t border-white/10 pt-3.5">
-        <span className="min-w-0 flex-1 truncate text-xs text-sidebar-ink-soft">{user.email}</span>
+      <div className="mt-auto flex items-center gap-2 border-t border-border pt-3.5">
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-soft">{user.email}</span>
         <form action={logout}>
-          <button type="submit" className="p-0 text-xs text-sidebar-ink-soft hover:text-sidebar-ink">
+          <button type="submit" className="p-0 text-xs text-ink-soft hover:text-ink">
             Выйти
           </button>
         </form>

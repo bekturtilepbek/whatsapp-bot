@@ -7,7 +7,7 @@ import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 
 export const plexSans = IBM_Plex_Sans({
   subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-plex-sans",
   display: "swap",
 });

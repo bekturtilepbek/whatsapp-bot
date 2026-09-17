@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               вкладки слева (живая проверка, docker compose, 2026-09-15).
               Горизонтальный overflow при нехватке места теперь — забота
               самой Tabs (components/ui/Tabs.tsx), не всей страницы. */}
-          <div className="min-w-0 flex-1 px-8 py-7">{children}</div>
+          <div className="min-w-0 flex-1 px-10 py-8">{children}</div>
         </ToastProvider>
       </body>
     </html>

@@ -17,3 +17,8 @@ it("omits the subtitle element when none is given", () => {
   render(<PageHeader title="Боты" />);
   expect(screen.queryByText("5 ботов")).not.toBeInTheDocument();
 });
+
+it("renders an optional eyebrow above the title", () => {
+  render(<PageHeader title="Боты" eyebrow="Платформа" />);
+  expect(screen.getByText("Платформа")).toBeInTheDocument();
+});

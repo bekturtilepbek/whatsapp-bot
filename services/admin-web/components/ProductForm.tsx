@@ -246,7 +246,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
               multiple
               accept="image/jpeg,image/png,image/webp"
               onChange={(e) => setNewPhotos(e.target.files ? Array.from(e.target.files) : [])}
-              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint"
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint"
             />
           </label>
         </Card>
@@ -261,7 +261,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
                 <img
                   src={productPhotoUrl(apiBaseUrl, botId, product.id, photo.id)}
                   alt="Фото товара"
-                  className="h-24 w-24 rounded-md object-cover"
+                  className="h-24 w-24 rounded-lg object-cover"
                 />
                 <Button
                   type="button"
@@ -284,7 +284,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
               accept="image/jpeg,image/png,image/webp"
               disabled={photoBusy}
               onChange={(e) => void handleAddPhotos(e.target.files)}
-              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
             />
           </label>
         </Card>

@@ -118,7 +118,7 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
                       {entry.payload && (
                         <details>
                           <summary className="cursor-pointer text-sm text-accent">показать</summary>
-                          <pre className="mt-1.5 max-w-md overflow-x-auto rounded-md bg-surface-alt p-2 text-xs">
+                          <pre className="mt-1.5 max-w-md overflow-x-auto rounded-lg bg-surface-alt p-2 text-xs">
                             {JSON.stringify(entry.payload, null, 2)}
                           </pre>
                         </details>

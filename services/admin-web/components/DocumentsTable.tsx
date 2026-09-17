@@ -59,7 +59,7 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
             disabled={uploading}
             onChange={(e) => void handleUpload(e.target.files)}
             aria-label="Файл документа"
-            className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
+            className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
           />
         </label>
         {uploading && <p className="mt-2 text-xs text-ink-soft">Загружаем…</p>}

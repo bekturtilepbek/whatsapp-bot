@@ -96,7 +96,7 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
                     <img
                       src={productPhotoUrl(apiBaseUrl, botId, product.id, product.photos[0].id)}
                       alt={product.name}
-                      className="h-12 w-12 rounded-md object-cover"
+                      className="h-12 w-12 rounded-lg object-cover"
                     />
                   )}
                 </td>

@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { fetchBot, logoutBot, qrImageUrl, type Bot } from "@/lib/api";
+import { fetchBot, logoutBot, patchBotEnabled, qrImageUrl, type Bot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { IconBadge } from "@/components/ui/IconBadge";
+import { Switch } from "@/components/ui/Switch";
 
 interface QrPanelProps {
   initialBot: Bot;
@@ -19,6 +22,7 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   const [bot, setBot] = useState<Bot>(initialBot);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
   // Намеренно НЕ toast: это статус фонового поллинга (каждые pollIntervalMs,
   // 5с в проде), не результат одноразового действия пользователя — toast на
   // каждый неудачный опрос копился бы бесконечной стопкой, пока не
@@ -69,44 +73,100 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     await refresh();
   };
 
+  const handleToggleEnabled = async () => {
+    const next = !bot.enabled;
+    setTogglingEnabled(true);
+    try {
+      const updated = await patchBotEnabled(apiBaseUrl, bot.id, next);
+      setBot(updated);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : "Не удалось изменить статус бота");
+    } finally {
+      setTogglingEnabled(false);
+    }
+  };
+
+  const enabledBanner = (
+    <Banner
+      variant={bot.enabled ? "success" : "warning"}
+      icon={
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M6.5 10.5l2.2 2.2L14 8"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      }
+      title={bot.enabled ? "Бот активен — отвечает на сообщения" : "Бот на паузе — не отвечает клиентам"}
+      action={
+        <Switch
+          checked={bot.enabled}
+          onChange={() => void handleToggleEnabled()}
+          disabled={togglingEnabled}
+          aria-label="Бот активен"
+        />
+      }
+    />
+  );
+
   if (bot.linked_at) {
     return (
-      <Card className="p-5">
-        <p className="text-sm text-ink">
-          Подключён: <span className="font-mono">{bot.phone}</span>
-        </p>
-        <div className="mt-3">
+      <div>
+        {enabledBanner}
+        <Card className="flex flex-col items-center gap-3 p-8 text-center">
+          <IconBadge variant="success" size="lg">
+            <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path
+                d="M5 10.5l3.2 3.2L15 6.5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </IconBadge>
+          <div>
+            <p className="text-base font-bold text-ink">WhatsApp подключён</p>
+            <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>
+          </div>
           <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
             {loggingOut ? "Отключаем…" : "Отключить"}
           </Button>
-        </div>
+        </Card>
+        {pollError && (
+          <p role="alert" className="mt-3 text-sm text-danger">
+            {pollError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {enabledBanner}
+      <Card className="p-5">
+        <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
+        {qrUrl && (
+          // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
+          <img
+            src={qrUrl}
+            alt="QR-код для подключения WhatsApp"
+            width={300}
+            height={300}
+            className="mt-3 rounded-lg border border-border"
+          />
+        )}
         {pollError && (
           <p role="alert" className="mt-3 text-sm text-danger">
             {pollError}
           </p>
         )}
       </Card>
-    );
-  }
-
-  return (
-    <Card className="p-5">
-      <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
-      {qrUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
-        <img
-          src={qrUrl}
-          alt="QR-код для подключения WhatsApp"
-          width={300}
-          height={300}
-          className="mt-3 rounded-md border border-border"
-        />
-      )}
-      {pollError && (
-        <p role="alert" className="mt-3 text-sm text-danger">
-          {pollError}
-        </p>
-      )}
-    </Card>
+    </div>
   );
 }

@@ -187,6 +187,21 @@ export async function patchBotName(baseUrl: string, id: string, name: string): P
   return (await res.json()) as Bot;
 }
 
+/** FEATURES.md 1.7 — пауза бота. Тот же паттерн, что patchBotName — PATCH
+ * с одним полем, бэкенд уже принимает `enabled` (BotPatch). */
+export async function patchBotEnabled(baseUrl: string, id: string, enabled: boolean): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
 export async function fetchPromptVersions(
   baseUrl: string,
   id: string,

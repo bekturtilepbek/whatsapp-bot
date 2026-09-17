@@ -10,6 +10,7 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     fetchBot: vi.fn(),
     logoutBot: vi.fn(),
+    patchBotEnabled: vi.fn(),
   };
 });
 
@@ -92,5 +93,30 @@ it("shows an error toast when logout fails", async () => {
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/gateway unreachable/i);
+  });
+});
+
+it("toggles bot.enabled via the banner switch", async () => {
+  const enabledBot = { ...linkedBot, enabled: false };
+  const afterToggle = { ...linkedBot, enabled: true };
+  vi.mocked(api.patchBotEnabled).mockResolvedValue(afterToggle);
+  render(<QrPanel initialBot={enabledBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /бот активен/i }));
+
+  await waitFor(() => {
+    expect(api.patchBotEnabled).toHaveBeenCalledWith("http://api", "1", true);
+  });
+  expect(screen.getByText(/бот активен — отвечает/i)).toBeInTheDocument();
+});
+
+it("shows an error toast when toggling bot.enabled fails", async () => {
+  vi.mocked(api.patchBotEnabled).mockRejectedValue(new Error("update failed"));
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+
+  fireEvent.click(screen.getByRole("checkbox", { name: /бот активен/i }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/update failed/i);
   });
 });

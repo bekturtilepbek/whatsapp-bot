@@ -113,10 +113,16 @@ Append to the end of `services/admin-web/components/ui/Banner.test.tsx`:
 
 ```tsx
 it("merges a caller className with its own", () => {
-  render(<Banner icon={<svg aria-hidden="true" />} title="X" className="custom-class" />);
-  expect(screen.getByText("X").closest("div")?.parentElement).toHaveClass("custom-class");
+  const { container } = render(
+    <Banner icon={<svg aria-hidden="true" />} title="X" className="custom-class" />,
+  );
+  expect(container.firstChild).toHaveClass("custom-class");
 });
 ```
+
+(Использует `container.firstChild` — Banner рендерит один корневой `<div>`,
+поэтому это надёжнее, чем подниматься по DOM от текста заголовка через
+несколько уровней вложенности, где легко промахнуться мимо корневого узла.)
 
 - [ ] **Step 3: Добавить `className` в `IconBadge.tsx`**
 

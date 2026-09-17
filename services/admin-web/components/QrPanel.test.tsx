@@ -4,6 +4,11 @@ import { QrPanel } from "@/components/QrPanel";
 import * as api from "@/lib/api";
 import type { Bot } from "@/lib/api";
 
+const refreshMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: refreshMock }),
+}));
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
@@ -97,10 +102,12 @@ it("shows an error toast when logout fails", async () => {
 });
 
 it("toggles bot.enabled via the banner switch", async () => {
-  const enabledBot = { ...linkedBot, enabled: false };
+  const pausedBot = { ...linkedBot, enabled: false };
   const afterToggle = { ...linkedBot, enabled: true };
   vi.mocked(api.patchBotEnabled).mockResolvedValue(afterToggle);
-  render(<QrPanel initialBot={enabledBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={pausedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+
+  expect(screen.getByText(/бот на паузе/i)).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("checkbox", { name: /бот активен/i }));
 
@@ -108,6 +115,7 @@ it("toggles bot.enabled via the banner switch", async () => {
     expect(api.patchBotEnabled).toHaveBeenCalledWith("http://api", "1", true);
   });
   expect(screen.getByText(/бот активен — отвечает/i)).toBeInTheDocument();
+  expect(refreshMock).toHaveBeenCalled();
 });
 
 it("shows an error toast when toggling bot.enabled fails", async () => {
@@ -119,4 +127,5 @@ it("shows an error toast when toggling bot.enabled fails", async () => {
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/update failed/i);
   });
+  expect(refreshMock).not.toHaveBeenCalled();
 });

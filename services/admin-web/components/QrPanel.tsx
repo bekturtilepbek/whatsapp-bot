@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { fetchBot, logoutBot, patchBotEnabled, qrImageUrl, type Bot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
@@ -18,6 +19,7 @@ interface QrPanelProps {
 }
 
 export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPanelProps) {
+  const router = useRouter();
   const { showError, showSuccess } = useToast();
   const [bot, setBot] = useState<Bot>(initialBot);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -79,6 +81,9 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     try {
       const updated = await patchBotEnabled(apiBaseUrl, bot.id, next);
       setBot(updated);
+      // Список ботов (BotsTable) рендерится на сервере — без refresh() его
+      // бейдж "на паузе" останется устаревшим до жёсткой перезагрузки.
+      router.refresh();
     } catch (err) {
       showError(err instanceof Error ? err.message : "Не удалось изменить статус бота");
     } finally {
@@ -90,16 +95,23 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     <Banner
       variant={bot.enabled ? "success" : "warning"}
       icon={
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
-          <path
-            d="M6.5 10.5l2.2 2.2L14 8"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        bot.enabled ? (
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="9" stroke="currentColor" strokeWidth="1.5" />
+            <path
+              d="M6.5 10.5l2.2 2.2L14 8"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ) : (
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <rect x="6" y="5" width="2.5" height="10" rx="1" fill="currentColor" />
+            <rect x="11.5" y="5" width="2.5" height="10" rx="1" fill="currentColor" />
+          </svg>
+        )
       }
       title={bot.enabled ? "Бот активен — отвечает на сообщения" : "Бот на паузе — не отвечает клиентам"}
       action={
@@ -117,7 +129,7 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     return (
       <div>
         {enabledBanner}
-        <Card className="flex flex-col items-center gap-3 p-8 text-center">
+        <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
           <IconBadge variant="success" size="lg">
             <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path
@@ -149,7 +161,7 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   return (
     <div>
       {enabledBanner}
-      <Card className="p-5">
+      <Card className="p-5 shadow-elevated">
         <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
         {qrUrl && (
           // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js

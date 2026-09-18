@@ -57,13 +57,24 @@ services:
     build:
       context: ..
       dockerfile: services/worker/Dockerfile
+    # Без этого секреты (OPENAI_API_KEY и т.п.) заполняются только через
+    # интерполяцию `${VAR:-}` в environment: ниже, которая работает ТОЛЬКО
+    # если сам `docker compose` вызван с `--env-file ../.env` — любой
+    # рестарт/пересоздание контейнера мимо этого (Docker Desktop, ручной
+    # `docker compose up` из другой директории) тихо даёт пустой ключ, без
+    # единой ошибки на старте (найдено живьём 2026-09-19 — сломало и
+    # тестовый чат, и создание товара после незамеченного рестарта стека).
+    env_file:
+      - ../.env
     environment:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
       WORKER_HEALTH_PORT: "8081"
-      # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # OPENAI_API_KEY/TELEGRAM_BOT_TOKEN — из env_file выше (ADR-007), не
+      # здесь: явная интерполяция `${VAR:-}` тут переопределила бы то, что
+      # уже подставил env_file, значением по умолчанию (пустая строка),
+      # если сам `docker compose` вызван без --env-file — environment:
+      # всегда побеждает env_file.
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       STORAGE_DRIVER: fs
       STORAGE_FS_ROOT: /data/media
@@ -86,11 +97,13 @@ services:
     build:
       context: ..
       dockerfile: services/celery/Dockerfile
+    # См. комментарий у worker выше — тот же приём.
+    env_file:
+      - ../.env
     environment:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
-      # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # OPENAI_API_KEY — из env_file выше (ADR-007), см. комментарий у worker.
     volumes:
       - ../services/celery/src:/app/services/celery/src
       - ../libs:/app/libs
@@ -104,6 +117,9 @@ services:
     build:
       context: ..
       dockerfile: services/api/Dockerfile
+    # См. комментарий у worker выше — тот же приём.
+    env_file:
+      - ../.env
     environment:
       DATABASE_URL: postgres://platform:platform@postgres:5432/platform
       REDIS_URL: redis://redis:6379/0
@@ -113,8 +129,7 @@ services:
       JWT_SECRET: dev-insecure-jwt-secret-do-not-use-in-prod
       PLATFORM_OWNER_EMAIL: owner@dev.local
       PLATFORM_OWNER_PASSWORD: devpassword123
-      # Секреты — из .env на хосте (ADR-007), не хардкодим сюда.
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # OPENAI_API_KEY — из env_file выше (ADR-007), см. комментарий у worker.
     ports:
       - "8000:8000"
     volumes:

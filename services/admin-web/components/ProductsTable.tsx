@@ -6,6 +6,7 @@ import { useState } from "react";
 import { deleteProduct, fetchProducts, productPhotoUrl, type Product } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table } from "@/components/ui/Table";
 
@@ -25,11 +26,9 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
   const [rows, setRows] = useState(products);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(products.length === pageSize);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleDelete = async (productId: string) => {
-    if (!confirm("Удалить товар?")) {
-      return;
-    }
     try {
       await deleteProduct(apiBaseUrl, botId, productId);
       setRows((current) => current.filter((p) => p.id !== productId));
@@ -112,7 +111,7 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
                   </Link>
                 </td>
                 <td>
-                  <Button variant="danger" onClick={() => void handleDelete(product.id)}>
+                  <Button variant="danger" onClick={() => setPendingDeleteId(product.id)}>
                     Удалить
                   </Button>
                 </td>
@@ -131,6 +130,18 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
           {loadingMore ? "Загружаем…" : "Показать ещё"}
         </Button>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Удалить товар?"
+        description="Это действие необратимо — товар исчезнет из каталога бота."
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void handleDelete(id);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </>
   );
 }

@@ -153,7 +153,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     // noValidate — та же причина, что и в BotSettingsForm: нативная
     // HTML5-валидация (required/min) тихо блокирует submit ДО нашей проверки.
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="max-w-xl space-y-5">
-      <Card className="space-y-4 p-5">
+      <Card className="flex flex-col gap-4 p-5">
         <label className="mb-0 block text-sm font-medium text-ink">
           Название
           <Input
@@ -163,30 +163,32 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
             className="mt-1.5"
           />
         </label>
-        <div>
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Цена
-            <NumberField
-              min={0}
-              step={0.01}
-              value={state.price}
-              onChange={(e) => setState({ ...state, price: e.target.value })}
-              className="mt-1.5 max-w-xs"
-            />
-          </label>
-          {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
-        </div>
-        <div>
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Артикул (SKU)
-            <Input
-              type="text"
-              value={state.sku}
-              onChange={(e) => setState({ ...state, sku: e.target.value })}
-              className="mt-1.5 max-w-xs"
-            />
-          </label>
-          {showSkuHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-0 block text-sm font-medium text-ink">
+              Цена
+              <NumberField
+                min={0}
+                step={0.01}
+                value={state.price}
+                onChange={(e) => setState({ ...state, price: e.target.value })}
+                className="mt-1.5"
+              />
+            </label>
+            {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+          </div>
+          <div>
+            <label className="mb-0 block text-sm font-medium text-ink">
+              Артикул (SKU)
+              <Input
+                type="text"
+                value={state.sku}
+                onChange={(e) => setState({ ...state, sku: e.target.value })}
+                className="mt-1.5"
+              />
+            </label>
+            {showSkuHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
+          </div>
         </div>
         <div>
           <label className="mb-0 block text-sm font-medium text-ink">
@@ -211,7 +213,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           Переопределить вывод для этого товара
         </label>
         {state.displayOverride && (
-          <fieldset className="mt-4 space-y-3 border-0 p-0">
+          <fieldset className="mt-4 flex flex-col gap-3 border-0 p-0">
             <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
               <Switch
                 checked={state.showName}

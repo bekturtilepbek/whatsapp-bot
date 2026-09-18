@@ -50,7 +50,7 @@ export function UsageTable({ apiBaseUrl, summaries, initialPeriod }: UsageTableP
   const totalCost = rows.reduce((sum, r) => sum + Number(r.cost), 0);
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       <label className="mb-0 block max-w-xs text-sm font-medium text-ink">
         Период
         <Select

@@ -131,54 +131,53 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
     // нативный тултип, при этом другие поля без min/max (текстовые) шли бы
     // через кастомную ошибку — несогласованно.
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
+      {/* Карточки ниже с одним полем — без видимой <label>-подписи под
+          заголовком: заголовок карточки уже называет единственное поле,
+          вторая подпись была бы дублирующей (см. "Напоминания"/"Медиа" ниже —
+          там подписи нужны, полей несколько). aria-label сохраняет
+          доступность для скринридеров. */}
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Модель</h2>
-        <label className="mb-0 block text-sm font-medium text-ink">
-          Модель LLM
-          <Select
-            value={settings.model}
-            onChange={(e) => setSettings({ ...settings, model: e.target.value })}
-            className="mt-1.5 max-w-xs"
-          >
-            {AVAILABLE_MODELS.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </Select>
-        </label>
+        <Select
+          value={settings.model}
+          onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+          aria-label="Модель LLM"
+          className="max-w-xs"
+        >
+          {AVAILABLE_MODELS.map((model) => (
+            <option key={model} value={model}>
+              {model}
+            </option>
+          ))}
+        </Select>
       </Card>
 
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Батчинг</h2>
-        <label className="mb-0 block text-sm font-medium text-ink">
-          Таймаут батчинга, сек
-          <NumberField
-            min={0}
-            step={0.1}
-            value={settings.batch_timeout_seconds}
-            onChange={(e) =>
-              setSettings({ ...settings, batch_timeout_seconds: Number(e.target.value) })
-            }
-            className="mt-1.5 max-w-xs"
-          />
-        </label>
+        <NumberField
+          min={0}
+          step={0.1}
+          value={settings.batch_timeout_seconds}
+          onChange={(e) =>
+            setSettings({ ...settings, batch_timeout_seconds: Number(e.target.value) })
+          }
+          aria-label="Таймаут батчинга, сек"
+          className="max-w-xs"
+        />
       </Card>
 
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Хэндофф</h2>
-        <label className="mb-0 block text-sm font-medium text-ink">
-          Авто-возврат после ответа менеджера, мин
-          <NumberField
-            min={0}
-            step={1}
-            value={settings.auto_release_minutes}
-            onChange={(e) =>
-              setSettings({ ...settings, auto_release_minutes: Number(e.target.value) })
-            }
-            className="mt-1.5 max-w-xs"
-          />
-        </label>
+        <NumberField
+          min={0}
+          step={1}
+          value={settings.auto_release_minutes}
+          onChange={(e) =>
+            setSettings({ ...settings, auto_release_minutes: Number(e.target.value) })
+          }
+          aria-label="Авто-возврат после ответа менеджера, мин"
+          className="max-w-xs"
+        />
       </Card>
 
       <Card className="p-5">

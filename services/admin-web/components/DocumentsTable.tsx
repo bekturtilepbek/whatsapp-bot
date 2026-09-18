@@ -5,6 +5,7 @@ import { deleteDocument, uploadDocument, type BotDocument } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table } from "@/components/ui/Table";
 
@@ -18,6 +19,7 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
   const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(documents);
   const [uploading, setUploading] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleUpload = async (files: FileList | null) => {
     const file = files?.[0];
@@ -37,9 +39,6 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
   };
 
   const handleDelete = async (documentId: string) => {
-    if (!confirm("Удалить файл?")) {
-      return;
-    }
     try {
       await deleteDocument(apiBaseUrl, botId, documentId);
       setRows((current) => current.filter((row) => row.id !== documentId));
@@ -86,7 +85,7 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
                   <td>{doc.filename}</td>
                   <td className="font-mono">{doc.mime_type}</td>
                   <td>
-                    <Button variant="danger" onClick={() => void handleDelete(doc.id)}>
+                    <Button variant="danger" onClick={() => setPendingDeleteId(doc.id)}>
                       Удалить
                     </Button>
                   </td>
@@ -96,6 +95,18 @@ export function DocumentsTable({ botId, apiBaseUrl, documents }: DocumentsTableP
           </table>
         </Table>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Удалить файл?"
+        description="Это действие необратимо — бот больше не сможет отправлять этот файл."
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (id) void handleDelete(id);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

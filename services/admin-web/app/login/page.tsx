@@ -34,7 +34,7 @@ export default function LoginPage() {
         </div>
         <Card className="p-8">
           <h1 className="mb-6 text-lg font-semibold text-ink">Вход</h1>
-          <form action={formAction} className="space-y-5">
+          <form action={formAction} className="flex flex-col gap-5">
             <label className="mb-0 block text-sm font-medium text-ink">
               Email
               <Input type="email" name="email" required autoFocus className="mt-1.5" />

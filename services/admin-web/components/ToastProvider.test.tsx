@@ -40,7 +40,7 @@ it("shows a success toast with role=status", () => {
   expect(screen.getByRole("status")).toHaveTextContent("Сохранено");
 });
 
-it("auto-dismisses a success toast after its duration", () => {
+it("starts fading a success toast after its duration, then removes it", () => {
   render(
     <ToastProvider>
       <Trigger />
@@ -51,6 +51,13 @@ it("auto-dismisses a success toast after its duration", () => {
 
   act(() => {
     vi.advanceTimersByTime(6000);
+  });
+  // Ещё в DOM — только начал уходить (opacity/translate), реальное
+  // размонтирование ждёт LEAVE_TRANSITION_MS, чтобы CSS-переход доиграл.
+  expect(screen.getByRole("status")).toHaveClass("opacity-0");
+
+  act(() => {
+    vi.advanceTimersByTime(200);
   });
   expect(screen.queryByRole("status")).toBeNull();
 });
@@ -69,7 +76,7 @@ it("keeps an error toast alive longer than a success toast", () => {
   expect(screen.queryByRole("alert")).not.toBeNull();
 
   act(() => {
-    vi.advanceTimersByTime(2000); // теперь и error-таймаут (8с) истёк
+    vi.advanceTimersByTime(2000 + 200); // error-таймаут (8с) + переход ухода
   });
   expect(screen.queryByRole("alert")).toBeNull();
 });
@@ -87,6 +94,9 @@ it("stacks multiple toasts and dismisses one manually", () => {
 
   const [firstCloseButton] = screen.getAllByLabelText("Закрыть уведомление");
   fireEvent.click(firstCloseButton);
+  act(() => {
+    vi.advanceTimersByTime(200); // переход ухода
+  });
   // Первая кнопка закрытия — у error-toast (добавлен раньше) — status остаётся
   expect(screen.queryByRole("alert")).toBeNull();
   expect(screen.getByRole("status")).toBeTruthy();

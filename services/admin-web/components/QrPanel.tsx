@@ -163,7 +163,7 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
       {enabledBanner}
       <Card className="p-5 shadow-elevated">
         <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
-        {qrUrl && (
+        {qrUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
           <img
             src={qrUrl}
@@ -172,6 +172,14 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
             height={300}
             className="mt-3 rounded-lg border border-border"
           />
+        ) : (
+          <div
+            role="status"
+            aria-label="Загружаем QR-код"
+            className="mt-3 flex h-[300px] w-[300px] items-center justify-center rounded-lg border border-border bg-surface-alt"
+          >
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+          </div>
         )}
         {pollError && (
           <p role="alert" className="mt-3 text-sm text-danger">

@@ -68,7 +68,7 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       <label className="mb-0 block max-w-xs text-sm font-medium text-ink">
         Бот
         <Select

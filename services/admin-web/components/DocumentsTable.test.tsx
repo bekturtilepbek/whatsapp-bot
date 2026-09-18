@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
+import { fireEvent, render, screen, waitFor, within } from "@/lib/test-utils";
 import { DocumentsTable } from "@/components/DocumentsTable";
 import * as api from "@/lib/api";
 import type { BotDocument } from "@/lib/api";
@@ -74,12 +74,14 @@ it("does nothing when the file input is cleared without a selection", async () =
   });
 });
 
-it("deletes a document and removes its row", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+it("deletes a document and removes its row after confirming in the dialog", async () => {
   vi.mocked(api.deleteDocument).mockResolvedValue(undefined);
   render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  const dialog = screen.getByRole("alertdialog");
+  expect(within(dialog).getByText(/удалить файл/i)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: /удалить/i }));
 
   await waitFor(() => {
     expect(api.deleteDocument).toHaveBeenCalledWith("http://api", "1", "d1");
@@ -91,11 +93,11 @@ it("deletes a document and removes its row", async () => {
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
   vi.mocked(api.deleteDocument).mockRejectedValue(new Error("delete failed"));
   render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /удалить/i }));
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/delete failed/i);
@@ -104,11 +106,12 @@ it("shows an error and keeps the row when deletion fails", async () => {
 });
 
 it("does nothing when the delete confirmation is declined", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
   render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  fireEvent.click(screen.getByRole("button", { name: /отмена/i }));
 
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   expect(api.deleteDocument).not.toHaveBeenCalled();
   expect(screen.getByText("price.pdf")).toBeInTheDocument();
 });

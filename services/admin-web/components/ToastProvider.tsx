@@ -19,6 +19,10 @@ interface Toast {
   id: number;
   message: string;
   kind: ToastKind;
+  // true — тост уже помечен на закрытие: рендерится с классами ухода
+  // (прозрачность/сдвиг), реально размонтируется только после
+  // LEAVE_TRANSITION_MS, чтобы CSS-переход успел доиграть.
+  leaving: boolean;
 }
 
 interface ToastContextValue {
@@ -32,6 +36,10 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 // внутри диапазона V1 (5-10с).
 const ERROR_DURATION_MS = 8000;
 const SUCCESS_DURATION_MS = 6000;
+// Должно совпадать с duration-200 в className тоста ниже — иначе тост либо
+// обрежется до конца анимации, либо повиснет в DOM после того, как уже стал
+// невидимым.
+const LEAVE_TRANSITION_MS = 200;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -44,14 +52,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
+  // Двухфазное закрытие: сперва помечаем тост "уходящим" (запускает CSS-
+  // переход прозрачности/сдвига), реальное удаление из стейта — только
+  // после того, как переход успел доиграть.
+  const startLeave = useCallback(
+    (id: number) => {
+      setToasts((current) => current.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
+      setTimeout(() => removeToast(id), LEAVE_TRANSITION_MS);
+    },
+    [removeToast],
+  );
+
   const showToast = useCallback(
     (message: string, kind: ToastKind) => {
       const id = nextId.current++;
-      setToasts((current) => [...current, { id, message, kind }]);
+      setToasts((current) => [...current, { id, message, kind, leaving: false }]);
       const duration = kind === "error" ? ERROR_DURATION_MS : SUCCESS_DURATION_MS;
-      setTimeout(() => removeToast(id), duration);
+      setTimeout(() => startLeave(id), duration);
     },
-    [removeToast],
+    [startLeave],
   );
 
   const showError = useCallback((message: string) => showToast(message, "error"), [showToast]);
@@ -65,15 +84,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             role={toast.kind === "error" ? "alert" : "status"}
-            className={`flex max-w-[24rem] items-center gap-3 rounded-lg border-l-[3px] bg-surface px-4 py-3 text-sm text-ink shadow-elevated ${
+            className={`flex max-w-[24rem] items-center gap-3 rounded-lg border-l-[3px] bg-surface px-4 py-3 text-sm text-ink shadow-elevated transition-all duration-200 ease-in ${
               toast.kind === "error" ? "border-l-danger" : "border-l-success"
-            }`}
+            } ${toast.leaving ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"}`}
           >
             <span>{toast.message}</span>
             <button
               type="button"
               aria-label="Закрыть уведомление"
-              onClick={() => removeToast(toast.id)}
+              onClick={() => startLeave(toast.id)}
               className="ml-auto p-0 text-base text-ink-soft hover:text-ink"
             >
               ×

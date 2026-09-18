@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@/lib/test-utils";
+import { fireEvent, render, screen, waitFor, within } from "@/lib/test-utils";
 import { ProductsTable } from "@/components/ProductsTable";
 import * as api from "@/lib/api";
 import type { Product } from "@/lib/api";
@@ -54,21 +54,24 @@ it("renders each product's name, price and sku", () => {
 });
 
 it("does nothing when the delete confirmation is declined", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  fireEvent.click(screen.getByRole("button", { name: /отмена/i }));
 
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   expect(api.deleteProduct).not.toHaveBeenCalled();
   expect(screen.getByText("Кроссовки")).toBeInTheDocument();
 });
 
-it("deletes the product and removes its row after confirmation", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+it("deletes the product and removes its row after confirming in the dialog", async () => {
   vi.mocked(api.deleteProduct).mockResolvedValue(undefined);
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  const dialog = screen.getByRole("alertdialog");
+  expect(within(dialog).getByText(/удалить товар/i)).toBeInTheDocument();
+  fireEvent.click(within(dialog).getByRole("button", { name: /удалить/i }));
 
   await waitFor(() => {
     expect(api.deleteProduct).toHaveBeenCalledWith("http://api", "1", "p1");
@@ -81,11 +84,11 @@ it("deletes the product and removes its row after confirmation", async () => {
 });
 
 it("shows an error and keeps the row when deletion fails", async () => {
-  vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
   vi.mocked(api.deleteProduct).mockRejectedValue(new Error("delete failed"));
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
 
   fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /удалить/i }));
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/delete failed/i);

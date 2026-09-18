@@ -25,4 +25,10 @@ describe("middleware", () => {
     const response = middleware(makeRequest("/login"));
     expect(response.status).toBe(200);
   });
+
+  it("redirects an authenticated visitor away from /login", () => {
+    const response = middleware(makeRequest("/login", "session=token"));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("/bots");
+  });
 });

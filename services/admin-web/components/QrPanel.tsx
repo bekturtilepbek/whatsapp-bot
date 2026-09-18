@@ -23,6 +23,16 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
   const { showError, showSuccess } = useToast();
   const [bot, setBot] = useState<Bot>(initialBot);
   const [qrUrl, setQrUrl] = useState<string | null>(null);
+  // Раньше "загрузка" считалась законченной, как только появлялся URL
+  // картинки (мгновенно) — реальная задержка в 300x300px PNG (пока gateway
+  // лениво поднимает Baileys-сессию для бота, который давно не открывали)
+  // пряталась за пустым местом без индикатора. Теперь ждём настоящего
+  // <img onLoad>, а не просто наличия src. Не сбрасывается на каждой
+  // фоновой ротации QR (每 pollIntervalMs) — только на первую загрузку
+  // этого монтирования: старая картинка при ротации остаётся видимой, пока
+  // не подгрузится новая (обычное поведение <img> при смене src) — сброс
+  // здесь давал бы лишнее мигание спиннером каждые pollIntervalMs.
+  const [qrImageLoaded, setQrImageLoaded] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
   // Намеренно НЕ toast: это статус фонового поллинга (каждые pollIntervalMs,
@@ -163,24 +173,29 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
       {enabledBanner}
       <Card className="p-5 shadow-elevated">
         <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
-        {qrUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
-          <img
-            src={qrUrl}
-            alt="QR-код для подключения WhatsApp"
-            width={300}
-            height={300}
-            className="mt-3 rounded-lg border border-border"
-          />
-        ) : (
-          <div
-            role="status"
-            aria-label="Загружаем QR-код"
-            className="mt-3 flex h-[300px] w-[300px] items-center justify-center rounded-lg border border-border bg-surface-alt"
-          >
-            <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
-          </div>
-        )}
+        <div className="relative mt-3 h-[300px] w-[300px]">
+          {qrUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
+            <img
+              src={qrUrl}
+              alt="QR-код для подключения WhatsApp"
+              width={300}
+              height={300}
+              onLoad={() => setQrImageLoaded(true)}
+              onError={() => setQrImageLoaded(true)}
+              className={`h-[300px] w-[300px] rounded-lg border border-border ${qrImageLoaded ? "" : "invisible"}`}
+            />
+          )}
+          {!qrImageLoaded && (
+            <div
+              role="status"
+              aria-label="Загружаем QR-код"
+              className="absolute inset-0 flex items-center justify-center rounded-lg border border-border bg-surface-alt"
+            >
+              <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+            </div>
+          )}
+        </div>
         {pollError && (
           <p role="alert" className="mt-3 text-sm text-danger">
             {pollError}

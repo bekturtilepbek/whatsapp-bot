@@ -50,6 +50,22 @@ it("shows the QR image while the bot is not linked", () => {
   expect(screen.queryByText(/отключить/i)).not.toBeInTheDocument();
 });
 
+it("shows a loading placeholder until the QR image actually finishes loading over the network", () => {
+  // Пользователь сообщил: при переключении между ботами на месте QR
+  // несколько секунд пусто — из-за того, что спиннер раньше гасился, как
+  // только появлялся URL картинки (мгновенно), а не когда браузер реально
+  // ЗАКОНЧИЛ её грузить (пока gateway лениво поднимает сессию для бота,
+  // который давно не открывали, это реально занимает пару секунд).
+  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+
+  const img = screen.getByRole("img", { name: /qr/i });
+  expect(screen.getByRole("status", { name: /загружаем qr/i })).toBeInTheDocument();
+
+  fireEvent.load(img);
+
+  expect(screen.queryByRole("status", { name: /загружаем qr/i })).not.toBeInTheDocument();
+});
+
 it("switches to the connected view once polling finds linked_at set", async () => {
   vi.mocked(api.fetchBot).mockResolvedValue(linkedBot);
   render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={20} />);
@@ -73,7 +89,11 @@ it("logs out and returns to the QR view", async () => {
   await waitFor(() => {
     expect(screen.getByRole("img", { name: /qr/i })).toBeInTheDocument();
   });
-  expect(screen.getByRole("status")).toHaveTextContent(/отключён/i);
+  // getByRole("status") теперь неоднозначен — QR-заглушка загрузки тоже
+  // им пользуется (см. тест выше); доступное имя тоста вычисляется пустым
+  // (текст лежит в соседнем узле, не в aria-label), поэтому проверяем
+  // текстом, не ролью+именем.
+  expect(screen.getByText(/номер отключён/i)).toBeInTheDocument();
 });
 
 it("shows an error when a poll fails", async () => {

@@ -140,6 +140,12 @@ services:
       dockerfile: Dockerfile
     environment:
       API_INTERNAL_URL: http://api:8000
+      # Docker Desktop на Windows не пробрасывает inotify-события бинд-маунтов
+      # в контейнер — файловый вотчер Next.js молча не видел правок на хосте
+      # (найдено живьём, 2026-09-18: hot-reload не сработал ни разу, помог
+      # только полный restart контейнера). Polling — медленнее, но надёжен
+      # независимо от хостовой ОС.
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     volumes:

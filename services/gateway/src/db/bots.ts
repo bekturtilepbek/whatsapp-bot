@@ -75,6 +75,27 @@ export async function clearSession(pool: Pool, botId: string): Promise<void> {
   );
 }
 
+/**
+ * Найдено живьём 2026-09-19: бот, который в момент рестарта gateway был на
+ * середине QR-ожидания/реконнекта и так и не привязался (phone IS NULL),
+ * навсегда застревает в БД со статусом connecting/qr/reconnecting — gateway
+ * больше никогда его не трогает (listLinkedBotIds его не поднимает), поэтому
+ * статус никто не обновит. Дашборд (FEATURES.md 6.17) годами показывал бы
+ * "идёт подключение" для бота, которым gateway не занимается вообще (реальный
+ * пример: статус завис с 2026-09-12, за неделю до находки). logged_out
+ * намеренно не трогаем — это осмысленный терминальный статус ("нужен новый
+ * QR"), а не иллюзия активности. Вызывается один раз при старте, ДО
+ * listLinkedBotIds, чтобы Дашборд сразу показывал честную картину.
+ */
+export async function resetStaleUnlinkedSessions(pool: Pool): Promise<void> {
+  await pool.query(
+    `UPDATE bot_sessions
+        SET status = NULL
+      WHERE phone IS NULL
+        AND status IN ('connecting', 'qr', 'reconnecting')`,
+  );
+}
+
 export const DEFAULT_MEDIA_MAX_SIZE_BYTES = 16 * 1024 * 1024;
 
 export async function getBotMediaMaxSizeBytes(pool: Pool, botId: string): Promise<number> {

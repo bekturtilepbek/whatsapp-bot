@@ -4,6 +4,7 @@ import {
   DEFAULT_MEDIA_MAX_SIZE_BYTES,
   getBotMediaMaxSizeBytes,
   listLinkedBotIds,
+  resetStaleUnlinkedSessions,
   setSessionStatus,
 } from "./bots.js";
 
@@ -44,6 +45,26 @@ describe("listLinkedBotIds", () => {
     const [sql] = query.mock.calls[0] as [string];
     expect(sql).toContain("phone IS NOT NULL");
     expect(sql).not.toContain("registered");
+  });
+});
+
+// Регрессия (живая проверка 2026-09-19): бот, застрявший на середине QR/
+// реконнекта в момент рестарта gateway, никогда больше не привязывался —
+// его connecting/qr/reconnecting статус навсегда замирал в БД, потому что
+// listLinkedBotIds (phone IS NOT NULL) его больше не трогает. Дашборд годами
+// показывал бы фантомное "идёт подключение".
+describe("resetStaleUnlinkedSessions", () => {
+  it("clears connecting/qr/reconnecting for never-linked bots, not logged_out", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+    const pool = { query } as unknown as Pool;
+
+    await resetStaleUnlinkedSessions(pool);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const [sql] = query.mock.calls[0] as [string];
+    expect(sql).toContain("phone IS NULL");
+    expect(sql).toContain("'connecting', 'qr', 'reconnecting'");
+    expect(sql).not.toContain("logged_out");
   });
 });
 

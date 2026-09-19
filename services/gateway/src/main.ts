@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import QRCode from "qrcode";
 
 import { closeRedis, getRedis } from "./bus/redis.js";
-import { botExists, listLinkedBotIds } from "./db/bots.js";
+import { botExists, listLinkedBotIds, resetStaleUnlinkedSessions } from "./db/bots.js";
 import { closePool, getPool } from "./db/pool.js";
 import { OutboundConsumer } from "./outbound/consumer.js";
 import { SessionManager } from "./session/manager.js";
@@ -46,6 +46,7 @@ app.post<{ Params: { botId: string } }>("/bots/:botId/logout", async (request, r
 });
 
 async function start(): Promise<void> {
+  await resetStaleUnlinkedSessions(pool);
   const linkedBotIds = await listLinkedBotIds(pool);
   app.log.info({ count: linkedBotIds.length }, "starting sessions for linked bots");
   await sessions.startAllLinked(linkedBotIds);

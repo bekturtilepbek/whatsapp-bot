@@ -20,6 +20,7 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
+      showError("Введите имя бота");
       return;
     }
     setCreating(true);

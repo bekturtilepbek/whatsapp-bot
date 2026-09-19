@@ -33,12 +33,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("does nothing when the name is empty", async () => {
+it("shows an error and does not call the api when the name is empty", async () => {
   render(<NewBotForm apiBaseUrl="http://api" />);
   fireEvent.click(screen.getByRole("button", { name: /создать/i }));
-  await waitFor(() => {
-    expect(api.createBot).not.toHaveBeenCalled();
-  });
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/введите имя бота/i);
+  expect(api.createBot).not.toHaveBeenCalled();
 });
 
 it("creates a bot and navigates to its page", async () => {

@@ -49,7 +49,7 @@ it("renders existing values in edit mode", () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
   expect(screen.getByLabelText(/название/i)).toHaveValue("Старое имя");
   expect(screen.getByLabelText(/цена/i)).toHaveValue(100);
-  expect(screen.getByLabelText(/артикул/i)).toHaveValue("SKU-1");
+  expect(screen.queryByLabelText(/артикул/i)).not.toBeInTheDocument();
   expect(screen.getByLabelText(/описание/i)).toHaveValue("Старое описание");
 });
 
@@ -84,7 +84,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
     expect(api.createProduct).toHaveBeenCalledWith(
       "http://api",
       "1",
-      { name: "Новый товар", price: null, sku: null, description: null, display_custom: {} },
+      { name: "Новый товар", price: null, description: null, display_custom: {} },
       [photo],
     );
   });
@@ -103,7 +103,6 @@ it("updates an existing product's text fields (photos untouched by this save)", 
     expect(api.updateProduct).toHaveBeenCalledWith("http://api", "1", "p1", {
       name: "Старое имя",
       price: 200,
-      sku: "SKU-1",
       description: "Старое описание",
       display_custom: {},
     });

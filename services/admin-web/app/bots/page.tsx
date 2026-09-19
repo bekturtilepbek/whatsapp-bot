@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BotsTable } from "@/components/BotsTable";
+import { BotsSearch } from "@/components/BotsSearch";
 import { buttonClasses } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchBots } from "@/lib/api";
@@ -22,7 +22,7 @@ export default async function BotsPage() {
           ) : undefined
         }
       />
-      <BotsTable bots={bots} />
+      <BotsSearch bots={bots} />
     </main>
   );
 }

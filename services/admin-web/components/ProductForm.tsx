@@ -30,7 +30,6 @@ interface ProductFormProps {
 interface FormState {
   name: string;
   price: string;
-  sku: string;
   description: string;
   displayOverride: boolean;
   showName: boolean;
@@ -43,7 +42,6 @@ function initialState(product: Product | undefined): FormState {
   return {
     name: product?.name ?? "",
     price: product?.price ?? "",
-    sku: product?.sku ?? "",
     description: product?.description ?? "",
     displayOverride: hasOverride,
     showName: product?.display_custom.show_name ?? true,
@@ -56,7 +54,9 @@ function toInput(state: FormState): ProductInput {
   return {
     name: state.name.trim(),
     price: state.price.trim() === "" ? null : Number(state.price),
-    sku: state.sku.trim() === "" ? null : state.sku.trim(),
+    // sku намеренно не отправляется из формы — поле убрано из UI кабинета
+    // (артикул и так не показывается в карточке товара в WhatsApp, 4.5),
+    // backend/БД-колонка сохранены нетронутыми.
     description: state.description.trim() === "" ? null : state.description.trim(),
     display_custom: state.displayOverride
       ? {
@@ -86,7 +86,6 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   // как раз стирает поле (самый нужный момент её увидеть).
   const clearHint = "Поле нельзя очистить обратно — здесь можно только заменить значение на другое.";
   const showPriceHint = !!product && !!product.price && product.price.trim() !== "";
-  const showSkuHint = !!product && !!product.sku && product.sku.trim() !== "";
   const showDescriptionHint = !!product && !!product.description && product.description.trim() !== "";
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -163,32 +162,18 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
             className="mt-1.5"
           />
         </label>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="mb-0 block text-sm font-medium text-ink">
-              Цена
-              <NumberField
-                min={0}
-                step={0.01}
-                value={state.price}
-                onChange={(e) => setState({ ...state, price: e.target.value })}
-                className="mt-1.5"
-              />
-            </label>
-            {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
-          </div>
-          <div>
-            <label className="mb-0 block text-sm font-medium text-ink">
-              Артикул (SKU)
-              <Input
-                type="text"
-                value={state.sku}
-                onChange={(e) => setState({ ...state, sku: e.target.value })}
-                className="mt-1.5"
-              />
-            </label>
-            {showSkuHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
-          </div>
+        <div>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Цена
+            <NumberField
+              min={0}
+              step={0.01}
+              value={state.price}
+              onChange={(e) => setState({ ...state, price: e.target.value })}
+              className="mt-1.5"
+            />
+          </label>
+          {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
         </div>
         <div>
           <label className="mb-0 block text-sm font-medium text-ink">

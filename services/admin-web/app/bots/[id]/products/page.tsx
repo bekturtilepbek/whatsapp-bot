@@ -25,7 +25,7 @@ export default async function BotProductsPage({
   return (
     <main>
       <div className="mb-6 flex justify-end">
-        <Link href={`/bots/${id}/products/new`} className={buttonClasses()}>
+        <Link href={`/bots/${id}/products/add`} className={buttonClasses()}>
           + Добавить товар
         </Link>
       </div>

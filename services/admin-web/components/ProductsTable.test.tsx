@@ -45,12 +45,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("renders each product's name, price and sku", () => {
+it("renders each product's name and price", () => {
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
   expect(screen.getByText("Кроссовки")).toBeInTheDocument();
   expect(screen.getByText("5000.00")).toBeInTheDocument();
-  expect(screen.getByText("NK-001")).toBeInTheDocument();
-  expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2); // цена и sku "Без цены"
+  expect(screen.getByText("—")).toBeInTheDocument(); // цена "Без цены"
 });
 
 it("does nothing when the delete confirmation is declined", async () => {

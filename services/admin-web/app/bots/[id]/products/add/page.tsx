@@ -3,7 +3,7 @@ import { ProductForm } from "@/components/ProductForm";
 import { fetchBot } from "@/lib/api";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
-export default async function NewProductPage({
+export default async function AddProductPage({
   params,
 }: {
   params: Promise<{ id: string }>;

@@ -29,6 +29,7 @@ export function PromptEditor({
   const [body, setBody] = useState(initialBody ?? "");
   const [versions, setVersions] = useState<PromptVersion[]>(initialVersions);
   const [saving, setSaving] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const save = async (newBody: string) => {
     setSaving(true);
@@ -65,43 +66,61 @@ export function PromptEditor({
         </div>
       </Card>
 
-      {versions.length > 0 && (
-        <Table>
-          <table>
-            <thead>
-              <tr>
-                <th>Дата</th>
-                <th>Автор</th>
-                <th>Текст</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {versions.map((version) => (
-                <tr key={version.id}>
-                  {/* Чистая строковая операция над ISO-текстом, не new Date(...) —
-                   * иначе разное форматирование на SSR и на клиенте даёт
-                   * hydration-mismatch (урок QR-экрана, components/QrPanel.tsx). */}
-                  <td className="font-mono">
-                    {version.created_at.slice(0, 16).replace("T", " ")}
-                  </td>
-                  <td>{version.author}</td>
-                  <td>{(version.body ?? "").slice(0, 60)}</td>
-                  <td>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void save(version.body ?? "")}
-                      disabled={saving}
-                    >
-                      Откатить
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Table>
-      )}
+      {versions.length > 0 &&
+        (showHistory ? (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowHistory(false)}
+              className="text-sm font-medium text-accent hover:underline"
+            >
+              Скрыть историю ↑
+            </button>
+            <Table>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Автор</th>
+                    <th>Текст</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {versions.map((version) => (
+                    <tr key={version.id}>
+                      {/* Чистая строковая операция над ISO-текстом, не new Date(...) —
+                       * иначе разное форматирование на SSR и на клиенте даёт
+                       * hydration-mismatch (урок QR-экрана, components/QrPanel.tsx). */}
+                      <td className="font-mono">
+                        {version.created_at.slice(0, 16).replace("T", " ")}
+                      </td>
+                      <td>{version.author}</td>
+                      <td>{(version.body ?? "").slice(0, 60)}</td>
+                      <td>
+                        <Button
+                          variant="secondary"
+                          onClick={() => void save(version.body ?? "")}
+                          disabled={saving}
+                        >
+                          Откатить
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Table>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowHistory(true)}
+            className="text-sm font-medium text-accent hover:underline"
+          >
+            История изменений ({versions.length}) →
+          </button>
+        ))}
     </div>
   );
 }

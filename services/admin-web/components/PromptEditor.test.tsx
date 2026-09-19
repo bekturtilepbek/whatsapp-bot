@@ -24,7 +24,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("renders the current prompt body and existing history", () => {
+it("renders the current prompt body with history hidden behind a link", () => {
   render(
     <PromptEditor
       botId="1"
@@ -36,6 +36,10 @@ it("renders the current prompt body and existing history", () => {
     />,
   );
   expect(screen.getByRole("textbox")).toHaveValue("текущий текст");
+  expect(screen.queryByText(/старый текст/)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
+
   expect(screen.getByText(/старый текст/)).toBeInTheDocument();
 });
 
@@ -69,6 +73,7 @@ it("saves the edited body and refreshes version history", async () => {
     />,
   );
 
+  fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "новый текст" } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
@@ -105,6 +110,7 @@ it("rolls back to a past version with one click", async () => {
     />,
   );
 
+  fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
   fireEvent.click(screen.getByRole("button", { name: /откатить/i }));
 
   await waitFor(() => {
@@ -133,7 +139,7 @@ it("shows an error when saving fails", async () => {
   });
 });
 
-it("renders version history as a table", () => {
+it("renders version history as a table once revealed", () => {
   render(
     <PromptEditor
       botId="1"
@@ -144,5 +150,9 @@ it("renders version history as a table", () => {
       initialVersions={[existingVersion]}
     />,
   );
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
+
   expect(screen.getByRole("table")).toBeInTheDocument();
 });

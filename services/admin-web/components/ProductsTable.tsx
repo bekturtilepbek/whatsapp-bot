@@ -82,7 +82,6 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
               <th />
               <th>Название</th>
               <th>Цена</th>
-              <th>SKU</th>
               <th />
               <th />
             </tr>
@@ -101,7 +100,6 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
                 </td>
                 <td>{product.name}</td>
                 <td className="font-mono">{product.price ?? "—"}</td>
-                <td className="font-mono">{product.sku ?? "—"}</td>
                 <td>
                   <Link
                     href={`/bots/${botId}/products/${product.id}/edit`}

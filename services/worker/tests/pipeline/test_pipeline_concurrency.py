@@ -134,6 +134,140 @@ async def test_two_photos_published_close_together_are_combined_by_the_real_cons
         await redis.aclose()
 
 
+async def test_shutdown_waits_for_an_in_flight_reply_within_the_drain_window(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Регрессия (найдено живьём 2026-09-19): раньше остановка консюмера
+    (SIGTERM -> run_pipeline_consumer.cancel()) немедленно отменяла ещё не
+    завершённые _process_and_ack-задачи. CancelledError — BaseException, он
+    минует все `except Exception` по цепочке и долетает до `finally:
+    await redis.xack(...)` — сообщение подтверждалось как обработанное,
+    хотя ответ клиенту так и не ушёл. Теперь shutdown сперва ждёт
+    SHUTDOWN_DRAIN_TIMEOUT_SECONDS, давая обработчику шанс закончить
+    естественно."""
+    monkeypatch.setattr(consumer_module, "SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 2.0)
+
+    async def slow_complete(system_prompt, history, **_):
+        await asyncio.sleep(0.3)  # меньше окна дренажа — должен успеть
+        return LLMResult(text="Ответ клиенту.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", slow_complete)
+
+    bot_id = await _make_bot(session_factory)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    storage = _FakeStorage({})
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await ensure_group(redis, IN_STREAM, GROUP)
+        consumer_task = asyncio.create_task(
+            run_pipeline_consumer(redis, session_factory, "test-consumer", storage)
+        )
+        await publish(
+            redis,
+            IN_STREAM,
+            {
+                "type": "inbound.text",
+                "bot_id": str(bot_id),
+                "wa_msg_id": "wamsg-inflight",
+                "chat_id": "996700000003@s.whatsapp.net",
+                "sender_wa_id": "996700000003",
+                "from_me": False,
+                "text": "Привет",
+                "ts": now_ms,
+            },
+        )
+        # Достаточно, чтобы батчинг лидера начался и complete() уже был в
+        # процессе (spящий 0.3с), но недостаточно, чтобы он успел завершиться —
+        # SIGTERM должен застать обработку РОВНО на середине.
+        await asyncio.sleep(0.1)
+
+        consumer_task.cancel()
+        try:
+            await asyncio.wait_for(consumer_task, timeout=3.0)
+        except asyncio.CancelledError:
+            pass  # ожидаемо — сама run_pipeline_consumer тоже отменена
+
+        pending = await redis.xpending(IN_STREAM, GROUP)
+        assert pending["pending"] == 0  # ACK случился только ПОСЛЕ настоящего ответа
+
+        async with session_factory() as session:
+            from db.models import Message
+            from sqlalchemy import select
+
+            assistant_replies = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id, Message.role == "assistant")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            # Ключевая проверка: ответ РЕАЛЬНО ушёл клиенту (записан в историю),
+            # а не потерян отменой на середине _reply().
+            assert len(assistant_replies) == 1
+            assert assistant_replies[0].content == "Ответ клиенту."
+    finally:
+        await redis.aclose()
+
+
+async def test_shutdown_force_cancels_a_handler_stuck_past_the_drain_window(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Дополняет тест выше с другой стороны: обработчик, который НЕ
+    укладывается в окно дренажа, всё равно принудительно отменяется и
+    ACK'ается — shutdown не виснет навсегда на одном медленном ответе."""
+    monkeypatch.setattr(consumer_module, "SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 0.2)
+
+    async def stuck_complete(system_prompt, history, **_):
+        await asyncio.sleep(10.0)  # намного больше окна дренажа
+        return LLMResult(
+            text="Никогда не отправится.", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+        )
+
+    monkeypatch.setattr(consumer_module, "complete", stuck_complete)
+
+    bot_id = await _make_bot(session_factory)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    storage = _FakeStorage({})
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await ensure_group(redis, IN_STREAM, GROUP)
+        consumer_task = asyncio.create_task(
+            run_pipeline_consumer(redis, session_factory, "test-consumer", storage)
+        )
+        await publish(
+            redis,
+            IN_STREAM,
+            {
+                "type": "inbound.text",
+                "bot_id": str(bot_id),
+                "wa_msg_id": "wamsg-stuck",
+                "chat_id": "996700000004@s.whatsapp.net",
+                "sender_wa_id": "996700000004",
+                "from_me": False,
+                "text": "Привет",
+                "ts": now_ms,
+            },
+        )
+        await asyncio.sleep(0.1)
+
+        consumer_task.cancel()
+        try:
+            # Ограниченное время: если бы отмена не сработала, этот wait_for
+            # сам упал бы по таймауту (10с застрявшего complete() >> 3с).
+            await asyncio.wait_for(consumer_task, timeout=3.0)
+        except asyncio.CancelledError:
+            pass  # ожидаемо — сама run_pipeline_consumer тоже отменена
+
+        pending = await redis.xpending(IN_STREAM, GROUP)
+        assert pending["pending"] == 0  # ACK всё равно случился — не зависло в PEL навсегда
+    finally:
+        await redis.aclose()
+
+
 async def test_one_failing_entry_does_not_block_or_lose_the_next_entry_in_the_same_batch(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

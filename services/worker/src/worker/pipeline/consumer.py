@@ -107,6 +107,16 @@ STORAGE_READ_TIMEOUT_SECONDS = 20.0
 MAX_BATCH_VISION_IMAGES = 10
 # Та же защита, что и у MAX_BATCH_VISION_IMAGES, но для голосовых (FEATURES.md 2.2).
 MAX_BATCH_VOICE_MESSAGES = 10
+# Graceful drain при рестарте/деплое (SIGTERM, см. worker/main.py): сколько
+# ждать уже запущенные обработчики, прежде чем отменять их принудительно.
+# Большинство ответов (один LLM-вызов без тулз) укладываются в разы меньше
+# этого — отмена без ожидания молча ACK'ала бы сообщение, ответ на которое
+# клиент так и не получил бы (CancelledError — BaseException, минует все
+# `except Exception` по цепочке до финального `xack` в _process_and_ack).
+# Держать компаньоном с stop_grace_period воркера в compose (должен быть
+# заметно больше этого таймаута, иначе Docker убьёт контейнер раньше, чем
+# истечёт это окно ожидания).
+SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 25.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
 # Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
@@ -884,9 +894,16 @@ async def run_pipeline_consumer(
                 await asyncio.sleep(1)
     finally:
         # Отмена самой задачи run_pipeline_consumer (рестарт/shutdown, см.
-        # main.py) не должна бросать необработанные записи — дожидаемся уже
-        # запущенных обработчиков (они сами ACK'ают в своём finally).
-        for task in in_flight:
-            task.cancel()
+        # main.py) не должна обрывать уже запущенные обработчики на середине
+        # ответа клиенту — сперва даём им шанс закончить естественно
+        # (SHUTDOWN_DRAIN_TIMEOUT_SECONDS), и только то, что не успело,
+        # отменяем принудительно (они всё равно ACK'ают в своём finally —
+        # без ответа, но хотя бы не виснут в Redis pending list навсегда).
         if in_flight:
-            await asyncio.gather(*in_flight, return_exceptions=True)
+            _, still_running = await asyncio.wait(
+                in_flight, timeout=SHUTDOWN_DRAIN_TIMEOUT_SECONDS
+            )
+            for task in still_running:
+                task.cancel()
+            if still_running:
+                await asyncio.gather(*still_running, return_exceptions=True)

@@ -87,6 +87,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    # Больше SHUTDOWN_DRAIN_TIMEOUT_SECONDS в consumer.py (25с) — иначе
+    # Docker пришлёт SIGKILL раньше, чем воркер успеет дождаться уже
+    # запущенных обработчиков естественного завершения (без этого запаса
+    # graceful drain бессмысленен: рестарт/деплой убивал бы контейнер по
+    # старому дефолту 10с, как и до этого фикса).
+    stop_grace_period: 35s
 
   celery:
     build:

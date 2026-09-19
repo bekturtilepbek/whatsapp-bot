@@ -12,7 +12,11 @@ export function Tabs({ children, ariaLabel }: TabsProps) {
       // overflow-x-auto + flex-nowrap: если вкладки не помещаются (узкое
       // окно), скроллится САМА полоска вкладок — не вся страница (см.
       // комментарий в app/layout.tsx о найденном при живой проверке баге).
-      className="mb-6 flex flex-nowrap gap-6 overflow-x-auto border-b border-border"
+      // overflow-y-hidden обязателен рядом: без него браузер по спеке CSS
+      // сам домысливает overflow-y как auto (раз overflow-x не visible), и
+      // сабпиксельная нестыковка высоты между nav и дочерними TabLink (~0.2px)
+      // включает вечно видимый вертикальный скроллбар на полоске вкладок.
+      className="mb-6 flex flex-nowrap gap-6 overflow-x-auto overflow-y-hidden border-b border-border"
     >
       {children}
     </nav>

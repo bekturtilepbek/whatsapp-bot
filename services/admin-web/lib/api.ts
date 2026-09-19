@@ -63,9 +63,9 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   model: AVAILABLE_MODELS[0],
 };
 
-/** Срезает завершающие "/" — оператор мог вписать NEXT_PUBLIC_API_URL/
- * API_INTERNAL_URL в прод .env с хвостовым слэшем, иначе получаем двойной
- * слэш в пути (`http://host:8000//bots`). Не экспортируется — деталь модуля. */
+/** Срезает завершающие "/" — оператор мог вписать API_INTERNAL_URL в прод
+ * .env с хвостовым слэшем, иначе получаем двойной слэш в пути
+ * (`http://host:8000//bots`). Не экспортируется — деталь модуля. */
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, "");
 }

@@ -20,9 +20,12 @@ def make_redis() -> Redis:
     # socket_keepalive снижает риск, но не гарантирует: тихо потерянное сетью
     # (напр. Docker Desktop/WSL2 NAT) TCP-соединение может всё равно оставить
     # чтение висеть без ответа. socket_timeout — вторая линия защиты.
-    return Redis.from_url(
+    # Явная аннотация — Redis.from_url типизирован как Any в redis-py
+    # (тот же паттерн, что api/redis_client.py::get_redis).
+    client: Redis = Redis.from_url(
         url, decode_responses=True, socket_keepalive=True, socket_timeout=15
     )
+    return client
 
 
 async def publish(redis: Redis, stream: str, event: dict[str, Any]) -> None:

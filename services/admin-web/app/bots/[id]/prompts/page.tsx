@@ -9,16 +9,15 @@ export default async function BotPromptsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
-  if (!bot) {
-    notFound();
-  }
-
-  const [mainVersions, imageVersions, pdfVersions] = await Promise.all([
+  const [bot, mainVersions, imageVersions, pdfVersions] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
     fetchPromptVersions(API_INTERNAL_URL, id, "main"),
     fetchPromptVersions(API_INTERNAL_URL, id, "image"),
     fetchPromptVersions(API_INTERNAL_URL, id, "pdf"),
   ]);
+  if (!bot) {
+    notFound();
+  }
 
   return (
     <main className="space-y-10">

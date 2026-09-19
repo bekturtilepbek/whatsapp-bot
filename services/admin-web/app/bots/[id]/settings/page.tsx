@@ -12,13 +12,15 @@ export default async function BotSettingsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
+  const [bot, tools] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
+    fetchBotTools(API_INTERNAL_URL, id),
+  ]);
   if (!bot) {
     notFound();
   }
 
   const initialSettings = { ...DEFAULT_BOT_SETTINGS, ...bot.settings };
-  const tools = await fetchBotTools(API_INTERNAL_URL, id);
   const telegramLeadBinding = tools.find((t) => t.tool_name === "send_telegram_lead") ?? null;
 
   return (

@@ -9,11 +9,13 @@ export default async function BotDocumentsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
+  const [bot, documents] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
+    fetchDocuments(API_INTERNAL_URL, id),
+  ]);
   if (!bot) {
     notFound();
   }
-  const documents = await fetchDocuments(API_INTERNAL_URL, id);
 
   return (
     <main>

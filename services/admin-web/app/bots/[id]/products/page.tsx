@@ -16,11 +16,13 @@ export default async function BotProductsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
+  const [bot, products] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
+    fetchProducts(API_INTERNAL_URL, id, { limit: PRODUCTS_PAGE_SIZE }),
+  ]);
   if (!bot) {
     notFound();
   }
-  const products = await fetchProducts(API_INTERNAL_URL, id, { limit: PRODUCTS_PAGE_SIZE });
 
   return (
     <main>

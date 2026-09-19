@@ -14,11 +14,13 @@ export default async function BotBlockedNumbersPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
+  const [bot, numbers] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
+    fetchBlockedNumbers(API_INTERNAL_URL, id, { limit: BLOCKED_PAGE_SIZE }),
+  ]);
   if (!bot) {
     notFound();
   }
-  const numbers = await fetchBlockedNumbers(API_INTERNAL_URL, id, { limit: BLOCKED_PAGE_SIZE });
 
   return (
     <main>

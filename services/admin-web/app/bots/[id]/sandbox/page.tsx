@@ -6,11 +6,10 @@ import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function SandboxPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!(await currentUserIsOwner())) {
+  const [isOwner, bot] = await Promise.all([currentUserIsOwner(), fetchBot(API_INTERNAL_URL, id)]);
+  if (!isOwner) {
     redirect(`/bots/${id}`);
   }
-
-  const bot = await fetchBot(API_INTERNAL_URL, id);
   if (!bot) {
     notFound();
   }

@@ -5,7 +5,13 @@ interface TableProps {
 }
 
 const WRAPPER_CLASSES = [
-  "overflow-x-auto rounded-2xl border border-border bg-surface shadow-card",
+  // overflow-y-hidden обязателен рядом с overflow-x-auto: без него браузер по
+  // спеке CSS домысливает overflow-y как auto (раз overflow-x не visible), и
+  // любая сабпиксельная нестыковка высоты строк включает вечно видимый
+  // вертикальный скроллбар — реально воспроизведено на components/ui/Tabs.tsx
+  // (2026-09-19), тот же класс контейнера, тот же фикс на будущее для ЛЮБОЙ
+  // таблицы через этот компонент.
+  "overflow-x-auto overflow-y-hidden rounded-2xl border border-border bg-surface shadow-card",
   "[&_table]:w-full [&_table]:border-collapse",
   "[&_th]:border-b [&_th]:border-border [&_th]:bg-surface-alt [&_th]:px-4 [&_th]:py-2.5",
   "[&_th]:text-left [&_th]:text-[11px] [&_th]:font-semibold [&_th]:uppercase",

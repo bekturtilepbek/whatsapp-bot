@@ -224,7 +224,7 @@ export class SessionManager {
   }
 
   private async connect(botId: string, attempt: number): Promise<void> {
-    const auth = await usePostgresAuthState(this.pool, botId);
+    const auth = await usePostgresAuthState(this.pool, botId, this.logger);
     const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
 
     const sock = makeWASocket({

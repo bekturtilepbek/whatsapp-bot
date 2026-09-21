@@ -1,6 +1,20 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import type { TransportLogger } from "../logger.js";
 import { usePostgresAuthState } from "./postgres-auth-state.js";
+
+function makeMockLogger(): TransportLogger {
+  const logger: TransportLogger = {
+    level: "info",
+    child: () => logger,
+    trace: vi.fn(),
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+  return logger;
+}
 
 /** Мок Pool поверх Map<botId, auth_state text> — эмулирует одну строку bot_sessions. */
 function makeMockPool(): { pool: Pool; rows: Map<string, string>; queryCalls: string[] } {
@@ -33,14 +47,14 @@ describe("usePostgresAuthState", () => {
 
   it("initialises fresh creds for a bot with no stored row", async () => {
     const { pool } = makeMockPool();
-    const auth = await usePostgresAuthState(pool, "bot-1");
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
     expect(auth.state.creds.registered).toBe(false);
     expect(auth.state.creds.nextPreKeyId).toBe(1);
   });
 
   it("saveCreds persists immediately, without debounce", async () => {
     const { pool, rows, queryCalls } = makeMockPool();
-    const auth = await usePostgresAuthState(pool, "bot-1");
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
 
     (auth.state.creds as { registered: boolean }).registered = true;
     await auth.saveCreds();
@@ -53,7 +67,7 @@ describe("usePostgresAuthState", () => {
 
   it("keys.set() debounces the write instead of flushing synchronously", async () => {
     const { pool, rows } = makeMockPool();
-    const auth = await usePostgresAuthState(pool, "bot-1");
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
 
     await auth.state.keys.set({ "pre-key": { "1": { public: new Uint8Array([1, 2, 3]) } } });
     expect(rows.has("bot-1")).toBe(false); // ещё не сброшено
@@ -64,7 +78,7 @@ describe("usePostgresAuthState", () => {
 
   it("dispose() flushes pending key writes synchronously", async () => {
     const { pool, rows } = makeMockPool();
-    const auth = await usePostgresAuthState(pool, "bot-1");
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
 
     await auth.state.keys.set({ session: { "device-1": new Uint8Array([9, 9]) } });
     await auth.dispose();
@@ -74,21 +88,68 @@ describe("usePostgresAuthState", () => {
 
   it("round-trips Buffer/Uint8Array values via BufferJSON across reload", async () => {
     const { pool } = makeMockPool();
-    const first = await usePostgresAuthState(pool, "bot-1");
+    const first = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
     await first.state.keys.set({ "pre-key": { "7": { public: new Uint8Array([5, 6, 7]) } } });
     await first.dispose();
 
-    const second = await usePostgresAuthState(pool, "bot-1");
+    const second = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
     const reloaded = second.state.keys.get("pre-key", ["7"]);
     expect(Array.from(reloaded["7"].public as Uint8Array)).toEqual([5, 6, 7]);
   });
 
   it("keys.get() returns only requested ids that exist", async () => {
     const { pool } = makeMockPool();
-    const auth = await usePostgresAuthState(pool, "bot-1");
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
     await auth.state.keys.set({ session: { a: new Uint8Array([1]), b: new Uint8Array([2]) } });
 
     const result = auth.state.keys.get("session", ["a", "missing"]);
     expect(Object.keys(result)).toEqual(["a"]);
+  });
+
+  it("a failed keys flush is logged, not thrown, and stays pending for retry", async () => {
+    const { pool, rows } = makeMockPool();
+    let shouldFail = true;
+    const flakyPool = {
+      query: vi.fn(async (sql: string, params: unknown[]) => {
+        if (sql.startsWith("INSERT") && shouldFail) throw new Error("connection reset");
+        return pool.query(sql, params);
+      }),
+    } as unknown as Pool;
+    const logger = makeMockLogger();
+    const auth = await usePostgresAuthState(flakyPool, "bot-1", logger);
+
+    // set() внутри не await'ит flush — падение debounce-таймера не должно
+    // всплыть наружу как unhandledRejection.
+    await auth.state.keys.set({ session: { a: new Uint8Array([1]) } });
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(rows.has("bot-1")).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot-1" }),
+      expect.stringContaining("flush failed"),
+    );
+
+    // keysDirty остался true после сбоя — следующий flush всё же пишет.
+    shouldFail = false;
+    await auth.dispose();
+    expect(rows.has("bot-1")).toBe(true);
+  });
+
+  it("a failed creds persist is logged, not thrown", async () => {
+    const failingPool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.startsWith("SELECT")) return { rows: [{ auth_state_text: null }] };
+        throw new Error("connection reset");
+      }),
+    } as unknown as Pool;
+    const logger = makeMockLogger();
+    const auth = await usePostgresAuthState(failingPool, "bot-1", logger);
+
+    (auth.state.creds as { registered: boolean }).registered = true;
+    await expect(auth.saveCreds()).resolves.toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot-1" }),
+      expect.stringContaining("creds persist failed"),
+    );
   });
 });

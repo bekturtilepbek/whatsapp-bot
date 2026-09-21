@@ -18,6 +18,8 @@ import type {
 } from "@whiskeysockets/baileys";
 import { BufferJSON, initAuthCreds } from "@whiskeysockets/baileys";
 
+import type { TransportLogger } from "../logger.js";
+
 type KeysByType = { [T in keyof SignalDataTypeMap]?: Record<string, SignalDataTypeMap[T]> };
 
 interface StoredAuthState {
@@ -64,7 +66,11 @@ export interface PostgresAuthState {
   dispose: () => Promise<void>;
 }
 
-export async function usePostgresAuthState(pool: Pool, botId: string): Promise<PostgresAuthState> {
+export async function usePostgresAuthState(
+  pool: Pool,
+  botId: string,
+  logger: TransportLogger,
+): Promise<PostgresAuthState> {
   const stored = await loadStoredState(pool, botId);
   let keysFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let keysDirty = false;
@@ -76,7 +82,18 @@ export async function usePostgresAuthState(pool: Pool, botId: string): Promise<P
     }
     if (!keysDirty) return;
     keysDirty = false;
-    await persist(pool, botId, stored);
+    try {
+      await persist(pool, botId, stored);
+    } catch (err) {
+      // Флаш вызывается из setTimeout, вне какой-либо цепочки await у
+      // вызывающего кода — необработанное исключение здесь становится
+      // unhandledRejection и роняет ВЕСЬ процесс gateway, обрывая сессии
+      // ВСЕХ ботов на узле, а не только этого (найдено живой ревизией
+      // 8.4, 2026-09-21). keysDirty возвращаем в true — несохранённые
+      // ключи не теряются молча, следующий set() перепланирует flush.
+      keysDirty = true;
+      logger.error({ err, botId }, "auth-state keys flush failed, will retry on next update");
+    }
   };
 
   const scheduleKeysFlush = (): void => {
@@ -90,7 +107,14 @@ export async function usePostgresAuthState(pool: Pool, botId: string): Promise<P
 
   const saveCreds = async (): Promise<void> => {
     // Немедленно, без debounce: обновление creds никогда не должно теряться.
-    await persist(pool, botId, stored);
+    // Baileys вызывает это как слушатель "creds.update" и не await'ит/не
+    // ловит результат — необработанное исключение здесь тоже уронит весь
+    // процесс (тот же класс бага, что и flushKeysNow выше).
+    try {
+      await persist(pool, botId, stored);
+    } catch (err) {
+      logger.error({ err, botId }, "auth-state creds persist failed");
+    }
   };
 
   const state: AuthenticationState = {

@@ -17,7 +17,7 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product
-from db.product_images import create_product_image
+from db.product_media import create_product_media_item
 from db.products import (
     create_product,
     delete_product,
@@ -305,14 +305,14 @@ async def test_delete_product_scoped_per_bot(session: AsyncSession) -> None:
     assert await get_product(session, bot_a, product.id) is not None
 
 
-async def test_delete_product_with_photos_does_not_raise(session: AsyncSession) -> None:
+async def test_delete_product_with_media_does_not_raise(session: AsyncSession) -> None:
     # Регрессия финального ревью Волны 3 (2026-09-10): без passive_deletes=True
-    # на Product.photos SQLAlchemy перед DELETE родителя сам грузит коллекцию
-    # и шлёт UPDATE product_images SET product_id=NULL — падает на NOT NULL
+    # на Product.media SQLAlchemy перед DELETE родителя сам грузит коллекцию
+    # и шлёт UPDATE product_media SET product_id=NULL — падает на NOT NULL
     # constraint, а ON DELETE CASCADE в БД до этого не доходит.
     bot_id = await _make_bot(session)
     product = await create_product(session, bot_id, name="Товар с фото")
-    await create_product_image(
+    await create_product_media_item(
         session, product.id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
@@ -321,39 +321,39 @@ async def test_delete_product_with_photos_does_not_raise(session: AsyncSession) 
     assert await get_product(session, bot_id, product.id) is None
 
 
-async def test_get_product_without_with_images_does_not_load_photos(session: AsyncSession) -> None:
+async def test_get_product_without_with_media_does_not_load_media(session: AsyncSession) -> None:
     bot_id = await _make_bot(session)
     product = await create_product(session, bot_id, name="Товар")
-    await create_product_image(
+    await create_product_media_item(
         session, product.id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
     fetched = await get_product(session, bot_id, product.id)
     assert fetched is not None
-    with pytest.raises(InvalidRequestError):  # lazy="raise" — доступ без with_images кидает это
-        _ = fetched.photos
+    with pytest.raises(InvalidRequestError):  # lazy="raise" — доступ без with_media кидает это
+        _ = fetched.media
 
 
-async def test_get_product_with_images_loads_photos(session: AsyncSession) -> None:
+async def test_get_product_with_media_loads_media(session: AsyncSession) -> None:
     bot_id = await _make_bot(session)
     product = await create_product(session, bot_id, name="Товар")
-    await create_product_image(
+    await create_product_media_item(
         session, product.id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
-    fetched = await get_product(session, bot_id, product.id, with_images=True)
+    fetched = await get_product(session, bot_id, product.id, with_media=True)
     assert fetched is not None
-    assert len(fetched.photos) == 1
-    assert fetched.photos[0].storage_key == "k"
+    assert len(fetched.media) == 1
+    assert fetched.media[0].storage_key == "k"
 
 
-async def test_list_products_with_images_loads_photos_for_every_row(session: AsyncSession) -> None:
+async def test_list_products_with_media_loads_media_for_every_row(session: AsyncSession) -> None:
     bot_id = await _make_bot(session)
     product = await create_product(session, bot_id, name="Товар")
-    await create_product_image(
+    await create_product_media_item(
         session, product.id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
-    products = await list_products(session, bot_id, with_images=True)
+    products = await list_products(session, bot_id, with_media=True)
     assert len(products) == 1
-    assert len(products[0].photos) == 1
+    assert len(products[0].media) == 1

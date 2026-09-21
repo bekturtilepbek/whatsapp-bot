@@ -16,8 +16,8 @@ vi.mock("@/lib/api", async () => {
     ...actual,
     createProduct: vi.fn(),
     updateProduct: vi.fn(),
-    addProductPhotos: vi.fn(),
-    deleteProductPhoto: vi.fn(),
+    addProductMedia: vi.fn(),
+    deleteProductMedia: vi.fn(),
   };
 });
 
@@ -28,12 +28,16 @@ const existingProduct: Product = {
   sku: "SKU-1",
   description: "Старое описание",
   display_custom: {},
-  photos: [{ id: "ph1", position: 0 }],
+  media: [{ id: "ph1", position: 0, mime_type: "image/jpeg" }],
   created_at: "2026-09-10T10:00:00Z",
 };
 
 function makeFile(name = "photo.jpg"): File {
   return new File(["fake bytes"], name, { type: "image/jpeg" });
+}
+
+function makeVideoFile(name = "clip.mp4"): File {
+  return new File(["fake video bytes"], name, { type: "video/mp4" });
 }
 
 afterEach(() => {
@@ -61,13 +65,13 @@ it("rejects an empty name without calling the api", async () => {
   expect(api.createProduct).not.toHaveBeenCalled();
 });
 
-it("rejects submit in create mode without a photo", async () => {
+it("rejects submit in create mode without any media", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
-  expect(await screen.findByRole("alert")).toHaveTextContent(/фото/i);
+  expect(await screen.findByRole("alert")).toHaveTextContent(/фото или видео/i);
   expect(api.createProduct).not.toHaveBeenCalled();
 });
 
@@ -77,7 +81,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
   const photo = makeFile();
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Новый товар" } });
-  fireEvent.change(screen.getByLabelText(/фото/i), { target: { files: [photo] } });
+  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [photo] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -92,7 +96,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
   expect(screen.getByRole("status")).toHaveTextContent(/товар сохранён/i);
 });
 
-it("updates an existing product's text fields (photos untouched by this save)", async () => {
+it("updates an existing product's text fields (media untouched by this save)", async () => {
   vi.mocked(api.updateProduct).mockResolvedValue(existingProduct);
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
 
@@ -115,7 +119,7 @@ it("sends display_custom only when the override checkbox is on", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/фото/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByLabelText(/переопределить вывод/i));
   fireEvent.click(screen.getByLabelText(/показывать цену/i));
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
@@ -147,7 +151,7 @@ it("shows an error when saving fails", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/фото/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -155,62 +159,94 @@ it("shows an error when saving fails", async () => {
   });
 });
 
-it("does not render a photo input in edit mode (photos have their own section)", () => {
+it("does not render a media input in edit mode (media has its own section)", () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
-  expect(screen.queryByLabelText(/^фото$/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^фото и видео$/i)).not.toBeInTheDocument();
 });
 
 it("renders existing photos with a delete button in edit mode", () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
-  expect(screen.getByRole("img", { name: /фото товара/i })).toHaveAttribute(
+  expect(screen.getByRole("img", { name: /медиа товара/i })).toHaveAttribute(
     "src",
-    "http://api/bots/1/products/p1/photos/ph1",
+    "http://api/bots/1/products/p1/media/ph1",
   );
-  expect(screen.getByRole("button", { name: /удалить фото/i })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^удалить$/i })).toBeInTheDocument();
 });
 
-it("disables the delete button when it is the only photo", () => {
-  render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
-  expect(screen.getByRole("button", { name: /удалить фото/i })).toBeDisabled();
-});
-
-it("enables delete and removes the photo from view when there is more than one", async () => {
-  const twoPhotos: Product = {
+it("renders a video item as a <video>, not an <img>", () => {
+  const withVideo: Product = {
     ...existingProduct,
-    photos: [
-      { id: "ph1", position: 0 },
-      { id: "ph2", position: 1 },
+    media: [
+      { id: "ph1", position: 0, mime_type: "image/jpeg" },
+      { id: "vid1", position: 1, mime_type: "video/mp4" },
     ],
   };
-  vi.mocked(api.deleteProductPhoto).mockResolvedValue(undefined);
-  render(<ProductForm botId="1" apiBaseUrl="http://api" product={twoPhotos} />);
+  render(<ProductForm botId="1" apiBaseUrl="http://api" product={withVideo} />);
 
-  const deleteButtons = screen.getAllByRole("button", { name: /удалить фото/i });
+  expect(screen.getAllByRole("img", { name: /медиа товара/i })).toHaveLength(1);
+  const video = document.querySelector("video");
+  expect(video).not.toBeNull();
+  expect(video).toHaveAttribute("src", "http://api/bots/1/products/p1/media/vid1");
+});
+
+it("disables the delete button when it is the only media item", () => {
+  render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
+  expect(screen.getByRole("button", { name: /^удалить$/i })).toBeDisabled();
+});
+
+it("enables delete and removes the item from view when there is more than one", async () => {
+  const twoItems: Product = {
+    ...existingProduct,
+    media: [
+      { id: "ph1", position: 0, mime_type: "image/jpeg" },
+      { id: "ph2", position: 1, mime_type: "image/jpeg" },
+    ],
+  };
+  vi.mocked(api.deleteProductMedia).mockResolvedValue(undefined);
+  render(<ProductForm botId="1" apiBaseUrl="http://api" product={twoItems} />);
+
+  const deleteButtons = screen.getAllByRole("button", { name: /^удалить$/i });
   expect(deleteButtons[0]).not.toBeDisabled();
   fireEvent.click(deleteButtons[0]);
 
   await waitFor(() => {
-    expect(api.deleteProductPhoto).toHaveBeenCalledWith("http://api", "1", "p1", "ph1");
+    expect(api.deleteProductMedia).toHaveBeenCalledWith("http://api", "1", "p1", "ph1");
   });
   await waitFor(() => {
-    expect(screen.getAllByRole("img", { name: /фото товара/i })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: /медиа товара/i })).toHaveLength(1);
   });
-  expect(screen.getByRole("status")).toHaveTextContent(/фото удалено/i);
+  expect(screen.getByRole("status")).toHaveTextContent(/медиа удалено/i);
 });
 
-it("adds a photo via the file input in edit mode", async () => {
-  const added = [{ id: "ph2", position: 1 }];
-  vi.mocked(api.addProductPhotos).mockResolvedValue(added);
+it("adds media via the file input in edit mode", async () => {
+  const added = [{ id: "ph2", position: 1, mime_type: "image/jpeg" }];
+  vi.mocked(api.addProductMedia).mockResolvedValue(added);
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
   const photo = makeFile("new.jpg");
 
   fireEvent.change(screen.getByLabelText(/добавить ещё/i), { target: { files: [photo] } });
 
   await waitFor(() => {
-    expect(api.addProductPhotos).toHaveBeenCalledWith("http://api", "1", "p1", [photo]);
+    expect(api.addProductMedia).toHaveBeenCalledWith("http://api", "1", "p1", [photo]);
   });
   await waitFor(() => {
-    expect(screen.getAllByRole("img", { name: /фото товара/i })).toHaveLength(2);
+    expect(screen.getAllByRole("img", { name: /медиа товара/i })).toHaveLength(2);
   });
-  expect(screen.getByRole("status")).toHaveTextContent(/фото добавлено/i);
+  expect(screen.getByRole("status")).toHaveTextContent(/медиа добавлено/i);
+});
+
+it("adds a video via the file input in edit mode", async () => {
+  const added = [{ id: "vid1", position: 1, mime_type: "video/mp4" }];
+  vi.mocked(api.addProductMedia).mockResolvedValue(added);
+  render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
+  const video = makeVideoFile();
+
+  fireEvent.change(screen.getByLabelText(/добавить ещё/i), { target: { files: [video] } });
+
+  await waitFor(() => {
+    expect(api.addProductMedia).toHaveBeenCalledWith("http://api", "1", "p1", [video]);
+  });
+  await waitFor(() => {
+    expect(document.querySelector("video")).not.toBeNull();
+  });
 });

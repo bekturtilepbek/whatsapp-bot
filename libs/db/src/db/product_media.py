@@ -1,4 +1,4 @@
-"""Фото товара (FEATURES.md 4.3/4.4/6.8) — чтение и запись."""
+"""Медиа товара — фото и видео (FEATURES.md 4.3/4.4/4.9/6.8) — чтение и запись."""
 
 from __future__ import annotations
 
@@ -7,34 +7,34 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import ProductImage
+from .models import ProductMedia
 
 
-async def list_product_images(session: AsyncSession, product_id: uuid.UUID) -> list[ProductImage]:
+async def list_product_media(session: AsyncSession, product_id: uuid.UUID) -> list[ProductMedia]:
     stmt = (
-        select(ProductImage)
-        .where(ProductImage.product_id == product_id)
-        .order_by(ProductImage.position)
+        select(ProductMedia)
+        .where(ProductMedia.product_id == product_id)
+        .order_by(ProductMedia.position)
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def get_product_image(
-    session: AsyncSession, product_id: uuid.UUID, photo_id: uuid.UUID
-) -> ProductImage | None:
-    """Скоуп по product_id И photo_id вместе — чужое фото не находится
+async def get_product_media_item(
+    session: AsyncSession, product_id: uuid.UUID, media_id: uuid.UUID
+) -> ProductMedia | None:
+    """Скоуп по product_id И media_id вместе — чужой элемент не находится
     (тот же принцип, что db.products.get_product). Вызывающий (api-роутер)
     сам уже проверил, что product_id принадлежит нужному bot_id, до этого
     вызова — здесь второй уровень скоупа поверх первого."""
-    stmt = select(ProductImage).where(
-        ProductImage.product_id == product_id, ProductImage.id == photo_id
+    stmt = select(ProductMedia).where(
+        ProductMedia.product_id == product_id, ProductMedia.id == media_id
     )
     result = await session.execute(stmt)
     return result.scalars().first()
 
 
-async def create_product_image(
+async def create_product_media_item(
     session: AsyncSession,
     product_id: uuid.UUID,
     *,
@@ -42,29 +42,29 @@ async def create_product_image(
     storage_key: str,
     mime_type: str,
     position: int,
-) -> ProductImage:
+) -> ProductMedia:
     """id передаётся явно (не полагаемся на server_default) — storage_key
-    строится из photo_id ДО вставки строки (см. api.product_photos), а
+    строится из media_id ДО вставки строки (см. api.product_media), а
     Storage.put() должен успеть до commit, значит id нужен заранее."""
-    image = ProductImage(
+    media = ProductMedia(
         id=id,
         product_id=product_id,
         storage_key=storage_key,
         mime_type=mime_type,
         position=position,
     )
-    session.add(image)
+    session.add(media)
     await session.flush()
-    return image
+    return media
 
 
-async def delete_product_image(
-    session: AsyncSession, product_id: uuid.UUID, photo_id: uuid.UUID
+async def delete_product_media_item(
+    session: AsyncSession, product_id: uuid.UUID, media_id: uuid.UUID
 ) -> bool:
-    image = await get_product_image(session, product_id, photo_id)
-    if image is None:
+    media = await get_product_media_item(session, product_id, media_id)
+    if media is None:
         return False
-    await session.delete(image)
+    await session.delete(media)
     await session.flush()
     return True
 
@@ -74,8 +74,8 @@ async def next_position(session: AsyncSession, product_id: uuid.UUID) -> int:
     переиспользовать их нельзя (UniqueConstraint(product_id, position) не
     единственная причина: две функции, использующие переиспользованную
     позицию, легко перезаписали бы друг друга по смыслу порядка)."""
-    stmt = select(func.coalesce(func.max(ProductImage.position), -1) + 1).where(
-        ProductImage.product_id == product_id
+    stmt = select(func.coalesce(func.max(ProductMedia.position), -1) + 1).where(
+        ProductMedia.product_id == product_id
     )
     result = await session.execute(stmt)
     return result.scalar_one()

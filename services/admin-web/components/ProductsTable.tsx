@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { deleteProduct, fetchProducts, productPhotoUrl, type Product } from "@/lib/api";
+import { deleteProduct, fetchProducts, productMediaUrl, type Product } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { MediaThumbnail } from "@/components/ui/MediaThumbnail";
 import { Table } from "@/components/ui/Table";
 
 interface ProductsTableProps {
@@ -90,9 +91,10 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
             {rows.map((product) => (
               <tr key={product.id}>
                 <td>
-                  {product.photos[0] && (
-                    <img
-                      src={productPhotoUrl(apiBaseUrl, botId, product.id, product.photos[0].id)}
+                  {product.media[0] && (
+                    <MediaThumbnail
+                      src={productMediaUrl(apiBaseUrl, botId, product.id, product.media[0].id)}
+                      mimeType={product.media[0].mime_type}
                       alt={product.name}
                       className="h-12 w-12 rounded-lg object-cover"
                     />

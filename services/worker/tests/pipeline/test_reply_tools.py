@@ -265,7 +265,7 @@ async def test_tool_override_reply_sends_media_and_override_text_instead_of_llm_
         await redis.aclose()
 
 
-async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_photos(
+async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_media(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """FEATURES.md 4.3/4.4: LLM находит два товара за один ход — уходят

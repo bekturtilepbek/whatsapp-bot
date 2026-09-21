@@ -10,11 +10,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
-class ProductPhotoOut(BaseModel):
+class ProductMediaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     position: int
+    # Нужен фронту, чтобы решить, рендерить <img> или <video> (FEATURES.md
+    # 4.4 ревизия — раньше поле было строго фото, mime_type не отдавался).
+    mime_type: str
 
 
 class ProductOut(BaseModel):
@@ -26,7 +29,7 @@ class ProductOut(BaseModel):
     sku: str | None
     description: str | None
     display_custom: dict[str, Any]
-    photos: list[ProductPhotoOut]
+    media: list[ProductMediaOut]
     created_at: datetime
 
 

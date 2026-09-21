@@ -92,8 +92,8 @@ def _tiny_jpeg_bytes(*, size: tuple[int, int] = (20, 20)) -> bytes:
     return buf.getvalue()
 
 
-def _photo_file(name: str = "photo.jpg") -> tuple[str, tuple[str, bytes, str]]:
-    return ("photos", (name, _tiny_jpeg_bytes(), "image/jpeg"))
+def _media_file(name: str = "photo.jpg") -> tuple[str, tuple[str, bytes, str]]:
+    return ("media", (name, _tiny_jpeg_bytes(), "image/jpeg"))
 
 
 @pytest.fixture
@@ -142,7 +142,7 @@ async def test_create_product_requires_name(
 ) -> None:
     bot_id = await _make_bot(session_factory)
     response = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "   "}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "   "}, files=[_media_file()]
     )
     assert response.status_code == 422
 
@@ -151,7 +151,7 @@ async def test_create_product_for_unknown_bot_returns_404(
     client: httpx.AsyncClient,
 ) -> None:
     response = await client.post(
-        f"/bots/{uuid.uuid4()}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{uuid.uuid4()}/products", data={"name": "Товар"}, files=[_media_file()]
     )
     assert response.status_code == 404
 
@@ -167,13 +167,13 @@ async def test_create_computes_embedding_and_returns_product(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Кроссовки", "description": "Беговые", "price": "5000"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == "Кроссовки"
     assert body["price"] == "5000"
-    assert len(body["photos"]) == 1
+    assert len(body["media"]) == 1
 
     async with session_factory() as session:
         from db.product_embeddings import find_product_by_embedding
@@ -194,7 +194,7 @@ async def test_create_product_with_valid_display_custom_object(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "display_custom": '{"show_price": false}'},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
 
     assert response.status_code == 201
@@ -209,7 +209,7 @@ async def test_create_product_with_invalid_json_display_custom_returns_422(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "display_custom": "not json"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
 
     assert response.status_code == 422
@@ -223,7 +223,7 @@ async def test_create_product_with_non_object_display_custom_returns_422(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "display_custom": "[1,2,3]"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
 
     assert response.status_code == 422
@@ -238,19 +238,19 @@ async def test_create_list_get_flow(
     bot_id = await _make_bot(session_factory)
 
     created = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
     )
     product_id = created.json()["id"]
 
     listing = await client.get(f"/bots/{bot_id}/products")
     assert listing.status_code == 200
     assert [p["id"] for p in listing.json()] == [product_id]
-    assert len(listing.json()[0]["photos"]) == 1
+    assert len(listing.json()[0]["media"]) == 1
 
     fetched = await client.get(f"/bots/{bot_id}/products/{product_id}")
     assert fetched.status_code == 200
     assert fetched.json()["id"] == product_id
-    assert len(fetched.json()["photos"]) == 1
+    assert len(fetched.json()["media"]) == 1
 
 
 async def test_list_products_respects_limit_and_offset(
@@ -261,7 +261,7 @@ async def test_list_products_respects_limit_and_offset(
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
     for name in ("Апельсины", "Бананы", "Вишня"):
-        await client.post(f"/bots/{bot_id}/products", data={"name": name}, files=[_photo_file()])
+        await client.post(f"/bots/{bot_id}/products", data={"name": name}, files=[_media_file()])
 
     first_page = await client.get(f"/bots/{bot_id}/products", params={"limit": 2})
     assert first_page.status_code == 200
@@ -324,7 +324,7 @@ async def test_patch_price_only_does_not_recompute_embedding(
     created = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "description": "Описание"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
     product_id = created.json()["id"]
     assert calls == 1  # создание всегда считает эмбеддинг
@@ -351,7 +351,7 @@ async def test_patch_description_recomputes_embedding(
     created = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "description": "Старое"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
     product_id = created.json()["id"]
     assert calls == 1
@@ -380,7 +380,7 @@ async def test_patch_description_same_value_does_not_recompute_embedding(
     created = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "description": "Без изменений"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
     product_id = created.json()["id"]
     assert calls == 1
@@ -408,7 +408,7 @@ async def test_create_rejects_product_when_embedding_fails(
     bot_id = await _make_bot(session_factory)
 
     response = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
     )
 
     assert response.status_code == 502
@@ -429,7 +429,7 @@ async def test_patch_rejects_update_when_embedding_fails(
     created = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар", "description": "Старое", "price": "100"},
-        files=[_photo_file()],
+        files=[_media_file()],
     )
     product_id = created.json()["id"]
 
@@ -453,7 +453,7 @@ async def test_delete_product_removes_it(
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
     created = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
     )
     product_id = created.json()["id"]
 
@@ -463,7 +463,7 @@ async def test_delete_product_removes_it(
     assert (await client.get(f"/bots/{bot_id}/products/{product_id}")).status_code == 404
 
 
-async def test_create_product_without_photos_returns_422(
+async def test_create_product_without_media_returns_422(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
@@ -478,7 +478,7 @@ async def test_create_product_rejects_unsupported_mime_type(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар"},
-        files=[("photos", ("file.txt", b"not an image", "text/plain"))],
+        files=[("media", ("file.txt", b"not an image", "text/plain"))],
     )
     assert response.status_code == 422
 
@@ -490,43 +490,43 @@ async def test_create_product_rejects_corrupt_image(
     response = await client.post(
         f"/bots/{bot_id}/products",
         data={"name": "Товар"},
-        files=[("photos", ("photo.jpg", b"garbage bytes, not a real jpeg", "image/jpeg"))],
+        files=[("media", ("photo.jpg", b"garbage bytes, not a real jpeg", "image/jpeg"))],
     )
     assert response.status_code == 422
 
 
-async def test_create_product_rejects_more_than_max_photos(
+async def test_create_product_rejects_more_than_max_media(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # products_module импортировал MAX_PHOTOS_PER_PRODUCT через
-    # "from ..product_photos import MAX_PHOTOS_PER_PRODUCT" — это отдельное
+    # products_module импортировал MAX_MEDIA_PER_PRODUCT через
+    # "from ..product_media import MAX_MEDIA_PER_PRODUCT" — это отдельное
     # имя в его собственном namespace, патчить нужно именно его; патч
-    # "api.product_photos.MAX_PHOTOS_PER_PRODUCT" на уже импортированную
+    # "api.product_media.MAX_MEDIA_PER_PRODUCT" на уже импортированную
     # константу в products_module никак не повлияет.
-    monkeypatch.setattr(products_module, "MAX_PHOTOS_PER_PRODUCT", 2)
+    monkeypatch.setattr(products_module, "MAX_MEDIA_PER_PRODUCT", 2)
     bot_id = await _make_bot(session_factory)
-    files = [_photo_file(f"photo{i}.jpg") for i in range(3)]
+    files = [_media_file(f"photo{i}.jpg") for i in range(3)]
     response = await client.post(f"/bots/{bot_id}/products", data={"name": "Товар"}, files=files)
     assert response.status_code == 422
 
 
-async def test_create_product_stores_multiple_photos_in_order(
+async def test_create_product_stores_multiple_media_items_in_order(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    files = [_photo_file("a.jpg"), _photo_file("b.jpg")]
+    files = [_media_file("a.jpg"), _media_file("b.jpg")]
 
     response = await client.post(f"/bots/{bot_id}/products", data={"name": "Товар"}, files=files)
 
     assert response.status_code == 201
-    photos = response.json()["photos"]
-    assert len(photos) == 2
-    assert [p["position"] for p in photos] == [0, 1]
+    media = response.json()["media"]
+    assert len(media) == 2
+    assert [p["position"] for p in media] == [0, 1]
 
 
 async def test_create_product_rolls_back_when_storage_fails(
@@ -545,7 +545,7 @@ async def test_create_product_rolls_back_when_storage_fails(
     bot_id = await _make_bot(session_factory)
 
     response = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
     )
     assert response.status_code == 502
 
@@ -553,26 +553,26 @@ async def test_create_product_rolls_back_when_storage_fails(
     assert listing.json() == []
 
 
-async def _create_product_with_photos(
+async def _create_product_with_media(
     client: httpx.AsyncClient, bot_id: uuid.UUID, *, count: int = 1
 ) -> dict[str, object]:
-    files = [_photo_file(f"p{i}.jpg") for i in range(count)]
+    files = [_media_file(f"p{i}.jpg") for i in range(count)]
     response = await client.post(f"/bots/{bot_id}/products", data={"name": "Товар"}, files=files)
     assert response.status_code == 201
     return response.json()
 
 
-async def test_add_product_photos_appends_with_next_position(
+async def test_add_product_media_appends_with_next_position(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id)
+    product = await _create_product_with_media(client, bot_id)
 
     response = await client.post(
-        f"/bots/{bot_id}/products/{product['id']}/photos", files=[_photo_file("new.jpg")]
+        f"/bots/{bot_id}/products/{product['id']}/media", files=[_media_file("new.jpg")]
     )
 
     assert response.status_code == 201
@@ -581,111 +581,111 @@ async def test_add_product_photos_appends_with_next_position(
     assert added[0]["position"] == 1  # первое фото товара уже заняло 0
 
 
-async def test_add_product_photos_rejects_exceeding_max_total(
+async def test_add_product_media_rejects_exceeding_max_total(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
-    # Тот же нюанс, что в test_create_product_rejects_more_than_max_photos —
-    # патчить нужно имя в namespace products_module, не в product_photos.
-    monkeypatch.setattr(products_module, "MAX_PHOTOS_PER_PRODUCT", 2)
+    # Тот же нюанс, что в test_create_product_rejects_more_than_max_media —
+    # патчить нужно имя в namespace products_module, не в product_media.
+    monkeypatch.setattr(products_module, "MAX_MEDIA_PER_PRODUCT", 2)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=2)
+    product = await _create_product_with_media(client, bot_id, count=2)
 
     response = await client.post(
-        f"/bots/{bot_id}/products/{product['id']}/photos", files=[_photo_file("one_too_many.jpg")]
+        f"/bots/{bot_id}/products/{product['id']}/media", files=[_media_file("one_too_many.jpg")]
     )
 
     assert response.status_code == 422
 
 
-async def test_add_product_photos_for_unknown_product_returns_404(
+async def test_add_product_media_for_unknown_product_returns_404(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
     response = await client.post(
-        f"/bots/{bot_id}/products/{uuid.uuid4()}/photos", files=[_photo_file()]
+        f"/bots/{bot_id}/products/{uuid.uuid4()}/media", files=[_media_file()]
     )
     assert response.status_code == 404
 
 
-async def test_delete_product_photo_removes_it_when_not_the_last_one(
+async def test_delete_product_media_removes_it_when_not_the_last_one(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=2)
-    photo_id = product["photos"][0]["id"]
+    product = await _create_product_with_media(client, bot_id, count=2)
+    media_id = product["media"][0]["id"]
 
-    response = await client.delete(f"/bots/{bot_id}/products/{product['id']}/photos/{photo_id}")
+    response = await client.delete(f"/bots/{bot_id}/products/{product['id']}/media/{media_id}")
     assert response.status_code == 204
 
     fetched = await client.get(f"/bots/{bot_id}/products/{product['id']}")
-    assert len(fetched.json()["photos"]) == 1
+    assert len(fetched.json()["media"]) == 1
 
 
-async def test_delete_last_product_photo_returns_422(
+async def test_delete_last_product_media_returns_422(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=1)
-    photo_id = product["photos"][0]["id"]
+    product = await _create_product_with_media(client, bot_id, count=1)
+    media_id = product["media"][0]["id"]
 
-    response = await client.delete(f"/bots/{bot_id}/products/{product['id']}/photos/{photo_id}")
+    response = await client.delete(f"/bots/{bot_id}/products/{product['id']}/media/{media_id}")
     assert response.status_code == 422
 
     fetched = await client.get(f"/bots/{bot_id}/products/{product['id']}")
-    assert len(fetched.json()["photos"]) == 1
+    assert len(fetched.json()["media"]) == 1
 
 
-async def test_delete_product_photo_unknown_id_returns_404(
+async def test_delete_product_media_unknown_id_returns_404(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=1)
+    product = await _create_product_with_media(client, bot_id, count=1)
 
     response = await client.delete(
-        f"/bots/{bot_id}/products/{product['id']}/photos/{uuid.uuid4()}"
+        f"/bots/{bot_id}/products/{product['id']}/media/{uuid.uuid4()}"
     )
     assert response.status_code == 404
 
 
-async def test_get_product_photo_returns_bytes_with_content_type(
+async def test_get_product_media_returns_bytes_with_content_type(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=1)
-    photo_id = product["photos"][0]["id"]
+    product = await _create_product_with_media(client, bot_id, count=1)
+    media_id = product["media"][0]["id"]
 
-    response = await client.get(f"/bots/{bot_id}/products/{product['id']}/photos/{photo_id}")
+    response = await client.get(f"/bots/{bot_id}/products/{product['id']}/media/{media_id}")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert len(response.content) > 0
 
 
-async def test_get_product_photo_unknown_id_returns_404(
+async def test_get_product_media_unknown_id_returns_404(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
     bot_id = await _make_bot(session_factory)
-    product = await _create_product_with_photos(client, bot_id, count=1)
+    product = await _create_product_with_media(client, bot_id, count=1)
 
     response = await client.get(
-        f"/bots/{bot_id}/products/{product['id']}/photos/{uuid.uuid4()}"
+        f"/bots/{bot_id}/products/{product['id']}/media/{uuid.uuid4()}"
     )
     assert response.status_code == 404

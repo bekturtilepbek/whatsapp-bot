@@ -23,7 +23,7 @@ async def list_products(
     *,
     limit: int = DEFAULT_CATALOG_LIMIT,
     offset: int = 0,
-    with_images: bool = False,
+    with_media: bool = False,
 ) -> list[Product]:
     stmt = (
         select(Product)
@@ -32,8 +32,8 @@ async def list_products(
         .limit(limit)
         .offset(offset)
     )
-    if with_images:
-        stmt = stmt.options(selectinload(Product.photos))
+    if with_media:
+        stmt = stmt.options(selectinload(Product.media))
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
@@ -53,13 +53,13 @@ async def find_product_by_exact_name(
 
 
 async def get_product(
-    session: AsyncSession, bot_id: uuid.UUID, product_id: uuid.UUID, *, with_images: bool = False
+    session: AsyncSession, bot_id: uuid.UUID, product_id: uuid.UUID, *, with_media: bool = False
 ) -> Product | None:
     """Скоуп по bot_id И product_id вместе — товар чужого бота не должен
     быть виден даже как "существует, но 403", а просто не находится (404)."""
     stmt = select(Product).where(Product.bot_id == bot_id, Product.id == product_id)
-    if with_images:
-        stmt = stmt.options(selectinload(Product.photos))
+    if with_media:
+        stmt = stmt.options(selectinload(Product.media))
     result = await session.execute(stmt)
     return result.scalars().first()
 

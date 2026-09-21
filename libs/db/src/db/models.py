@@ -295,7 +295,7 @@ class ToolBinding(Base):
 
 class Product(Base):
     """Каталог товаров бота (FEATURES.md 3.4/4.1-4.6). На этой итерации —
-    только сам каталог для контекста LLM (3.4); product_images/
+    только сам каталог для контекста LLM (3.4); product_media/
     product_embeddings и pgvector-расширение — отдельными миграциями,
     когда появятся 4.3 (карточки) и 4.1 (векторный поиск), не раньше.
 
@@ -323,15 +323,15 @@ class Product(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
-    # lazy="raise" — доступ к .photos без явного selectinload() кидает
+    # lazy="raise" — доступ к .media без явного selectinload() кидает
     # понятную ошибку сразу, а не MissingGreenlet где-то в сериализации:
     # async SQLAlchemy не умеет лениво подгружать relationship вне активного
-    # await-контекста. db.products.get_product/list_products грузят photos
-    # явно только когда вызывающий передаёт with_images=True (api-роутер) —
+    # await-контекста. db.products.get_product/list_products грузят media
+    # явно только когда вызывающий передаёт with_media=True (api-роутер) —
     # worker (контекст LLM, product_search) не платит лишним запросом за то,
     # что не использует.
-    photos: Mapped[list[ProductImage]] = relationship(
-        order_by="ProductImage.position", lazy="raise", passive_deletes=True
+    media: Mapped[list[ProductMedia]] = relationship(
+        order_by="ProductMedia.position", lazy="raise", passive_deletes=True
     )
 
 
@@ -349,14 +349,16 @@ class ProductEmbedding(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
 
 
-class ProductImage(Base):
-    """Фото товара, одно или несколько, порядок — position (FEATURES.md
-    4.3/4.4). Загрузка (значит, и заполнение этой таблицы) — Волна 3
-    (6.8), здесь только хранение и чтение."""
+class ProductMedia(Base):
+    """Фото и видео товара, одно или несколько, порядок — position
+    (FEATURES.md 4.3/4.4). Видео — MIME video/mp4, отправляется нативным
+    video-сообщением, тот же принцип диспетчеризации по mime_type, что и
+    у Document (FEATURES.md 4.9). Загрузка (значит, и заполнение этой
+    таблицы) — Волна 3 (6.8), здесь только хранение и чтение."""
 
-    __tablename__ = "product_images"
+    __tablename__ = "product_media"
     __table_args__ = (
-        UniqueConstraint("product_id", "position", name="uq_product_images_product_position"),
+        UniqueConstraint("product_id", "position", name="uq_product_media_product_position"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

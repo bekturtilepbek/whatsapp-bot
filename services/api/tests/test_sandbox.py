@@ -35,7 +35,7 @@ from api.routers import sandbox as sandbox_module
 from api.storage import get_storage
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.engine import make_engine, make_session_factory
-from db.models import Bot, Product, ProductImage, UsageEvent
+from db.models import Bot, Product, ProductMedia, UsageEvent
 from db.tool_bindings import enable as enable_tool_binding
 from fakeredis.aioredis import FakeRedis
 from llm.client import LLMResult, ToolCall
@@ -330,7 +330,7 @@ async def test_sandbox_message_with_enabled_tool_returns_media_from_tool_card(
         session.add(product)
         await session.flush()
         session.add(
-            ProductImage(product_id=product.id, storage_key=storage_key, mime_type="image/jpeg")
+            ProductMedia(product_id=product.id, storage_key=storage_key, mime_type="image/jpeg")
         )
         await enable_tool_binding(session, bot_id, "search_products", {})
         await session.commit()

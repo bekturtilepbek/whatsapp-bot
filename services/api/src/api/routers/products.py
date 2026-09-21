@@ -1,6 +1,7 @@
 """GET/POST/PATCH/DELETE /bots/{bot_id}/products (FEATURES.md 6.8). POST —
-multipart/form-data, обязательно хотя бы одно фото. Обязательно только name;
-price/sku/description опциональны, display_custom — "всё или ничего" (см.
+multipart/form-data, обязательно хотя бы один медиа-элемент (фото или видео,
+FEATURES.md 4.4 ревизия). Обязательно только name; price/sku/description
+опциональны, display_custom — "всё или ничего" (см.
 db.product_search._resolve_display_config, не меняется).
 
 Эмбеддинг (FEATURES.md 4.1) строится только из name+description
@@ -27,11 +28,11 @@ import structlog
 from db.bots import get_bot
 from db.models import Product
 from db.product_embeddings import upsert_embedding
-from db.product_images import (
-    create_product_image,
-    delete_product_image,
-    get_product_image,
-    list_product_images,
+from db.product_media import (
+    create_product_media_item,
+    delete_product_media_item,
+    get_product_media_item,
+    list_product_media,
     next_position,
 )
 from db.products import (
@@ -47,14 +48,14 @@ from llm.embeddings import generate_embedding, product_embedding_input
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import SessionDep
-from ..product_photos import (
-    MAX_PHOTOS_PER_PRODUCT,
-    PhotoValidationError,
-    build_photo_storage_key,
-    read_and_resize_photo,
-    validate_photo_uploads,
+from ..product_media import (
+    MAX_MEDIA_PER_PRODUCT,
+    MediaValidationError,
+    build_media_storage_key,
+    process_media_upload,
+    validate_media_uploads,
 )
-from ..schemas.products import ProductOut, ProductPatch, ProductPhotoOut
+from ..schemas.products import ProductMediaOut, ProductOut, ProductPatch
 from ..security import BotAccessUser
 from ..storage import StorageDep
 
@@ -107,7 +108,7 @@ async def list_products_route(
     limit: int = Query(PRODUCTS_LIST_DEFAULT_LIMIT, ge=1, le=PRODUCTS_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> list[ProductOut]:
-    products = await list_products(session, bot_id, limit=limit, offset=offset, with_images=True)
+    products = await list_products(session, bot_id, limit=limit, offset=offset, with_media=True)
     return [ProductOut.model_validate(p) for p in products]
 
 
@@ -122,11 +123,11 @@ async def create_product_route(
     sku: str | None = Form(None),
     description: str | None = Form(None),
     display_custom: str | None = Form(None),
-    photos: list[UploadFile] = File(...),  # noqa: B008
+    media: list[UploadFile] = File(...),  # noqa: B008
 ) -> ProductOut:
     try:
-        validate_photo_uploads(photos, max_count=MAX_PHOTOS_PER_PRODUCT)
-    except PhotoValidationError as exc:
+        validate_media_uploads(media, max_count=MAX_MEDIA_PER_PRODUCT)
+    except MediaValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     name_stripped = name.strip()
@@ -151,25 +152,25 @@ async def create_product_route(
     await session.flush()  # нужен product.id для ключей Storage ниже
 
     try:
-        for position, upload in enumerate(photos):
-            data, mime_type = await read_and_resize_photo(upload)
-            photo_id = uuid.uuid4()
-            key = build_photo_storage_key(bot_id, product.id, photo_id)
+        for position, upload in enumerate(media):
+            data, mime_type = await process_media_upload(upload)
+            media_id = uuid.uuid4()
+            key = build_media_storage_key(bot_id, product.id, media_id)
             await storage.put(key, data, mime_type)
-            await create_product_image(
+            await create_product_media_item(
                 session,
                 product.id,
-                id=photo_id,
+                id=media_id,
                 storage_key=key,
                 mime_type=mime_type,
                 position=position,
             )
-    except PhotoValidationError as exc:
+    except MediaValidationError as exc:
         await session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="failed to store product photo") from exc
+        raise HTTPException(status_code=502, detail="failed to store product media") from exc
 
     try:
         await _compute_and_store_embedding(session, product)
@@ -179,7 +180,7 @@ async def create_product_route(
 
     await session.commit()
 
-    created_product = await get_product(session, bot_id, product.id, with_images=True)
+    created_product = await get_product(session, bot_id, product.id, with_media=True)
     assert created_product is not None  # только что закоммитили
     return ProductOut.model_validate(created_product)
 
@@ -188,7 +189,7 @@ async def create_product_route(
 async def get_product_route(
     bot_id: uuid.UUID, product_id: uuid.UUID, session: SessionDep, user: BotAccessUser
 ) -> ProductOut:
-    product = await get_product(session, bot_id, product_id, with_images=True)
+    product = await get_product(session, bot_id, product_id, with_media=True)
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
     return ProductOut.model_validate(product)
@@ -238,7 +239,7 @@ async def patch_product_route(
 
     await session.commit()
 
-    product = await get_product(session, bot_id, product_id, with_images=True)
+    product = await get_product(session, bot_id, product_id, with_media=True)
     assert product is not None  # только что успешно обновили выше
     return ProductOut.model_validate(product)
 
@@ -254,62 +255,62 @@ async def delete_product_route(
 
 
 @router.post(
-    "/{bot_id}/products/{product_id}/photos",
-    response_model=list[ProductPhotoOut],
+    "/{bot_id}/products/{product_id}/media",
+    response_model=list[ProductMediaOut],
     status_code=201,
 )
-async def add_product_photos_route(
+async def add_product_media_route(
     bot_id: uuid.UUID,
     product_id: uuid.UUID,
     session: SessionDep,
     storage: StorageDep,
     user: BotAccessUser,
-    photos: list[UploadFile] = File(...),  # noqa: B008
-) -> list[ProductPhotoOut]:
+    media: list[UploadFile] = File(...),  # noqa: B008
+) -> list[ProductMediaOut]:
     product = await get_product(session, bot_id, product_id)
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
 
-    existing_count = len(await list_product_images(session, product_id))
-    remaining_slots = MAX_PHOTOS_PER_PRODUCT - existing_count
+    existing_count = len(await list_product_media(session, product_id))
+    remaining_slots = MAX_MEDIA_PER_PRODUCT - existing_count
     try:
-        validate_photo_uploads(photos, max_count=max(remaining_slots, 0))
-    except PhotoValidationError as exc:
+        validate_media_uploads(media, max_count=max(remaining_slots, 0))
+    except MediaValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     created: list[Any] = []
     try:
-        for upload in photos:
-            data, mime_type = await read_and_resize_photo(upload)
+        for upload in media:
+            data, mime_type = await process_media_upload(upload)
             position = await next_position(session, product_id)
-            photo_id = uuid.uuid4()
-            key = build_photo_storage_key(bot_id, product_id, photo_id)
+            media_id = uuid.uuid4()
+            key = build_media_storage_key(bot_id, product_id, media_id)
             await storage.put(key, data, mime_type)
-            image = await create_product_image(
+            item = await create_product_media_item(
                 session,
                 product_id,
-                id=photo_id,
+                id=media_id,
                 storage_key=key,
                 mime_type=mime_type,
                 position=position,
             )
-            created.append(image)
-    except PhotoValidationError as exc:
+            created.append(item)
+    except MediaValidationError as exc:
         await session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="failed to store product photo") from exc
+        raise HTTPException(status_code=502, detail="failed to store product media") from exc
 
     await session.commit()
-    return [ProductPhotoOut.model_validate(img) for img in created]
+    return [ProductMediaOut.model_validate(item) for item in created]
 
 
-@router.delete("/{bot_id}/products/{product_id}/photos/{photo_id}", status_code=204)
-async def delete_product_photo_route(
+@router.delete("/{bot_id}/products/{product_id}/media/{media_id}", status_code=204)
+async def delete_product_media_route(
     bot_id: uuid.UUID,
     product_id: uuid.UUID,
-    photo_id: uuid.UUID,
+    media_id: uuid.UUID,
     session: SessionDep,
     user: BotAccessUser,
 ) -> None:
@@ -317,23 +318,25 @@ async def delete_product_photo_route(
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
 
-    remaining = await list_product_images(session, product_id)
+    remaining = await list_product_media(session, product_id)
     if len(remaining) <= 1:
-        if not any(img.id == photo_id for img in remaining):
-            raise HTTPException(status_code=404, detail="photo not found")
-        raise HTTPException(status_code=422, detail="cannot delete the last photo of a product")
+        if not any(item.id == media_id for item in remaining):
+            raise HTTPException(status_code=404, detail="media item not found")
+        raise HTTPException(
+            status_code=422, detail="cannot delete the last media item of a product"
+        )
 
-    deleted = await delete_product_image(session, product_id, photo_id)
+    deleted = await delete_product_media_item(session, product_id, media_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="photo not found")
+        raise HTTPException(status_code=404, detail="media item not found")
     await session.commit()
 
 
-@router.get("/{bot_id}/products/{product_id}/photos/{photo_id}")
-async def get_product_photo_route(
+@router.get("/{bot_id}/products/{product_id}/media/{media_id}")
+async def get_product_media_route(
     bot_id: uuid.UUID,
     product_id: uuid.UUID,
-    photo_id: uuid.UUID,
+    media_id: uuid.UUID,
     session: SessionDep,
     storage: StorageDep,
     user: BotAccessUser,
@@ -341,19 +344,19 @@ async def get_product_photo_route(
     product = await get_product(session, bot_id, product_id)
     if product is None:
         raise HTTPException(status_code=404, detail="product not found")
-    image = await get_product_image(session, product_id, photo_id)
-    if image is None:
-        raise HTTPException(status_code=404, detail="photo not found")
+    item = await get_product_media_item(session, product_id, media_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="media item not found")
     try:
-        data = await storage.get(image.storage_key)
+        data = await storage.get(item.storage_key)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="failed to read photo") from exc
-    # Фото по photo_id неизменяемы: перезаписи/апдейта в Storage нет, только
+        raise HTTPException(status_code=502, detail="failed to read media") from exc
+    # Медиа по media_id неизменяемо: перезаписи/апдейта в Storage нет, только
     # create/delete всего объекта — можно кэшировать бессрочно (финальное
     # ревью 6.8, 2026-09-10: список товаров иначе рефетчит те же байты на
     # каждый рендер миниатюры).
     return Response(
         content=data,
-        media_type=image.mime_type,
+        media_type=item.mime_type,
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )

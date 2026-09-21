@@ -20,7 +20,7 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
-from db.models import Bot, Product, ProductEmbedding, ProductImage
+from db.models import Bot, Product, ProductEmbedding, ProductMedia
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from tools import product_search as product_search_module
@@ -199,7 +199,7 @@ async def test_missing_price_defaults_to_not_specified_text(
     assert json.loads(result.content)[0]["price"] == "Не указана"
 
 
-async def test_found_product_with_images_returns_override_reply_text_and_media(
+async def test_found_product_with_media_returns_override_reply_text_and_media(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bot = await _make_bot(session_factory)
@@ -212,11 +212,11 @@ async def test_found_product_with_images_returns_override_reply_text_and_media(
         await session.flush()
         session.add_all(
             [
-                ProductImage(
+                ProductMedia(
                     product_id=product.id, storage_key="img-0", mime_type="image/jpeg", position=0
                 ),
-                ProductImage(
-                    product_id=product.id, storage_key="img-1", mime_type="image/png", position=1
+                ProductMedia(
+                    product_id=product.id, storage_key="video-0", mime_type="video/mp4", position=1
                 ),
             ]
         )
@@ -229,11 +229,11 @@ async def test_found_product_with_images_returns_override_reply_text_and_media(
     assert result.override_reply_text == "*Кроссовки Nike Air*\nБеговые\nЦена: 5000.00"
     assert [(m.storage_key, m.mime_type) for m in result.media] == [
         ("img-0", "image/jpeg"),
-        ("img-1", "image/png"),
+        ("video-0", "video/mp4"),
     ]
 
 
-async def test_found_product_without_images_returns_override_reply_text_without_media(
+async def test_found_product_without_media_returns_override_reply_text_without_media(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     bot = await _make_bot(session_factory)

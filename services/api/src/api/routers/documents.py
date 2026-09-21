@@ -67,7 +67,7 @@ async def create_document_route(
     data = await file.read()
     if mime_type.startswith("video/"):
         # FEATURES.md 4.9 ревизия: видео грузится как есть, в отличие от
-        # фото товара (product_photos.py), которое ужимается всегда —
+        # фото товара (product_media.py), которое ужимается всегда —
         # отклоняем загрузку, а не сохраняем необработанный оригинал молча.
         try:
             data = await compress_video(data)

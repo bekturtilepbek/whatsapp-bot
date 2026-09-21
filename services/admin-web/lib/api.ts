@@ -280,9 +280,12 @@ export async function deleteBotTool(baseUrl: string, id: string, toolName: strin
 
 // Decimal (Pydantic v2) сериализуется бэкендом как JSON-строка ("5000.00"),
 // не число — см. services/api/src/api/schemas/products.py.
-export interface ProductPhoto {
+export interface ProductMedia {
   id: string;
   position: number;
+  // Фото или видео (FEATURES.md 4.4 ревизия) — фронт решает по префиксу,
+  // рендерить <img> или <video>.
+  mime_type: string;
 }
 
 export interface Product {
@@ -292,7 +295,7 @@ export interface Product {
   sku: string | null;
   description: string | null;
   display_custom: Record<string, boolean>;
-  photos: ProductPhoto[];
+  media: ProductMedia[];
   created_at: string;
 }
 
@@ -352,7 +355,7 @@ export async function fetchProduct(
  * значение null/undefined/пусто (не отправляем пустую строку вместо
  * отсутствующего поля: на бэкенде Form(None)-параметр для Decimal не
  * умеет коэрсить "" в None, только реальное отсутствие ключа). */
-function buildProductFormData(input: ProductInput, photos: File[]): FormData {
+function buildProductFormData(input: ProductInput, media: File[]): FormData {
   const form = new FormData();
   form.set("name", input.name);
   if (input.price !== null && input.price !== undefined) {
@@ -367,8 +370,8 @@ function buildProductFormData(input: ProductInput, photos: File[]): FormData {
   if (input.display_custom !== undefined) {
     form.set("display_custom", JSON.stringify(input.display_custom));
   }
-  for (const photo of photos) {
-    form.append("photos", photo);
+  for (const item of media) {
+    form.append("media", item);
   }
   return form;
 }
@@ -377,12 +380,12 @@ export async function createProduct(
   baseUrl: string,
   botId: string,
   input: ProductInput,
-  photos: File[],
+  media: File[],
 ): Promise<Product> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${botId}/products`, {
     method: "POST",
-    body: buildProductFormData(input, photos),
+    body: buildProductFormData(input, media),
   });
   if (!res.ok) {
     throw new Error(`POST /bots/${botId}/products failed: ${res.status}`);
@@ -420,52 +423,52 @@ export async function deleteProduct(
   }
 }
 
-export async function addProductPhotos(
+export async function addProductMedia(
   baseUrl: string,
   botId: string,
   productId: string,
-  photos: File[],
-): Promise<ProductPhoto[]> {
+  media: File[],
+): Promise<ProductMedia[]> {
   const base = normalizeBaseUrl(baseUrl);
   const form = new FormData();
-  for (const photo of photos) {
-    form.append("photos", photo);
+  for (const item of media) {
+    form.append("media", item);
   }
-  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/photos`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/media`, {
     method: "POST",
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/products/${productId}/photos failed: ${res.status}`);
+    throw new Error(`POST /bots/${botId}/products/${productId}/media failed: ${res.status}`);
   }
-  return (await res.json()) as ProductPhoto[];
+  return (await res.json()) as ProductMedia[];
 }
 
-export async function deleteProductPhoto(
+export async function deleteProductMedia(
   baseUrl: string,
   botId: string,
   productId: string,
-  photoId: string,
+  mediaId: string,
 ): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/photos/${photoId}`, {
+  const res = await apiFetch(`${base}/bots/${botId}/products/${productId}/media/${mediaId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
     throw new Error(
-      `DELETE /bots/${botId}/products/${productId}/photos/${photoId} failed: ${res.status}`,
+      `DELETE /bots/${botId}/products/${productId}/media/${mediaId} failed: ${res.status}`,
     );
   }
 }
 
-export function productPhotoUrl(
+export function productMediaUrl(
   baseUrl: string,
   botId: string,
   productId: string,
-  photoId: string,
+  mediaId: string,
 ): string {
   const base = normalizeBaseUrl(baseUrl);
-  return `${base}/bots/${botId}/products/${productId}/photos/${photoId}`;
+  return `${base}/bots/${botId}/products/${productId}/media/${mediaId}`;
 }
 
 // Чёрный список номеров (FEATURES.md 1.5/6.9).

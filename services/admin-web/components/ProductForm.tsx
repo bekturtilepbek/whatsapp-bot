@@ -3,22 +3,28 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
-  addProductPhotos,
+  addProductMedia,
   createProduct,
-  deleteProductPhoto,
-  productPhotoUrl,
+  deleteProductMedia,
+  productMediaUrl,
   updateProduct,
   type Product,
   type ProductInput,
-  type ProductPhoto,
+  type ProductMedia,
 } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { MediaThumbnail } from "@/components/ui/MediaThumbnail";
 import { NumberField } from "@/components/ui/NumberField";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
+
+// Пусто по умолчанию для <input accept>, чтобы фото и видео товара
+// принимались одной формой (эталон V1 — одна смешанная галерея, FEATURES.md
+// 4.4 ревизия), но не что попало.
+const MEDIA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4";
 
 interface ProductFormProps {
   botId: string;
@@ -72,10 +78,10 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const router = useRouter();
   const { showError, showSuccess } = useToast();
   const [state, setState] = useState<FormState>(() => initialState(product));
-  const [newPhotos, setNewPhotos] = useState<File[]>([]);
-  const [photos, setPhotos] = useState<ProductPhoto[]>(product?.photos ?? []);
+  const [newMedia, setNewMedia] = useState<File[]>([]);
+  const [media, setMedia] = useState<ProductMedia[]>(product?.media ?? []);
   const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
 
   // PATCH на бэкенде мержит поля: null/пропуск значит «не трогать», а не
   // «очистить» (см. аналогичное поведение bots.image_prompt/pdf_prompt).
@@ -94,8 +100,8 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       showError("Название обязательно");
       return;
     }
-    if (!product && newPhotos.length === 0) {
-      showError("Нужно хотя бы одно фото");
+    if (!product && newMedia.length === 0) {
+      showError("Нужно хотя бы одно фото или видео");
       return;
     }
     setSaving(true);
@@ -104,7 +110,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       if (product) {
         await updateProduct(apiBaseUrl, botId, product.id, input);
       } else {
-        await createProduct(apiBaseUrl, botId, input, newPhotos);
+        await createProduct(apiBaseUrl, botId, input, newMedia);
       }
       showSuccess("Товар сохранён");
       router.push(`/bots/${botId}/products`);
@@ -116,35 +122,35 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     }
   };
 
-  const handleAddPhotos = async (files: FileList | null) => {
+  const handleAddMedia = async (files: FileList | null) => {
     if (!product || !files || files.length === 0) {
       return;
     }
-    setPhotoBusy(true);
+    setMediaBusy(true);
     try {
-      const added = await addProductPhotos(apiBaseUrl, botId, product.id, Array.from(files));
-      setPhotos((current) => [...current, ...added]);
-      showSuccess("Фото добавлено");
+      const added = await addProductMedia(apiBaseUrl, botId, product.id, Array.from(files));
+      setMedia((current) => [...current, ...added]);
+      showSuccess("Медиа добавлено");
     } catch (err) {
-      showError(err instanceof Error ? err.message : "Не удалось добавить фото");
+      showError(err instanceof Error ? err.message : "Не удалось добавить медиа");
     } finally {
-      setPhotoBusy(false);
+      setMediaBusy(false);
     }
   };
 
-  const handleDeletePhoto = async (photoId: string) => {
+  const handleDeleteMedia = async (mediaId: string) => {
     if (!product) {
       return;
     }
-    setPhotoBusy(true);
+    setMediaBusy(true);
     try {
-      await deleteProductPhoto(apiBaseUrl, botId, product.id, photoId);
-      setPhotos((current) => current.filter((p) => p.id !== photoId));
-      showSuccess("Фото удалено");
+      await deleteProductMedia(apiBaseUrl, botId, product.id, mediaId);
+      setMedia((current) => current.filter((m) => m.id !== mediaId));
+      showSuccess("Медиа удалено");
     } catch (err) {
-      showError(err instanceof Error ? err.message : "Не удалось удалить фото");
+      showError(err instanceof Error ? err.message : "Не удалось удалить медиа");
     } finally {
-      setPhotoBusy(false);
+      setMediaBusy(false);
     }
   };
 
@@ -227,12 +233,12 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       {!product && (
         <Card className="p-5">
           <label className="mb-0 block text-sm font-medium text-ink">
-            Фото
+            Фото и видео
             <input
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(e) => setNewPhotos(e.target.files ? Array.from(e.target.files) : [])}
+              accept={MEDIA_ACCEPT}
+              onChange={(e) => setNewMedia(e.target.files ? Array.from(e.target.files) : [])}
               className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint"
             />
           </label>
@@ -241,24 +247,25 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
 
       {product && (
         <Card className="p-5">
-          <h2 className="mb-4 text-[15px] font-semibold text-ink">Фото</h2>
+          <h2 className="mb-4 text-[15px] font-semibold text-ink">Фото и видео</h2>
           <div className="flex flex-wrap gap-4">
-            {photos.map((photo) => (
-              <div key={photo.id} className="w-24">
-                <img
-                  src={productPhotoUrl(apiBaseUrl, botId, product.id, photo.id)}
-                  alt="Фото товара"
+            {media.map((item) => (
+              <div key={item.id} className="w-24">
+                <MediaThumbnail
+                  src={productMediaUrl(apiBaseUrl, botId, product.id, item.id)}
+                  mimeType={item.mime_type}
+                  alt="Медиа товара"
                   className="h-24 w-24 rounded-lg object-cover"
                 />
                 <Button
                   type="button"
                   variant="danger"
                   className="mt-2 w-full justify-center"
-                  disabled={photoBusy || photos.length <= 1}
-                  title={photos.length <= 1 ? "Нельзя удалить единственное фото" : undefined}
-                  onClick={() => void handleDeletePhoto(photo.id)}
+                  disabled={mediaBusy || media.length <= 1}
+                  title={media.length <= 1 ? "Нельзя удалить единственный элемент" : undefined}
+                  onClick={() => void handleDeleteMedia(item.id)}
                 >
-                  Удалить фото
+                  Удалить
                 </Button>
               </div>
             ))}
@@ -268,9 +275,9 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
             <input
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/webp"
-              disabled={photoBusy}
-              onChange={(e) => void handleAddPhotos(e.target.files)}
+              accept={MEDIA_ACCEPT}
+              disabled={mediaBusy}
+              onChange={(e) => void handleAddMedia(e.target.files)}
               className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
             />
           </label>

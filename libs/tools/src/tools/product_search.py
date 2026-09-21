@@ -11,7 +11,7 @@ import json
 from typing import Any, ClassVar
 
 from db.product_embeddings import find_product_by_embedding
-from db.product_images import list_product_images
+from db.product_media import list_product_media
 from db.products import find_product_by_exact_name
 from llm.embeddings import generate_embedding
 
@@ -76,20 +76,22 @@ class ProductSearchTool:
         if not query.strip():
             return ToolExecutionResult(content="[]")
 
-        # Фото ищем СРАЗУ после нахождения товара, в ТОЙ ЖЕ сессии/ветке —
+        # Медиа ищем СРАЗУ после нахождения товара, в ТОЙ ЖЕ сессии/ветке —
         # не в отдельном третьем открытии после generate_embedding (урок
         # 4.1/4.2: сессия не должна держаться открытой во время сетевого
         # вызова OpenAI).
         async with ctx.session_factory() as session:
             product = await find_product_by_exact_name(session, ctx.bot.id, query)
-            images = await list_product_images(session, product.id) if product is not None else []
+            media_items = (
+                await list_product_media(session, product.id) if product is not None else []
+            )
 
         if product is None:
             embedding = await generate_embedding(query, timeout_seconds=EMBEDDING_TIMEOUT_SECONDS)
             async with ctx.session_factory() as session:
                 product = await find_product_by_embedding(session, ctx.bot.id, embedding)
-                images = (
-                    await list_product_images(session, product.id) if product is not None else []
+                media_items = (
+                    await list_product_media(session, product.id) if product is not None else []
                 )
 
         if product is None:
@@ -108,9 +110,10 @@ class ProductSearchTool:
             ),
             # tuple(), не список: пустой список != () при сравнении (Python
             # не считает [] и () равными), а дефолт ToolExecutionResult.media
-            # — именно (). tuple() на пустом images даёт (), совпадает с
-            # дефолтом и с ожиданием теста "без фото".
+            # — именно (). tuple() на пустом media_items даёт (), совпадает с
+            # дефолтом и с ожиданием теста "без медиа".
             media=tuple(
-                MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type) for i in images
+                MediaToSend(storage_key=i.storage_key, mime_type=i.mime_type)
+                for i in media_items
             ),
         )

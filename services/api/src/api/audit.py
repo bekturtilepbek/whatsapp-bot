@@ -49,8 +49,8 @@ ACTION_REGISTRY: dict[tuple[str, str], str] = {
     ("POST", "/bots/{bot_id}/products"): "products.create",
     ("PATCH", "/bots/{bot_id}/products/{product_id}"): "products.update",
     ("DELETE", "/bots/{bot_id}/products/{product_id}"): "products.delete",
-    ("POST", "/bots/{bot_id}/products/{product_id}/photos"): "product_photos.create",
-    ("DELETE", "/bots/{bot_id}/products/{product_id}/photos/{photo_id}"): "product_photos.delete",
+    ("POST", "/bots/{bot_id}/products/{product_id}/media"): "product_media.create",
+    ("DELETE", "/bots/{bot_id}/products/{product_id}/media/{media_id}"): "product_media.delete",
     ("POST", "/users"): "users.create",
     ("PATCH", "/users/{user_id}"): "users.update",
     ("POST", "/users/{user_id}/bot-access"): "bot_access.grant",
@@ -63,7 +63,7 @@ ACTION_REGISTRY: dict[tuple[str, str], str] = {
 MULTIPART_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("POST", "/bots/{bot_id}/products"),
-        ("POST", "/bots/{bot_id}/products/{product_id}/photos"),
+        ("POST", "/bots/{bot_id}/products/{product_id}/media"),
         ("POST", "/bots/{bot_id}/documents"),
     }
 )

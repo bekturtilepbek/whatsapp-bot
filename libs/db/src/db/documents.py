@@ -59,7 +59,7 @@ async def create_document(
 
 async def delete_document(session: AsyncSession, bot_id: uuid.UUID, document_id: uuid.UUID) -> bool:
     """True — строка была и удалена. Storage-объект НЕ чистится (тот же
-    осознанно принятый паттерн, что и product_images — orphan-объект в
+    осознанно принятый паттерн, что и product_media — orphan-объект в
     Storage дешевле, чем городить delete() в Storage-протоколе ради этого).
     Тот же паттерн select-затем-delete, что и db.products.delete_product —
     не bulk DELETE + rowcount (Result.rowcount не типизирован в базовом

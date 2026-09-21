@@ -1,4 +1,4 @@
-"""Фото товара (FEATURES.md 4.3/4.4): list_product_images — порядок по
+"""Медиа товара (FEATURES.md 4.3/4.4): list_product_media — порядок по
 position, скоуп per product, пусто по умолчанию. Требует Docker
 (testcontainers). Без него — skip, не fail.
 """
@@ -16,12 +16,12 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from db.engine import make_engine, make_session_factory
-from db.models import Bot, Product, ProductImage
-from db.product_images import (
-    create_product_image,
-    delete_product_image,
-    get_product_image,
-    list_product_images,
+from db.models import Bot, Product, ProductMedia
+from db.product_media import (
+    create_product_media_item,
+    delete_product_media_item,
+    get_product_media_item,
+    list_product_media,
     next_position,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,52 +75,52 @@ async def _make_product(session: AsyncSession) -> uuid.UUID:
     return product.id
 
 
-async def test_list_product_images_empty_by_default(session: AsyncSession) -> None:
+async def test_list_product_media_empty_by_default(session: AsyncSession) -> None:
     product_id = await _make_product(session)
-    assert await list_product_images(session, product_id) == []
+    assert await list_product_media(session, product_id) == []
 
 
-async def test_list_product_images_ordered_by_position(session: AsyncSession) -> None:
+async def test_list_product_media_ordered_by_position(session: AsyncSession) -> None:
     product_id = await _make_product(session)
     session.add_all(
         [
-            ProductImage(
+            ProductMedia(
                 product_id=product_id, storage_key="img-2", mime_type="image/jpeg", position=2
             ),
-            ProductImage(
+            ProductMedia(
                 product_id=product_id, storage_key="img-0", mime_type="image/jpeg", position=0
             ),
-            ProductImage(
-                product_id=product_id, storage_key="img-1", mime_type="image/jpeg", position=1
+            ProductMedia(
+                product_id=product_id, storage_key="video-1", mime_type="video/mp4", position=1
             ),
         ]
     )
     await session.flush()
 
-    images = await list_product_images(session, product_id)
-    assert [i.storage_key for i in images] == ["img-0", "img-1", "img-2"]
+    media = await list_product_media(session, product_id)
+    assert [m.storage_key for m in media] == ["img-0", "video-1", "img-2"]
 
 
-async def test_list_product_images_scoped_per_product(session: AsyncSession) -> None:
+async def test_list_product_media_scoped_per_product(session: AsyncSession) -> None:
     product_a = await _make_product(session)
     product_b = await _make_product(session)
     session.add_all(
         [
-            ProductImage(
+            ProductMedia(
                 product_id=product_a, storage_key="img-a", mime_type="image/jpeg", position=0
             ),
-            ProductImage(
+            ProductMedia(
                 product_id=product_b, storage_key="img-b", mime_type="image/jpeg", position=0
             ),
         ]
     )
     await session.flush()
 
-    images_a = await list_product_images(session, product_a)
-    assert [i.storage_key for i in images_a] == ["img-a"]
+    media_a = await list_product_media(session, product_a)
+    assert [m.storage_key for m in media_a] == ["img-a"]
 
 
-async def test_next_position_is_zero_when_no_images(session: AsyncSession) -> None:
+async def test_next_position_is_zero_when_no_media(session: AsyncSession) -> None:
     product_id = await _make_product(session)
     assert await next_position(session, product_id) == 0
 
@@ -129,10 +129,10 @@ async def test_next_position_is_max_plus_one(session: AsyncSession) -> None:
     product_id = await _make_product(session)
     session.add_all(
         [
-            ProductImage(
+            ProductMedia(
                 product_id=product_id, storage_key="img-0", mime_type="image/jpeg", position=0
             ),
-            ProductImage(
+            ProductMedia(
                 product_id=product_id, storage_key="img-2", mime_type="image/jpeg", position=2
             ),
         ]
@@ -144,45 +144,48 @@ async def test_next_position_is_max_plus_one(session: AsyncSession) -> None:
     assert await next_position(session, product_id) == 3
 
 
-async def test_create_product_image_uses_given_id(session: AsyncSession) -> None:
+async def test_create_product_media_item_uses_given_id(session: AsyncSession) -> None:
     product_id = await _make_product(session)
-    photo_id = uuid.uuid4()
+    media_id = uuid.uuid4()
 
-    image = await create_product_image(
-        session, product_id, id=photo_id, storage_key="k", mime_type="image/jpeg", position=0
+    media = await create_product_media_item(
+        session, product_id, id=media_id, storage_key="k", mime_type="video/mp4", position=0
     )
 
-    assert image.id == photo_id
-    assert image.storage_key == "k"
+    assert media.id == media_id
+    assert media.storage_key == "k"
+    assert media.mime_type == "video/mp4"
 
 
-async def test_get_product_image_returns_none_when_missing(session: AsyncSession) -> None:
+async def test_get_product_media_item_returns_none_when_missing(session: AsyncSession) -> None:
     product_id = await _make_product(session)
-    assert await get_product_image(session, product_id, uuid.uuid4()) is None
+    assert await get_product_media_item(session, product_id, uuid.uuid4()) is None
 
 
-async def test_get_product_image_scoped_per_product(session: AsyncSession) -> None:
+async def test_get_product_media_item_scoped_per_product(session: AsyncSession) -> None:
     product_a = await _make_product(session)
     product_b = await _make_product(session)
-    image = await create_product_image(
+    media = await create_product_media_item(
         session, product_a, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
-    assert await get_product_image(session, product_a, image.id) is not None
-    assert await get_product_image(session, product_b, image.id) is None
+    assert await get_product_media_item(session, product_a, media.id) is not None
+    assert await get_product_media_item(session, product_b, media.id) is None
 
 
-async def test_delete_product_image_removes_row(session: AsyncSession) -> None:
+async def test_delete_product_media_item_removes_row(session: AsyncSession) -> None:
     product_id = await _make_product(session)
-    image = await create_product_image(
+    media = await create_product_media_item(
         session, product_id, id=uuid.uuid4(), storage_key="k", mime_type="image/jpeg", position=0
     )
 
-    deleted = await delete_product_image(session, product_id, image.id)
+    deleted = await delete_product_media_item(session, product_id, media.id)
     assert deleted is True
-    assert await get_product_image(session, product_id, image.id) is None
+    assert await get_product_media_item(session, product_id, media.id) is None
 
 
-async def test_delete_product_image_returns_false_when_missing(session: AsyncSession) -> None:
+async def test_delete_product_media_item_returns_false_when_missing(
+    session: AsyncSession,
+) -> None:
     product_id = await _make_product(session)
-    assert await delete_product_image(session, product_id, uuid.uuid4()) is False
+    assert await delete_product_media_item(session, product_id, uuid.uuid4()) is False

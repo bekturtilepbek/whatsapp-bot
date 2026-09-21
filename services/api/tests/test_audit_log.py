@@ -68,7 +68,7 @@ def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
 
 class _FakeStorage:
     """Тот же фейковый Storage, что в test_products.py — для регрессионного
-    теста Fix 1 (non-dict payload от /photos), продуктовый роут требует
+    теста Fix 1 (non-dict payload от /media), продуктовый роут требует
     Storage-зависимость, а реальный S3 в юнит-тестах не участвует."""
 
     def __init__(self) -> None:
@@ -92,8 +92,8 @@ def _tiny_jpeg_bytes(*, size: tuple[int, int] = (20, 20)) -> bytes:
     return buf.getvalue()
 
 
-def _photo_file(name: str = "photo.jpg") -> tuple[str, tuple[str, bytes, str]]:
-    return ("photos", (name, _tiny_jpeg_bytes(), "image/jpeg"))
+def _media_file(name: str = "photo.jpg") -> tuple[str, tuple[str, bytes, str]]:
+    return ("media", (name, _tiny_jpeg_bytes(), "image/jpeg"))
 
 
 FAKE_EMBEDDING = [0.1] * 1536
@@ -329,8 +329,8 @@ async def test_non_dict_json_response_payload_coerced_to_dict(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Fix 1 (финальное ревью): POST /photos отвечает JSON-МАССИВОМ
-    (response_model=list[ProductPhotoOut]), а не объектом. Без коэрции
+    """Fix 1 (финальное ревью): POST /media отвечает JSON-МАССИВОМ
+    (response_model=list[ProductMediaOut]), а не объектом. Без коэрции
     payload попадает в audit_log.payload как list — AuditLogOut.payload:
     dict[str, Any] | None ловит ValidationError и роняет ВЕСЬ ответ
     GET /audit-log 500-й (воспроизведено ревьюером живым 201 POST + 500 GET).
@@ -339,28 +339,28 @@ async def test_non_dict_json_response_payload_coerced_to_dict(
     bot_id = await _make_bot(session_factory)
 
     create_response = await client.post(
-        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_photo_file()]
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
     )
     assert create_response.status_code == 201
     product_id = create_response.json()["id"]
 
-    photos_response = await client.post(
-        f"/bots/{bot_id}/products/{product_id}/photos", files=[_photo_file("new.jpg")]
+    media_response = await client.post(
+        f"/bots/{bot_id}/products/{product_id}/media", files=[_media_file("new.jpg")]
     )
-    assert photos_response.status_code == 201
-    assert isinstance(photos_response.json(), list)  # сам роут отвечает массивом
+    assert media_response.status_code == 201
+    assert isinstance(media_response.json(), list)  # сам роут отвечает массивом
 
     async with session_factory() as session:
         entries = await list_entries(session, bot_id=bot_id)
-    photo_entries = [e for e in entries if e.action == "product_photos.create"]
-    assert len(photo_entries) == 1
-    assert isinstance(photo_entries[0].payload, dict)  # не list — коэрция сработала
-    assert "items" in photo_entries[0].payload
+    media_entries = [e for e in entries if e.action == "product_media.create"]
+    assert len(media_entries) == 1
+    assert isinstance(media_entries[0].payload, dict)  # не list — коэрция сработала
+    assert "items" in media_entries[0].payload
 
     # Конкретная регрессия ревьюера — сам эндпоинт, не только БД-слой.
     get_response = await client.get(f"/audit-log?bot_id={bot_id}")
     assert get_response.status_code == 200
     body = get_response.json()
-    entry = next(e for e in body if e["action"] == "product_photos.create")
+    entry = next(e for e in body if e["action"] == "product_media.create")
     assert isinstance(entry["payload"], dict)
     assert "items" in entry["payload"]

@@ -95,10 +95,12 @@ DEFAULT_AUTO_RELEASE_MINUTES = 12
 # пользователем) — деревянно простой shim в пайплайне, не через LLM.
 DEFAULT_MEDIA_REACTION_ENABLED = True
 DEFAULT_MEDIA_REACTION_EMOJI = "👍"
-# Эталон V1 (FEATURES.md 4.3) — джиттер между отправляемыми медиа,
-# анти-бан дисциплина (CLAUDE.md §7): не пачка фото залпом.
-PHOTO_JITTER_MIN_SECONDS = 1.0
-PHOTO_JITTER_MAX_SECONDS = 1.5
+# Эталон V1 (FEATURES.md 4.3) — джиттер между ЛЮБЫМ отправляемым медиа в
+# одном ходе (фото/видео/документы, не только карточка товара, откуда
+# константа изначально), анти-бан дисциплина (CLAUDE.md §7): не пачка
+# медиа залпом.
+MEDIA_JITTER_MIN_SECONDS = 1.0
+MEDIA_JITTER_MAX_SECONDS = 1.5
 STORAGE_READ_TIMEOUT_SECONDS = 20.0
 # Защита от случайного спама большим числом фото в одной пачке батчинга
 # (FEATURES.md 2.1 ревизия) — остальные фото пачки просто не анализируются
@@ -413,10 +415,10 @@ async def _send_media_replies(
         for item in reply.media:
             if sent_media:
                 await asyncio.sleep(
-                    random.uniform(PHOTO_JITTER_MIN_SECONDS, PHOTO_JITTER_MAX_SECONDS)
+                    random.uniform(MEDIA_JITTER_MIN_SECONDS, MEDIA_JITTER_MAX_SECONDS)
                 )
             # MIME-типы регистронезависимы (RFC 2045); Document.mime_type и
-            # ProductImage-эквивалент — не ограниченные CHECK'ом String,
+            # ProductMedia-эквивалент — не ограниченные CHECK'ом String,
             # заполняются вручную SQL. Регистр нормализуем только для
             # диспетчеризации — оригинальное написание item.mime_type
             # уходит на wire как есть (см. mime_type= ниже).

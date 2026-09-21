@@ -67,7 +67,12 @@ def _format_lead_message(
     if template:
         try:
             return template.format(**values)
-        except (KeyError, IndexError, ValueError):
+        except (KeyError, IndexError, ValueError, AttributeError):
+            # AttributeError — незнакомый шаблон вида "{client_name.foo}":
+            # мини-язык str.format поддерживает атрибутный доступ, а значения
+            # здесь простые строки — getattr на несуществующий атрибут кидает
+            # AttributeError, не KeyError/IndexError/ValueError (найдено
+            # 2026-09-21, задокументировано ранее как известный пробел).
             logger.warning("broken telegram lead message_template, falling back to default")
     return _DEFAULT_MESSAGE_TEMPLATE.format(**values)
 

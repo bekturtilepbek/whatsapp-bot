@@ -323,6 +323,37 @@ async def test_unknown_placeholder_in_custom_template_falls_back_to_default(
     assert "Новая заявка" in str(captured["text"])  # дефолтный шаблон
 
 
+async def test_attribute_access_in_custom_template_falls_back_to_default(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """str.format поддерживает "{field.attr}" (getattr) — не только "{field[key]}"
+    (getitem/KeyError). Значения здесь простые строки, обращение к
+    несуществующему атрибуту кидает AttributeError, а не KeyError/IndexError/
+    ValueError — раньше это НЕ ловилось и падало наружу (найдено 2026-09-21)."""
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, "996700000020")
+
+    result = await TelegramLeadTool().execute(
+        {"client_name": "Клиент", "details": "Детали"},
+        _make_ctx(
+            bot,
+            contact_id,
+            session_factory,
+            config={"chat_id": "-100999", "message_template": "{client_name.upper_typo}"},
+        ),
+    )
+
+    assert result.content == "Заявка отправлена менеджерам."
+    assert "Новая заявка" in str(captured["text"])  # дефолтный шаблон
+
+
 async def test_details_with_special_characters_are_html_escaped(
     session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
 ) -> None:

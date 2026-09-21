@@ -145,6 +145,51 @@ export async function logoutBot(baseUrl: string, id: string): Promise<void> {
   }
 }
 
+// Стат-плитки вкладки "Обзор" — отдельная ручка (services/api/src/api/schemas/bots.py::BotStats),
+// не поле Bot, см. комментарий там же.
+export interface BotStats {
+  messages_count: number;
+  contacts_count: number;
+}
+
+export async function fetchBotStats(baseUrl: string, id: string): Promise<BotStats> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/stats`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${id}/stats failed: ${res.status}`);
+  }
+  return (await res.json()) as BotStats;
+}
+
+// Вкладка "Активные чаты" (FEATURES.md 5.3) — чаты, которые сейчас ведёт
+// человек, не бот. contact_* — best-effort подсказка с бэкенда, может
+// отсутствовать (см. services/api/src/api/schemas/bots.py::ActiveChatOut).
+export interface ActiveChat {
+  chat_id: string;
+  contact_name: string | null;
+  contact_phone: string | null;
+  auto_release_in_seconds: number | null;
+}
+
+export async function fetchActiveChats(baseUrl: string, id: string): Promise<ActiveChat[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/chats`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /bots/${id}/chats failed: ${res.status}`);
+  }
+  return (await res.json()) as ActiveChat[];
+}
+
+export async function releaseChat(baseUrl: string, id: string, chatId: string): Promise<void> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/chats/${encodeURIComponent(chatId)}/release`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(`POST /bots/${id}/chats/${chatId}/release failed: ${res.status}`);
+  }
+}
+
 /** Query-параметр — cache-busting: без него браузер закэширует PNG по URL и
  * не подхватит смену QR при ротации WhatsApp (~раз в 20с). */
 export function qrImageUrl(baseUrl: string, id: string): string {

@@ -14,6 +14,8 @@ import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bots import create_bot, get_bot_with_session, list_bots, update_bot
+from db.contacts import count_contacts, find_by_identifier
+from db.messages import count_messages
 from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
@@ -23,9 +25,10 @@ from tools.registry import all_tool_names
 
 from ..db import SessionDep
 from ..gateway_client import GatewayClientDep
+from ..handoff import list_active_chat_ids
 from ..redis_client import RedisDep
 from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
-from ..schemas.bots import BotCreate, BotOut, BotPatch
+from ..schemas.bots import ActiveChatOut, BotCreate, BotOut, BotPatch, BotStats
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 from ..security import BotAccessUser, CurrentUser, PlatformOwner
@@ -114,6 +117,40 @@ async def patch_bot(
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
     return BotOut.model_validate(bot)
+
+
+@router.get("/{bot_id}/stats", response_model=BotStats)
+async def read_bot_stats(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) -> BotStats:
+    """Стат-плитки вкладки "Обзор" — отдельная ручка, не поле BotOut (см.
+    schemas/bots.py::BotStats)."""
+    messages_count = await count_messages(session, bot_id)
+    contacts_count = await count_contacts(session, bot_id)
+    return BotStats(messages_count=messages_count, contacts_count=contacts_count)
+
+
+@router.get("/{bot_id}/chats", response_model=list[ActiveChatOut])
+async def list_active_chats(
+    bot_id: uuid.UUID, session: SessionDep, redis: RedisDep, user: BotAccessUser
+) -> list[ActiveChatOut]:
+    """Вкладка "Активные чаты" (5.3) — какие диалоги сейчас ведёт человек,
+    не бот. TTL читаем отдельным вызовом на каждый ключ (не MULTI/pipeline) —
+    активных чатов на бота обычно единицы, а не сотни, накладные расходы
+    незаметны; если это когда-нибудь изменится — первый кандидат на pipeline.
+    """
+    chat_ids = await list_active_chat_ids(redis, str(bot_id))
+    result: list[ActiveChatOut] = []
+    for chat_id in chat_ids:
+        ttl = await redis.ttl(handoff_key(str(bot_id), chat_id))
+        contact = await find_by_identifier(session, bot_id, chat_id.split("@", 1)[0])
+        result.append(
+            ActiveChatOut(
+                chat_id=chat_id,
+                contact_name=contact.name if contact else None,
+                contact_phone=contact.phone if contact else None,
+                auto_release_in_seconds=ttl if ttl and ttl > 0 else None,
+            )
+        )
+    return result
 
 
 @router.get("/{bot_id}/prompts/{kind}/versions", response_model=list[PromptVersionOut])

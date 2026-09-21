@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +70,14 @@ async def insert_outgoing(
     session.add(message)
     await session.flush()
     return message.seq
+
+
+async def count_messages(session: AsyncSession, bot_id: uuid.UUID) -> int:
+    """Для стат-плитки "Обзора" бота в кабинете — bot_id ведущий столбец
+    UNIQUE(bot_id, wa_msg_id), COUNT(*) идёт индексным сканом, не полным."""
+    stmt = select(func.count()).select_from(Message).where(Message.bot_id == bot_id)
+    result = await session.execute(stmt)
+    return result.scalar_one()
 
 
 async def fetch_recent_history(

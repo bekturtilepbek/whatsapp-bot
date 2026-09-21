@@ -18,7 +18,7 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from db.contacts import match_or_create_contact
 from db.engine import make_engine, make_session_factory
-from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
+from db.messages import count_messages, fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
@@ -180,3 +180,21 @@ async def test_insert_outgoing_returns_the_new_row_seq(session: AsyncSession) ->
 
     history = await fetch_recent_history(session, contact_id)
     assert history[0].seq == seq
+
+
+async def test_count_messages_scoped_to_one_bot(session: AsyncSession) -> None:
+    bot_id, contact_id = await _make_contact(session)
+    other_bot_id, other_contact_id = await _make_contact(session)
+    await insert_incoming(session, bot_id, contact_id, "привет", "wamsg-count-1", datetime.now(UTC))
+    await insert_outgoing(session, bot_id, contact_id, "ответ")
+    await insert_incoming(
+        session, other_bot_id, other_contact_id, "чужой бот", "wamsg-count-2", datetime.now(UTC)
+    )
+
+    assert await count_messages(session, bot_id) == 2
+    assert await count_messages(session, other_bot_id) == 1
+
+
+async def test_count_messages_is_zero_for_bot_with_none(session: AsyncSession) -> None:
+    bot_id, _contact_id = await _make_contact(session)
+    assert await count_messages(session, bot_id) == 0

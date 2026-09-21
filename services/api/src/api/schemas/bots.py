@@ -43,3 +43,25 @@ class BotPatch(BaseModel):
     image_prompt: str | None = None
     pdf_prompt: str | None = None
     settings: dict[str, Any] | None = None
+
+
+class BotStats(BaseModel):
+    """Стат-плитки вкладки "Обзор" в кабинете — отдельная ручка (не поле
+    BotOut), чтобы не вешать два лишних COUNT(*) на каждый GET /bots
+    (список ботов рендерит их пачкой, детальная статистика ему не нужна)."""
+
+    messages_count: int
+    contacts_count: int
+
+
+class ActiveChatOut(BaseModel):
+    """Один активный (перехваченный менеджером) чат — вкладка "Активные
+    чаты". chat_id — сырой WhatsApp JID (remoteJid), contact_* — best-effort
+    подсказка из БД (см. db.contacts.find_by_identifier), может быть пустой."""
+
+    chat_id: str
+    contact_name: str | None = None
+    contact_phone: str | None = None
+    # Сколько секунд осталось до авто-возврата — None если TTL почему-то не
+    # читается (ключ истёк между SCAN и TTL, защитный случай).
+    auto_release_in_seconds: int | None = None

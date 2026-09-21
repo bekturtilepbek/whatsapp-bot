@@ -48,6 +48,9 @@ export default async function BotLayout({
         <TabLink href={`/bots/${bot.id}/blocked-numbers`} exact={false}>
           Чёрный список
         </TabLink>
+        <TabLink href={`/bots/${bot.id}/chats`} exact={false}>
+          Активные чаты
+        </TabLink>
         {isOwner && (
           <TabLink href={`/bots/${bot.id}/sandbox`} exact={false}>
             Песочница

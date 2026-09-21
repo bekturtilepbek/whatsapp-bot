@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("testcontainers.postgres")
-from db.contacts import get_contact, match_or_create_contact
+from db.contacts import count_contacts, find_by_identifier, get_contact, match_or_create_contact
 from db.engine import make_engine, make_session_factory
 from db.models import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -121,3 +121,49 @@ async def test_get_contact_returns_contact_by_id(session: AsyncSession) -> None:
 
 async def test_get_contact_returns_none_for_unknown_id(session: AsyncSession) -> None:
     assert await get_contact(session, uuid.uuid4()) is None
+
+
+async def test_count_contacts_scoped_to_one_bot(session: AsyncSession) -> None:
+    bot_a = await _make_bot(session)
+    bot_b = await _make_bot(session)
+    await match_or_create_contact(session, bot_a, wa_id="996700000010", lid=None)
+    await match_or_create_contact(session, bot_a, wa_id="996700000011", lid=None)
+    await match_or_create_contact(session, bot_b, wa_id="996700000010", lid=None)
+
+    assert await count_contacts(session, bot_a) == 2
+    assert await count_contacts(session, bot_b) == 1
+
+
+async def test_count_contacts_is_zero_for_bot_with_none(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    assert await count_contacts(session, bot_id) == 0
+
+
+async def test_find_by_identifier_matches_by_wa_id(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    created = await match_or_create_contact(
+        session, bot_id, wa_id="996700000020", lid=None, name="Клиент"
+    )
+
+    found = await find_by_identifier(session, bot_id, "996700000020")
+
+    assert found is not None
+    assert found.id == created.id
+    assert found.name == "Клиент"
+
+
+async def test_find_by_identifier_matches_by_lid(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    created = await match_or_create_contact(
+        session, bot_id, wa_id="996700000021", lid="777888999"
+    )
+
+    found = await find_by_identifier(session, bot_id, "777888999")
+
+    assert found is not None
+    assert found.id == created.id
+
+
+async def test_find_by_identifier_returns_none_when_unmatched(session: AsyncSession) -> None:
+    bot_id = await _make_bot(session)
+    assert await find_by_identifier(session, bot_id, "no-such-identifier") is None

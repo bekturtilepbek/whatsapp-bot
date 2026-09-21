@@ -1,5 +1,6 @@
 import { QrPanel } from "@/components/QrPanel";
-import { fetchBot } from "@/lib/api";
+import { StatTile } from "@/components/ui/StatTile";
+import { fetchBot, fetchBotStats } from "@/lib/api";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotOverviewPage({
@@ -8,7 +9,10 @@ export default async function BotOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const bot = await fetchBot(API_INTERNAL_URL, id);
+  const [bot, stats] = await Promise.all([
+    fetchBot(API_INTERNAL_URL, id),
+    fetchBotStats(API_INTERNAL_URL, id),
+  ]);
   if (!bot) {
     // Уже прошли notFound() в layout.tsx (тот же id) — Next.js дедуплицирует
     // одинаковые fetch() в рамках одного рендер-прохода (React.cache), так
@@ -18,7 +22,11 @@ export default async function BotOverviewPage({
     return null;
   }
   return (
-    <main>
+    <main className="space-y-5">
+      <div className="grid grid-cols-2 gap-5 sm:max-w-md">
+        <StatTile label="Сообщений всего" value={stats.messages_count} />
+        <StatTile label="Контактов" value={stats.contacts_count} />
+      </div>
       <QrPanel initialBot={bot} apiBaseUrl={API_PROXY_PATH} />
     </main>
   );

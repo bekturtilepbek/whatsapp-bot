@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -89,3 +89,23 @@ async def _find_existing(
 
 async def get_contact(session: AsyncSession, contact_id: uuid.UUID) -> Contact | None:
     return await session.get(Contact, contact_id)
+
+
+async def count_contacts(session: AsyncSession, bot_id: uuid.UUID) -> int:
+    """Для стат-плитки "Обзора" бота в кабинете — та же логика индекса, что
+    у count_messages (messages.py): bot_id ведущий столбец UNIQUE(bot_id, wa_id)."""
+    stmt = select(func.count()).select_from(Contact).where(Contact.bot_id == bot_id)
+    result = await session.execute(stmt)
+    return result.scalar_one()
+
+
+async def find_by_identifier(
+    session: AsyncSession, bot_id: uuid.UUID, identifier: str
+) -> Contact | None:
+    """Best-effort поиск контакта по "голому" JID user-part (без @domain) —
+    список активных handoff-чатов (bots.py::list_active_chats) знает только
+    chat_id из Redis (remoteJid), а контакт матчится/хранится по wa_id/lid
+    (9.2). Совпадение не гарантировано на 100% при LID-миграции — это
+    подсказка для UI (показать имя вместо голого JID), не авторитетный
+    источник."""
+    return await _find_existing(session, bot_id, identifier, identifier)

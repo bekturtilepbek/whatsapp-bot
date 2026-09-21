@@ -20,7 +20,9 @@ import pytest
 pytest.importorskip("testcontainers.postgres")
 from api.db import get_session
 from api.main import app
+from db.contacts import match_or_create_contact
 from db.engine import make_engine, make_session_factory
+from db.messages import insert_incoming, insert_outgoing
 from db.models import Bot, BotSession
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
@@ -412,3 +414,31 @@ async def test_create_bot_non_owner_returns_403(client: httpx.AsyncClient) -> No
 
     response = await client.post("/bots", json={"name": "Чужой бот"})
     assert response.status_code == 403
+
+
+async def test_get_bot_stats_counts_messages_and_contacts(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        contact = await match_or_create_contact(session, bot_id, wa_id="996700000030", lid=None)
+        await insert_incoming(
+            session, bot_id, contact.id, "привет", "wamsg-stats-1", datetime.now(UTC)
+        )
+        await insert_outgoing(session, bot_id, contact.id, "ответ")
+        await session.commit()
+
+    response = await client.get(f"/bots/{bot_id}/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {"messages_count": 2, "contacts_count": 1}
+
+
+async def test_get_bot_stats_is_zero_for_a_fresh_bot(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.get(f"/bots/{bot_id}/stats")
+    assert response.status_code == 200
+    assert response.json() == {"messages_count": 0, "contacts_count": 0}

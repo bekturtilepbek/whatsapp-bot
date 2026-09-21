@@ -108,6 +108,36 @@ async def test_keep_alive_stops_renewing_once_the_block_exits(
         await redis.aclose()
 
 
+async def test_keep_alive_survives_a_transient_renew_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Один сбойный EXPIRE (сетевой блип) не должен убивать фоновую задачу
+    продления на весь остаток работы под локом (найдено 2026-09-21) — цикл
+    должен пережить его и продолжить продлевать на следующих интервалах."""
+    monkeypatch.setattr(lock_module, "LOCK_TTL_SECONDS", 1)
+    monkeypatch.setattr(lock_module, "LOCK_RENEW_INTERVAL_SECONDS", 0.2)
+    redis = FakeRedis()
+    calls = 0
+    real_renew = lock_module.renew
+
+    async def flaky_renew(redis: object, bot_id: str, chat_id: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("simulated blip")
+        await real_renew(redis, bot_id, chat_id)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(lock_module, "renew", flaky_renew)
+    try:
+        assert await acquire(redis, "bot-1", "chat-1") is True
+        async with lock_module.keep_alive(redis, "bot-1", "chat-1"):
+            await asyncio.sleep(1.5)  # переживает первый сбойный renew и продлевается дальше
+            assert await acquire(redis, "bot-1", "chat-1") is False
+        assert calls >= 2  # цикл не остановился после первого сбоя
+    finally:
+        await redis.aclose()
+
+
 async def test_keep_alive_propagates_exception_and_still_stops_renewing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

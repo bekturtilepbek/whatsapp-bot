@@ -859,7 +859,18 @@ async def _process_and_ack(
     except Exception:
         logger.exception("processing wa:in entry failed", entry_id=entry.entry_id)
     finally:
-        await redis.xack(IN_STREAM, GROUP, entry.entry_id)
+        try:
+            await redis.xack(IN_STREAM, GROUP, entry.entry_id)
+        except Exception:
+            # Без этого try/except исключение вылетело бы из корутины таски,
+            # а add_done_callback(in_flight.discard) в run_pipeline_consumer
+            # его не забирает — сбой ACK тонул бы молча (только неявное
+            # asyncio "Task exception was never retrieved" при сборке
+            # мусора), а сообщение навсегда зависало бы в pending list
+            # (XCLAIM/reclaim в проекте не реализован) без единого лога.
+            logger.exception(
+                "failed to ack wa:in entry, it will remain pending", entry_id=entry.entry_id
+            )
 
 
 async def run_pipeline_consumer(

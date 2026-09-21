@@ -17,7 +17,10 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 
+import structlog
 from redis.asyncio import Redis
+
+logger = structlog.get_logger("worker.pipeline.lock")
 
 LOCK_TTL_SECONDS = 60
 # Треть от TTL — запас на джиттер планировщика, чтобы продление всегда
@@ -49,7 +52,18 @@ async def renew(redis: Redis, bot_id: str, chat_id: str) -> None:
 async def _renew_periodically(redis: Redis, bot_id: str, chat_id: str) -> None:
     while True:
         await asyncio.sleep(LOCK_RENEW_INTERVAL_SECONDS)
-        await renew(redis, bot_id, chat_id)
+        try:
+            await renew(redis, bot_id, chat_id)
+        except Exception:
+            # Разовый сбой Redis не должен убивать цикл продления на весь
+            # остаток работы под локом (LLM/tool loop могут идти минуты) —
+            # без этого лок молча переставал бы продлеваться навсегда после
+            # первой же временной ошибки, а ошибка всплыла бы только когда
+            # основная работа под локом уже закончится (найдено 2026-09-21,
+            # тот же класс бага, что и unhandledRejection в gateway).
+            logger.warning(
+                "lock renew failed, will retry next interval", bot_id=bot_id, chat_id=chat_id
+            )
 
 
 @contextlib.asynccontextmanager

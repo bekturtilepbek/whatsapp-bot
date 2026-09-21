@@ -2,9 +2,12 @@
 
 Порядок (STAGE1_CORE Блок 2+3, Волна 1 п.1.5+2.1+2.4): дедуп → фильтры (группы) →
 from_me? handoff-ветка : чёрный список → contact → запись входящего →
-enabled → handoff активен? молчим : батчинг
+enabled → handoff активен? молчим : seen (FEATURES.md 1.11, NEW — только
+если бот реально берётся за сообщение) → батчинг
 (debounce) → лок диалога (продлевается в фоне на время ветки ниже —
 lock.keep_alive, иначе ретраи LLM/цикл тулз могут пережить TTL лока) →
+typing (эталон V1 — сразу после закрытия батч-окна, ДО обработки, не
+на долю секунды перед самой отправкой, см. FEATURES.md 1.8) →
 фото с настроенным image_prompt? vision-ответ (один
 вызов LLM, image_prompt как system prompt, ответ уходит клиенту напрямую) :
 PDF с настроенным pdf_prompt? PDF-ответ (текст извлекается ДО LLM, обычный
@@ -12,8 +15,8 @@ complete(), pdf_prompt как system prompt) : прочее медиа? загл
 история → каталог товаров в system prompt (FEATURES.md 3.4, только
 текстовый путь — vision/PDF его не получают, как в V1) → тулзы бота
 (LLM↔tool-calls, FEATURES.md 4.13; реестр пуст — как раньше, просто
-complete()) → typing → ответ → запись ответа →
-usage_events (LLM-ветки, включая vision и PDF).
+complete()) → ответ → запись ответа → usage_events (LLM-ветки, включая
+vision и PDF).
 
 Любая ошибка на отрезке батчинг..запись (Redis/LLM/БД) — лог, лок
 снимается, ACK без ответа; ретраи — Волна 1 (STAGE1_CORE). Исключение:
@@ -40,6 +43,7 @@ from core.events import (
     OutboundDocument,
     OutboundImage,
     OutboundReaction,
+    OutboundSeen,
     OutboundText,
     OutboundTyping,
     OutboundVideo,
@@ -265,6 +269,15 @@ async def _process_entry(
     if await handoff.is_active(redis, bot_id_str, event.chat_id):
         return  # менеджер ведёт чат вручную — история уже записана выше
 
+    # Синие галочки клиенту (FEATURES.md 1.11, NEW — не было в V1). Именно
+    # здесь, а не раньше — бот дошёл сюда, только если реально собирается
+    # заниматься сообщением (не выключен, не ЧС, не активный handoff);
+    # иначе клиент увидел бы "прочитано" от бота, который на самом деле
+    # передал чат человеку или молчит по паузе/ЧС — вводит в заблуждение.
+    # На каждое сообщение пачки (не только лидера) — своя отметка, тот же
+    # охват, что и у реакции ниже.
+    await _publish_seen(event, redis)
+
     if event.media_type is not None and _media_reaction_enabled(bot):
         await _react_to_media(event, bot, redis)
 
@@ -296,6 +309,17 @@ async def _process_entry(
 
     try:
         async with lock.keep_alive(redis, bot_id_str, event.chat_id):
+            # Раньше "печатает…" зажигался только в _send_reply/_send_media_replies
+            # — прямо перед отправкой готового текста, то есть ПОСЛЕ того, как
+            # LLM/vision/тул-луп уже полностью отработали. Клиент видел
+            # индикатор на долю секунды, а не во время самого ожидания (эталон
+            # V1 — sendStateTyping() зажигался сразу после закрытия батч-окна,
+            # ДО начала обработки, а не перед самой отправкой, см. FEATURES.md
+            # 1.8). Здесь — тот же самый единственный пинг, просто перенесён
+            # раньше в код (не добавлен второй): _send_reply/_send_media_replies
+            # больше не публикуют typing сами.
+            await _publish_typing(event, redis)
+
             batch_image_wa_msg_ids = await batching.pop_batch_images(
                 redis, bot_id_str, event.chat_id
             )
@@ -375,41 +399,50 @@ async def _handle_manager_message(
     await handoff.mark_manager_reply(redis, bot_id_str, event.chat_id, _handoff_ttl_seconds(bot))
 
 
-async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
-    """typing + text — РАЗНЫЕ client_msg_id: идемпотентность gateway (Блок 1)
-    ключуется по client_msg_id для обоих типов событий одинаково — общий id
-    заставил бы её принять отправку текста за дубль отправки typing.
+async def _publish_seen(event: InboundText, redis: Redis) -> None:
+    """Синие галочки — см. комментарий у места вызова (FEATURES.md 1.11)."""
+    seen_event = OutboundSeen(
+        bot_id=event.bot_id,
+        chat_id=event.chat_id,
+        wa_msg_id=event.wa_msg_id,
+        client_msg_id=uuid.uuid4().hex,
+    )
+    await publish(redis, OUT_STREAM, seen_event.model_dump(mode="json"))
 
-    .hex (32 hex-символа без дефисов), не str(uuid4()) с дефисами: gateway
-    (Блок 3) отправляет outbound.text с messageId=client_msg_id — это
-    становится РЕАЛЬНЫМ WhatsApp message ID, а не просто внутренней меткой.
-    """
+
+async def _publish_typing(event: InboundText, redis: Redis) -> None:
+    """Один пинг на весь ход обработки — публикуется в _process_entry сразу
+    после захвата лока, ДО LLM/vision/tool loop (FEATURES.md 1.8 ревизия), не
+    здесь заново. .hex (32 hex-символа без дефисов), не str(uuid4()) с
+    дефисами: gateway (Блок 3) отправляет outbound.* с messageId=client_msg_id
+    — для text это становится РЕАЛЬНЫМ WhatsApp message ID, для typing просто
+    меткой."""
     typing_event = OutboundTyping(
         bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
     )
+    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
+
+
+async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
+    """typing уже отправлен раньше в этом ходе (_process_entry) — здесь
+    только текст."""
     text_event = OutboundText(
         bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=uuid.uuid4().hex
     )
-    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
     await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
 
 
 async def _send_media_replies(
     event: InboundText, redis: Redis, replies: Sequence[OverrideReply]
 ) -> None:
-    """FEATURES.md 4.3/4.4/4.8/4.9: карточки товара и файлы/видео —
-    typing один раз, затем для каждой карточки её медиа (диспетчеризация
-    по mime_type: image/* -> outbound.image, video/* -> outbound.video,
-    остальное -> outbound.document) и текст, по порядку. Джиттер
-    1000-1500 мс перед КАЖДЫМ медиа, кроме самого первого в этом ходе
-    (включая между карточками/файлами) — эталон V1, анти-бан дисциплина.
-    client_msg_id — новый .hex на КАЖДОЕ исходящее событие, как и в
-    _send_reply."""
-    typing_event = OutboundTyping(
-        bot_id=event.bot_id, chat_id=event.chat_id, client_msg_id=uuid.uuid4().hex
-    )
-    await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
-
+    """FEATURES.md 4.3/4.4/4.8/4.9: карточки товара и файлы/видео — typing
+    уже отправлен раньше в этом ходе (_process_entry), здесь для каждой
+    карточки её медиа (диспетчеризация по mime_type: image/* -> outbound.image,
+    video/* -> outbound.video, остальное -> outbound.document) и текст, по
+    порядку. Джиттер 1000-1500 мс перед КАЖДЫМ медиа, кроме самого первого в
+    этом ходе (включая между карточками/файлами) — эталон V1, анти-бан
+    дисциплина. client_msg_id — новый .hex на КАЖДОЕ исходящее событие, как и
+    в _send_reply."""
     sent_media = False
     for reply in replies:
         for item in reply.media:

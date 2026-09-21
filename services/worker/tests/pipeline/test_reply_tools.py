@@ -79,7 +79,7 @@ async def test_no_bindings_uses_complete_fn_fast_path(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert "ответ без тулз" in out_entries[1][1]["payload"]
+        assert "ответ без тулз" in out_entries[2][1]["payload"]  # 0=seen, 1=typing, 2=текст
     finally:
         await redis.aclose()
 
@@ -109,7 +109,7 @@ async def test_binding_for_tool_missing_from_registry_is_silently_skipped(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert "ok" in out_entries[1][1]["payload"]
+        assert "ok" in out_entries[2][1]["payload"]  # 0=seen, 1=typing, 2=текст
     finally:
         await redis.aclose()
 
@@ -173,7 +173,7 @@ async def test_registered_tool_is_offered_and_can_be_invoked_end_to_end(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert "Вот тестовый товар." in out_entries[1][1]["payload"]
+        assert "Вот тестовый товар." in out_entries[2][1]["payload"]  # 0=seen, 1=typing, 2=текст
         assert len(captured_tool_specs[0]) == 1
         assert captured_tool_specs[0][0].name == "search"
 
@@ -252,14 +252,15 @@ async def test_tool_override_reply_sends_media_and_override_text_instead_of_llm_
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        # typing, outbound.image, outbound.text — три события, текст LLM среди них нет
-        assert len(out_entries) == 3
+        # seen, typing, outbound.image, outbound.text — текст LLM среди них нет
+        assert len(out_entries) == 4
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[0]["type"] == "outbound.typing"
-        assert payloads[1]["type"] == "outbound.image"
-        assert payloads[1]["storage_key"] == "bots/x/products/img-1.jpg"
-        assert payloads[2]["type"] == "outbound.text"
-        assert payloads[2]["text"] == "*Nike Air*\nЦена: 5000"
+        assert payloads[0]["type"] == "outbound.seen"
+        assert payloads[1]["type"] == "outbound.typing"
+        assert payloads[2]["type"] == "outbound.image"
+        assert payloads[2]["storage_key"] == "bots/x/products/img-1.jpg"
+        assert payloads[3]["type"] == "outbound.text"
+        assert payloads[3]["text"] == "*Nike Air*\nЦена: 5000"
         assert not any("этот текст LLM" in p.get("text", "") for p in payloads)
     finally:
         await redis.aclose()
@@ -325,18 +326,19 @@ async def test_multiple_products_in_one_turn_send_all_cards_with_jitter_between_
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        # typing, image1, text1, image2, text2
-        assert len(out_entries) == 5
+        # seen, typing, image1, text1, image2, text2
+        assert len(out_entries) == 6
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[0]["type"] == "outbound.typing"
-        assert payloads[1]["type"] == "outbound.image"
-        assert payloads[1]["storage_key"] == "img-1.jpg"
-        assert payloads[2]["type"] == "outbound.text"
-        assert payloads[2]["text"] == "*Товар 1*"
-        assert payloads[3]["type"] == "outbound.image"
-        assert payloads[3]["storage_key"] == "img-2.jpg"
-        assert payloads[4]["type"] == "outbound.text"
-        assert payloads[4]["text"] == "*Товар 2*"
+        assert payloads[0]["type"] == "outbound.seen"
+        assert payloads[1]["type"] == "outbound.typing"
+        assert payloads[2]["type"] == "outbound.image"
+        assert payloads[2]["storage_key"] == "img-1.jpg"
+        assert payloads[3]["type"] == "outbound.text"
+        assert payloads[3]["text"] == "*Товар 1*"
+        assert payloads[4]["type"] == "outbound.image"
+        assert payloads[4]["storage_key"] == "img-2.jpg"
+        assert payloads[5]["type"] == "outbound.text"
+        assert payloads[5]["text"] == "*Товар 2*"
         assert not any("текст LLM" in p.get("text", "") for p in payloads)
     finally:
         await redis.aclose()
@@ -401,15 +403,16 @@ async def test_document_media_dispatches_to_outbound_document_with_filename(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        # typing, document, text
-        assert len(out_entries) == 3
+        # seen, typing, document, text
+        assert len(out_entries) == 4
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[0]["type"] == "outbound.typing"
-        assert payloads[1]["type"] == "outbound.document"
-        assert payloads[1]["storage_key"] == "bots/x/documents/price-list.pdf"
-        assert payloads[1]["filename"] == "price-list.pdf"
-        assert payloads[2]["type"] == "outbound.text"
-        assert payloads[2]["text"] == "Файл price-list.pdf отправлен."
+        assert payloads[0]["type"] == "outbound.seen"
+        assert payloads[1]["type"] == "outbound.typing"
+        assert payloads[2]["type"] == "outbound.document"
+        assert payloads[2]["storage_key"] == "bots/x/documents/price-list.pdf"
+        assert payloads[2]["filename"] == "price-list.pdf"
+        assert payloads[3]["type"] == "outbound.text"
+        assert payloads[3]["text"] == "Файл price-list.pdf отправлен."
     finally:
         await redis.aclose()
 
@@ -474,18 +477,19 @@ async def test_real_send_document_tool_dispatches_to_outbound_document(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        # typing, document, text
-        assert len(out_entries) == 3
+        # seen, typing, document, text
+        assert len(out_entries) == 4
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[0]["type"] == "outbound.typing"
-        assert payloads[1]["type"] == "outbound.document"
+        assert payloads[0]["type"] == "outbound.seen"
+        assert payloads[1]["type"] == "outbound.typing"
+        assert payloads[2]["type"] == "outbound.document"
         # Ровно то, что реальный SendDocumentTool взял из реальной строки
         # Document в БД — не то, что тест сам захардкодил в фейке.
-        assert payloads[1]["storage_key"] == "bots/x/documents/price-list.pdf"
-        assert payloads[1]["mime_type"] == "application/pdf"
-        assert payloads[1]["filename"] == "price-list.pdf"
-        assert payloads[2]["type"] == "outbound.text"
-        assert payloads[2]["text"] == "Отправляю файл price-list.pdf."
+        assert payloads[2]["storage_key"] == "bots/x/documents/price-list.pdf"
+        assert payloads[2]["mime_type"] == "application/pdf"
+        assert payloads[2]["filename"] == "price-list.pdf"
+        assert payloads[3]["type"] == "outbound.text"
+        assert payloads[3]["text"] == "Отправляю файл price-list.pdf."
     finally:
         await redis.aclose()
 
@@ -548,11 +552,11 @@ async def test_video_media_dispatches_to_outbound_video(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 3
+        assert len(out_entries) == 4
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[1]["type"] == "outbound.video"
-        assert payloads[1]["storage_key"] == "bots/x/documents/tour.mp4"
-        assert "filename" not in payloads[1]
+        assert payloads[2]["type"] == "outbound.video"
+        assert payloads[2]["storage_key"] == "bots/x/documents/tour.mp4"
+        assert "filename" not in payloads[2]
     finally:
         await redis.aclose()
 
@@ -619,12 +623,12 @@ async def test_mixed_case_mime_type_dispatches_case_insensitively(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 3
+        assert len(out_entries) == 4
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[1]["type"] == "outbound.image"
-        assert payloads[1]["storage_key"] == "bots/x/documents/photo.jpg"
+        assert payloads[2]["type"] == "outbound.image"
+        assert payloads[2]["storage_key"] == "bots/x/documents/photo.jpg"
         # диспетчеризация регистронезависима, но написание в самом событии — нет
-        assert payloads[1]["mime_type"] == "Image/JPEG"
+        assert payloads[2]["mime_type"] == "Image/JPEG"
     finally:
         await redis.aclose()
 
@@ -701,7 +705,7 @@ async def test_missing_filename_fallback_logs_a_warning(
 
         out_entries = await redis.xrange("wa:out")
         payloads = [json.loads(entry[1]["payload"]) for entry in out_entries]
-        assert payloads[1]["type"] == "outbound.document"
-        assert payloads[1]["filename"] == "file"
+        assert payloads[2]["type"] == "outbound.document"
+        assert payloads[2]["filename"] == "file"
     finally:
         await redis.aclose()

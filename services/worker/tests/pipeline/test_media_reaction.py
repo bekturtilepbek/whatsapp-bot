@@ -89,15 +89,16 @@ async def test_media_message_publishes_reaction_before_reply(
         )
 
         out_entries = await redis.xrange("wa:out")
-        # Реакция публикуется ДО батчинга/лока/ответа — первая в потоке,
-        # затем typing + фолбэк-текст (медиа без image_prompt — заглушка).
-        assert len(out_entries) == 3
-        reaction = json.loads(out_entries[0][1]["payload"])
+        # seen (1.11) публикуется ДО батчинга/лока/ответа — первая в потоке,
+        # затем реакция, typing + фолбэк-текст (медиа без image_prompt — заглушка).
+        assert len(out_entries) == 4
+        assert '"type": "outbound.seen"' in out_entries[0][1]["payload"]
+        reaction = json.loads(out_entries[1][1]["payload"])
         assert reaction["type"] == "outbound.reaction"
         assert reaction["chat_id"] == CHAT_ID
         assert reaction["reply_to_wa_msg_id"] == "wamsg-photo-1"
         assert reaction["emoji"] == DEFAULT_MEDIA_REACTION_EMOJI
-        assert '"type": "outbound.typing"' in out_entries[1][1]["payload"]
+        assert '"type": "outbound.typing"' in out_entries[2][1]["payload"]
     finally:
         await redis.aclose()
 
@@ -157,7 +158,7 @@ async def test_media_reaction_custom_emoji(
         )
 
         out_entries = await redis.xrange("wa:out")
-        reaction = json.loads(out_entries[0][1]["payload"])
+        reaction = json.loads(out_entries[1][1]["payload"])  # 0=seen, 1=reaction
         assert reaction["emoji"] == "🎉"
     finally:
         await redis.aclose()

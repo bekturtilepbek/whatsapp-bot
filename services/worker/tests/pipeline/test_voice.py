@@ -217,7 +217,7 @@ async def test_transcription_failure_falls_back_without_crashing_or_double_reply
             storage,
         )
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 3  # ровно один typing+text, не два ответа
+        assert len(out_entries) == 4  # seen+reaction+typing+text, не два ответа
         assert DEFAULT_MEDIA_FALLBACK_TEXT in out_entries[-1][1]["payload"]
 
         async with session_factory() as session:

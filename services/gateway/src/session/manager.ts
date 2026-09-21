@@ -172,6 +172,16 @@ export class SessionManager {
     await this.activeSocket(botId).sendPresenceUpdate("composing", chatId);
   }
 
+  /** Синие галочки клиенту (NEW — не было в V1, см. FEATURES.md 1.11).
+   * key.fromMe:false — отмечаем ЕГО сообщение прочитанным, не своё
+   * (симметрично sendReaction ниже). readMessages не отправляет отдельное
+   * сообщение — client_msg_id у outbound.seen нужен только на уровне
+   * OutboundConsumer (идемпотентность wa:sent:*), самому Baileys-вызову
+   * не передаётся, messageId у него нет. */
+  async sendSeen(botId: string, chatId: string, waMsgId: string): Promise<void> {
+    await this.activeSocket(botId).readMessages([{ remoteJid: chatId, id: waMsgId, fromMe: false }]);
+  }
+
   /** Реакция-эмодзи на сообщение клиента (FEATURES.md 9.10) — key.fromMe:false,
    * реагируем на ЕГО сообщение, не на своё. Живьём проверено на реальном
    * номере (спайк 2026-09-12): реакция доставляется и отображается. */

@@ -113,7 +113,7 @@ async def test_message_from_non_blocked_number_is_unaffected(
     redis = FakeRedis(decode_responses=True)
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
-        assert await redis.xlen("wa:out") == 2  # typing + text — обычный ответ
+        assert await redis.xlen("wa:out") == 3  # seen + typing + text — обычный ответ
     finally:
         await redis.aclose()
 

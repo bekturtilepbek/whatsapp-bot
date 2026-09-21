@@ -265,7 +265,7 @@ async def test_scheduling_failure_does_not_break_the_reply(
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2  # ответ клиенту всё равно ушёл
-        assert "Да, есть." in out_entries[1][1]["payload"]
+        assert len(out_entries) == 3  # ответ клиенту всё равно ушёл (0=seen,1=typing,2=текст)
+        assert "Да, есть." in out_entries[2][1]["payload"]
     finally:
         await redis.aclose()

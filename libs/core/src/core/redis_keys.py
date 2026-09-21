@@ -21,6 +21,12 @@ def handoff_key(bot_id: str, chat_id: str) -> str:
     return f"handoff:{bot_id}:{chat_id}"
 
 
+def handoff_pattern(bot_id: str) -> str:
+    """SCAN-паттерн всех активных handoff-чатов одного бота (список "Активные
+    чаты" в кабинете) — отдельного индекса нет, ключей с TTL немного."""
+    return f"handoff:{bot_id}:*"
+
+
 def followup_sent_key(contact_id: str, after_seq: int) -> str:
     """Идемпотентность отправки напоминания (FEATURES.md 5.5): Redis-брокер
     может доставить ETA-задачу повторно (см. scheduling/celery_app.py про

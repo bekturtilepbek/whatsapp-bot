@@ -1,7 +1,7 @@
 """Смоук всего пайплайна Шага 5 на фейковом транспорте: inbound.text ->
-(мок LLM) -> outbound.typing + outbound.text в wa:out, обе стороны в
-messages, запись в usage_events. Отдельно: сбой LLM не роняет консюмер
-и снимает лок.
+(мок LLM) -> outbound.seen + outbound.typing + outbound.text в wa:out, обе
+стороны в messages, запись в usage_events. Отдельно: сбой LLM не роняет
+консюмер и снимает лок.
 
 DB — testcontainers-postgres (нужны реальные constraints/relations); Redis —
 fakeredis (тот же выбор, что и для dedup/batching/lock-тестов этого блока:
@@ -85,10 +85,11 @@ async def test_inbound_text_produces_reply_history_and_usage(
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
-        assert len(out_entries) == 2
-        assert '"type": "outbound.typing"' in out_entries[0][1]["payload"]
-        assert '"type": "outbound.text"' in out_entries[1][1]["payload"]
-        assert "Да, доставка есть." in out_entries[1][1]["payload"]
+        assert len(out_entries) == 3
+        assert '"type": "outbound.seen"' in out_entries[0][1]["payload"]
+        assert '"type": "outbound.typing"' in out_entries[1][1]["payload"]
+        assert '"type": "outbound.text"' in out_entries[2][1]["payload"]
+        assert "Да, доставка есть." in out_entries[2][1]["payload"]
 
         async with session_factory() as session:
             # БД (testcontainers) общая на весь модуль — фильтруем по своему
@@ -117,6 +118,36 @@ async def test_inbound_text_produces_reply_history_and_usage(
             assert usage[0].model == "gpt-4o-mini"
 
         assert await redis.get(_lock_key(str(bot_id), "996700000000@s.whatsapp.net")) is None
+    finally:
+        await redis.aclose()
+
+
+async def test_typing_fires_before_the_llm_call_not_after(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ревизия FEATURES.md 1.8: раньше typing уходил только прямо перед
+    отправкой готового текста (после LLM) — клиент видел "печатает…" на
+    долю секунды. Эталон V1 — typing сразу после закрытия батч-окна, ДО
+    начала обработки. Проверяем это напрямую: к моменту вызова LLM
+    outbound.typing уже должен быть в wa:out, а не появиться только после."""
+    redis_ref: FakeRedis | None = None
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        assert redis_ref is not None
+        out_entries = await redis_ref.xrange("wa:out")
+        assert len(out_entries) == 2  # seen (1.11) + typing — оба ДО LLM
+        assert '"type": "outbound.seen"' in out_entries[0][1]["payload"]
+        assert '"type": "outbound.typing"' in out_entries[1][1]["payload"]
+        return LLMResult(text="Да, доставка есть.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    redis_ref = redis
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
     finally:
         await redis.aclose()
 
@@ -185,7 +216,12 @@ async def test_llm_failure_does_not_crash_and_releases_lock(
             _inbound_payload(bot_id), redis, session_factory, _NullStorage()
         )  # не должно упасть
 
-        assert await redis.xlen("wa:out") == 0
+        # seen+typing зажигаются ДО вызова LLM (FEATURES.md 1.8 ревизия) —
+        # клиент успевает их увидеть, даже когда сам ответ так и не пришёл.
+        out_entries = await redis.xrange("wa:out")
+        assert len(out_entries) == 2
+        assert '"type": "outbound.seen"' in out_entries[0][1]["payload"]
+        assert '"type": "outbound.typing"' in out_entries[1][1]["payload"]
         assert await redis.get(_lock_key(str(bot_id), "996700000000@s.whatsapp.net")) is None
 
         async with session_factory() as session:

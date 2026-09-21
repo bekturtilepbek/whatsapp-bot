@@ -84,6 +84,17 @@ export const OutboundReaction = z
   .strict();
 export type OutboundReaction = z.infer<typeof OutboundReaction>;
 
+export const OutboundSeen = z
+  .object({
+    type: z.literal("outbound.seen"),
+    bot_id: z.string().uuid(),
+    chat_id: z.string().min(1),
+    wa_msg_id: z.string().min(1),
+    client_msg_id: z.string().min(1),
+  })
+  .strict();
+export type OutboundSeen = z.infer<typeof OutboundSeen>;
+
 export const OutboundTyping = z
   .object({
     type: z.literal("outbound.typing"),
@@ -111,6 +122,7 @@ export const Event = z.discriminatedUnion("type", [
   OutboundDocument,
   OutboundVideo,
   OutboundReaction,
+  OutboundSeen,
   OutboundTyping,
   SessionStatus,
 ]);

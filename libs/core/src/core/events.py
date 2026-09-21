@@ -88,6 +88,17 @@ class OutboundReaction(BaseModel):
     client_msg_id: str = Field(min_length=1)
 
 
+class OutboundSeen(BaseModel):
+    """Отметка входящего сообщения клиента как прочитанного (синие галочки),
+    в wa:out. NEW — не было в V1."""
+
+    type: Literal["outbound.seen"] = "outbound.seen"
+    bot_id: UUID
+    chat_id: str = Field(min_length=1)
+    wa_msg_id: str = Field(min_length=1)
+    client_msg_id: str = Field(min_length=1)
+
+
 class OutboundTyping(BaseModel):
     """Индикатор "печатает" в wa:out."""
 
@@ -113,6 +124,7 @@ Event = (
     | OutboundDocument
     | OutboundVideo
     | OutboundReaction
+    | OutboundSeen
     | OutboundTyping
     | SessionStatus
 )

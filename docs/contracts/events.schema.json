@@ -101,6 +101,19 @@
       },
       "required": ["type", "bot_id", "chat_id", "reply_to_wa_msg_id", "emoji", "client_msg_id"]
     },
+    "outboundSeen": {
+      "type": "object",
+      "description": "Отметка входящего сообщения клиента как прочитанного (синие галочки), в wa:out. NEW — не было в V1 (в архиве node-bot2/node-bot3 такого вызова нет вообще, только внутренний dedup-Set с похожим именем).",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "outbound.seen" },
+        "bot_id": { "type": "string", "format": "uuid" },
+        "chat_id": { "type": "string", "minLength": 1 },
+        "wa_msg_id": { "type": "string", "minLength": 1 },
+        "client_msg_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "bot_id", "chat_id", "wa_msg_id", "client_msg_id"]
+    },
     "outboundTyping": {
       "type": "object",
       "description": "Индикатор \"печатает\" в wa:out.",
@@ -136,6 +149,7 @@
     { "$ref": "#/definitions/outboundDocument" },
     { "$ref": "#/definitions/outboundVideo" },
     { "$ref": "#/definitions/outboundReaction" },
+    { "$ref": "#/definitions/outboundSeen" },
     { "$ref": "#/definitions/outboundTyping" },
     { "$ref": "#/definitions/sessionStatus" }
   ]

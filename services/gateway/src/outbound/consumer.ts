@@ -106,7 +106,8 @@ export class OutboundConsumer {
         event.type === "outbound.image" ||
         event.type === "outbound.document" ||
         event.type === "outbound.video" ||
-        event.type === "outbound.reaction"
+        event.type === "outbound.reaction" ||
+        event.type === "outbound.seen"
       ) {
         // Цепочка === (не .includes() на массиве типов) — TS естественно
         // сужает event до нужного Extract-объединения по литералам, без
@@ -144,7 +145,8 @@ export class OutboundConsumer {
           | "outbound.image"
           | "outbound.document"
           | "outbound.video"
-          | "outbound.reaction";
+          | "outbound.reaction"
+          | "outbound.seen";
       }
     >,
   ): Promise<void> {
@@ -214,6 +216,12 @@ export class OutboundConsumer {
               ),
               SEND_TIMEOUT_MS,
               "sendReaction",
+            );
+          } else if (event.type === "outbound.seen") {
+            await withTimeout(
+              this.sessions.sendSeen(event.bot_id, event.chat_id, event.wa_msg_id),
+              SEND_TIMEOUT_MS,
+              "sendSeen",
             );
           } else {
             // Компилятор ловит здесь любой новый outbound.*-тип, добавленный в

@@ -8,12 +8,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendMessageMock = vi.fn(async () => undefined);
 const sendPresenceUpdateMock = vi.fn(async () => undefined);
+const readMessagesMock = vi.fn(async () => undefined);
 
 function makeFakeSocket() {
   return {
     ev: { on: vi.fn() },
     sendMessage: sendMessageMock,
     sendPresenceUpdate: sendPresenceUpdateMock,
+    readMessages: readMessagesMock,
     user: { id: "996700000000:1@s.whatsapp.net" },
     logout: vi.fn(async () => undefined),
     end: vi.fn(),
@@ -67,6 +69,7 @@ describe("SessionManager.sendText / sendTyping", () => {
   beforeEach(() => {
     sendMessageMock.mockClear();
     sendPresenceUpdateMock.mockClear();
+    readMessagesMock.mockClear();
   });
 
   it("passes clientMsgId as Baileys messageId when sending text", async () => {
@@ -182,6 +185,18 @@ describe("SessionManager.sendText / sendTyping", () => {
       },
       { messageId: "reaction-msg-1" },
     );
+  });
+
+  // FEATURES.md 1.11 — NEW, не было в V1.
+  it("sendSeen marks the client's message read (fromMe:false), not our own", async () => {
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    await sessions.sendSeen("bot-1", "996700000000@s.whatsapp.net", "3EB0C767D82A1B0C4A5F");
+
+    expect(readMessagesMock).toHaveBeenCalledWith([
+      { remoteJid: "996700000000@s.whatsapp.net", id: "3EB0C767D82A1B0C4A5F", fromMe: false },
+    ]);
   });
 });
 

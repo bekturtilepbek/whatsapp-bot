@@ -136,4 +136,43 @@ describe("normalizeInboundMessage", () => {
     const msg = baseMessage({ message: undefined });
     expect(normalizeInboundMessage(BOT_ID, msg)).toBeNull();
   });
+
+  describe("LID migration (FEATURES.md 9.2)", () => {
+    it("prefers the real phone number from senderPn on an LID-addressed chat", () => {
+      const msg = baseMessage({
+        key: {
+          remoteJid: "36722104639620@lid",
+          id: "X",
+          fromMe: false,
+          senderPn: "996700000000@s.whatsapp.net",
+          senderLid: "36722104639620@lid",
+        },
+        message: { conversation: "Здравствуйте" },
+      });
+      const event = normalizeInboundMessage(BOT_ID, msg);
+      expect(event?.chat_id).toBe("36722104639620@lid"); // routing-ключ не трогаем
+      expect(event?.sender_wa_id).toBe("996700000000"); // а не LID-число
+      expect(event?.sender_lid).toBe("36722104639620");
+    });
+
+    it("still writes sender_lid honestly on an LID chat when Baileys gives no senderPn hint", () => {
+      // Типичный случай from_me=true: Baileys подсказывает номер ОТПРАВИТЕЛЯ
+      // (сам бот), а не собеседника — sender_wa_id остаётся старым способом,
+      // но sender_lid больше не захардкожен в null.
+      const msg = baseMessage({
+        key: { remoteJid: "36722104639620@lid", id: "X", fromMe: true },
+        message: { conversation: "Здравствуйте, это менеджер" },
+      });
+      const event = normalizeInboundMessage(BOT_ID, msg);
+      expect(event?.sender_wa_id).toBe("36722104639620");
+      expect(event?.sender_lid).toBe("36722104639620");
+    });
+
+    it("leaves sender_lid null on an ordinary phone-JID chat (no LID involved)", () => {
+      const msg = baseMessage({ message: { conversation: "Привет" } }); // baseMessage — @s.whatsapp.net
+      const event = normalizeInboundMessage(BOT_ID, msg);
+      expect(event?.sender_wa_id).toBe("996700000000");
+      expect(event?.sender_lid).toBeNull();
+    });
+  });
 });

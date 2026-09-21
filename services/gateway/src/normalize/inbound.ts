@@ -79,6 +79,16 @@ function extractQuotedContext(
   return { text: null, mediaType };
 }
 
+function isLidJid(jid: string): boolean {
+  return jid.endsWith("@lid");
+}
+
+/** .user-часть JID (без @домена) — undefined/невалидный JID даёт null. */
+function jidUser(jid: string | null | undefined): string | null {
+  if (!jid) return null;
+  return jidDecode(jid)?.user ?? null;
+}
+
 /**
  * @returns null, если сообщение не текстовое и не из поддерживаемых медиатипов
  * (реакции, опросы, служебные протокольные сообщения и т.п. — вне скоупа Блока 1).
@@ -97,10 +107,39 @@ export function normalizeInboundMessage(botId: string, msg: WAMessage): InboundT
 
   const senderJid = msg.key.participant ?? chatId;
   const decoded = jidDecode(senderJid);
-  // LID-контакты: Baileys этой версии не отдаёt сопоставление с телефонным JID
-  // на уровне сообщения (см. FEATURES.md 9.2) — пишем то, что реально пришло,
-  // sender_lid не заполняем здесь; матчинг wa_id<->lid — задача Block 2.
-  const senderWaId = decoded?.user ?? senderJid;
+
+  // LID-миграция WhatsApp (FEATURES.md 9.2, найдено живьём 2026-09-21): Baileys
+  // этой версии (6.7.24+) уже резолвит пару номер/LID ОТПРАВИТЕЛЯ прямо на
+  // message.key (senderPn/senderLid — из протокольных атрибутов sender_pn/
+  // sender_lid, см. node_modules/@whiskeysockets/baileys decode-wa-message.js) —
+  // раньше здесь читался только сырой remoteJid/participant, из-за чего для
+  // LID-адресованных контактов в sender_wa_id писалось LID-число вместо
+  // настоящего номера, а sender_lid был захардкожен в null.
+  const senderPn = msg.key.senderPn ?? null;
+  const senderLidJid = msg.key.senderLid ?? null;
+
+  let senderWaId: string;
+  let senderLid: string | null;
+  if (senderPn) {
+    // Baileys подсказал настоящий номер отправителя напрямую — обычный
+    // случай для входящего от клиента (from_me=false) на LID-адресованном
+    // чате: отправитель — клиент, и WhatsApp явно шлёт его номер.
+    senderWaId = jidUser(senderPn) ?? decoded?.user ?? senderJid;
+    senderLid = jidUser(senderLidJid) ?? (isLidJid(senderJid) ? decoded?.user ?? null : null);
+  } else {
+    // Прямой подсказки нет — типичный случай для from_me=true: Baileys
+    // подсказывает номер ОТПРАВИТЕЛЯ, а отправитель здесь — сам бот, не
+    // собеседник, знать его номер неоткуда на уровне ЭТОГО сообщения.
+    // sender_wa_id остаётся как раньше (может оказаться LID-числом), но
+    // sender_lid теперь честно заполняется, если сам JID в LID-формате —
+    // match_or_create_contact (db/contacts.py) уже умеет матчить по wa_id
+    // ИЛИ lid, так что если тот же контакт уже был опознан по более раннему
+    // сообщению КЛИЕНТА с настоящим номером, воркер сам найдёт верную
+    // запись по этому lid — правка воркера не нужна.
+    senderWaId = decoded?.user ?? senderJid;
+    senderLid = isLidJid(senderJid) ? (decoded?.user ?? null) : (jidUser(senderLidJid) ?? null);
+  }
+
   const quoted = extractQuotedContext(contentType, content);
 
   return {
@@ -109,7 +148,7 @@ export function normalizeInboundMessage(botId: string, msg: WAMessage): InboundT
     wa_msg_id: waMsgId,
     chat_id: chatId,
     sender_wa_id: senderWaId,
-    sender_lid: null,
+    sender_lid: senderLid,
     from_me: msg.key.fromMe ?? false,
     text,
     quoted_text: quoted.text,

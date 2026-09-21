@@ -119,7 +119,18 @@ export class OutboundConsumer {
     } catch (err) {
       this.logger.error({ err, id, raw }, "failed to process wa:out entry, acking anyway");
     } finally {
-      await this.redis.xack(OUT_STREAM, GROUP, id);
+      try {
+        await this.redis.xack(OUT_STREAM, GROUP, id);
+      } catch (err) {
+        // Без этого try/catch сбой самого XACK (сетевой блип к Redis)
+        // вылетел бы из processEntry необработанным — loop() его нигде не
+        // ловит на этом уровне (только xreadgroup обёрнут), поэтому
+        // loopPromise стал бы rejected-промисом, который никто не await'ит
+        // до stop() (вызывается только при штатном шатдауне) — необработанный
+        // reject роняет ВЕСЬ процесс gateway (тот же класс бага, что и
+        // pg.Pool/ioredis "error" и auth-state, найденные ранее 2026-09-21).
+        this.logger.error({ err, id }, "failed to ack wa:out entry, it will remain pending");
+      }
     }
   }
 

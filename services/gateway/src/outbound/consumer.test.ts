@@ -74,6 +74,32 @@ describe("OutboundConsumer idempotency and routing", () => {
     expect(redis.xack).toHaveBeenCalledWith("wa:out", "gateway", "1-0");
   });
 
+  it("a failed XACK is logged, not thrown out of processEntry", async () => {
+    // Раньше это вылетало бы наружу необработанным — loop() ловит только
+    // xreadgroup, и rejected loopPromise никто не await'ит до stop(),
+    // роняя весь процесс gateway на первом же сетевом блипе к Redis при ACK.
+    const { redis, sessions, logger, storage } = makeMocks();
+    (redis.xack as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("simulated redis blip"));
+    const consumer = new OutboundConsumer(redis, sessions, logger, storage);
+    const event = {
+      type: "outbound.text",
+      bot_id: BOT_ID,
+      chat_id: "996700000000@s.whatsapp.net",
+      text: "Здравствуйте",
+      client_msg_id: "msg-ack-fail",
+    };
+
+    await expect(
+      (consumer as unknown as { processEntry: (id: string, f: string[]) => Promise<void> })
+        .processEntry("1-0", payloadFields(event)),
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "1-0" }),
+      expect.stringContaining("failed to ack wa:out entry"),
+    );
+  });
+
   it("skips send on a retried (duplicate) client_msg_id but still ACKs", async () => {
     const { redis, sessions, logger, storage } = makeMocks();
     const consumer = new OutboundConsumer(redis, sessions, logger, storage);

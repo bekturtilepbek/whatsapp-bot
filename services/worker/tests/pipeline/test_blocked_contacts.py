@@ -1,6 +1,9 @@
 """Чёрный список (FEATURES.md 1.5): сообщение от заблокированного номера
-полностью игнорируется — без ответа, без записи в историю. Менеджер
-(from_me) не блокируется.
+не получает ответа, но записывается в историю (решение пользователя
+2026-09-21 — тот же принцип, что и у паузы бота: реальный сценарий чёрного
+списка часто не спам, а родные/друзья клиента, чей номер бот подключён на
+личный телефон, молчаливая потеря их сообщений из истории не нужна).
+Менеджер (from_me) не блокируется.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ def _inbound_payload(
     }
 
 
-async def test_message_from_blocked_number_is_fully_ignored(
+async def test_message_from_blocked_number_is_recorded_but_not_replied(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -85,7 +88,8 @@ async def test_message_from_blocked_number_is_fully_ignored(
                 .scalars()
                 .all()
             )
-            assert messages == []  # история не пишется вообще
+            assert len(messages) == 1  # история пишется, как и при паузе бота
+            assert messages[0].role == "user"
     finally:
         await redis.aclose()
 

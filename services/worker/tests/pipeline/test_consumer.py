@@ -10,6 +10,7 @@ import uuid
 import pytest
 
 pytest.importorskip("testcontainers.postgres")
+from db.blocked_contacts import add_blocked_number
 from db.models import Bot, Message
 from fakeredis.aioredis import FakeRedis
 from sqlalchemy import select
@@ -86,6 +87,31 @@ async def test_disabled_bot_still_writes_history(
 ) -> None:
     """FEATURES.md: enabled=false -> молчим, но историю пишем."""
     bot_id = await _make_bot(session_factory, enabled=False)
+    redis = FakeRedis()
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+    finally:
+        await redis.aclose()
+
+    assert await _count_messages(session_factory, bot_id) == 1
+
+
+async def test_blocked_contact_still_writes_history_but_no_reply(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """FEATURES.md 1.5, решение пользователя 2026-09-21: заблокированный
+    контакт — та же логика, что и пауза бота выше (принимаем и логируем,
+    не отвечаем), а не полная тишина без следа в истории. Реальный сценарий
+    чёрного списка — не только спам, но и родные/друзья клиента (бот часто
+    подключают на личный номер) — молчаливая потеря их сообщений из истории
+    не нужна, легче заметить и разблокировать ошибочно попавший номер.
+    Раньше is_blocked отбрасывал событие ДО insert_incoming — сообщение не
+    попадало в БД вообще, ни следа."""
+    bot_id = await _make_bot(session_factory, enabled=True)
+    async with session_factory() as session:
+        await add_blocked_number(session, bot_id, "996700000000")
+        await session.commit()
+
     redis = FakeRedis()
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())

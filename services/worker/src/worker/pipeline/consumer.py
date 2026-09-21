@@ -212,11 +212,15 @@ async def _process_entry(
         return
 
     async with session_factory() as session:
-        if await is_blocked(session, event.bot_id, event.sender_wa_id):
-            logger.info(
-                "blocked contact, ignoring", bot_id=str(event.bot_id), phone=event.sender_wa_id
-            )
-            return
+        # Заблокированный контакт — тоже "принимаем и логируем, не отвечаем"
+        # (тот же принцип, что и у паузы бота ниже, 1.7): решение пользователя
+        # 2026-09-21 — раньше сообщение отбрасывалось ДО insert_incoming и
+        # не попадало в историю вообще, ни следа. В реальности чёрный список
+        # часто используют не против спама, а чтобы бот не отвечал родным/
+        # друзьям клиента (бота подключают на личный номер) — молчаливая
+        # потеря истории в этом сценарии не нужна, легче заметить и
+        # разблокировать ошибочно попавший номер.
+        blocked = await is_blocked(session, event.bot_id, event.sender_wa_id)
         contact = await match_or_create_contact(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )
@@ -249,6 +253,11 @@ async def _process_entry(
         return
     if not bot.enabled:
         return  # молчим, но история уже записана выше
+    if blocked:
+        logger.info(
+            "blocked contact, not replying", bot_id=str(event.bot_id), phone=event.sender_wa_id
+        )
+        return  # молчим, но история уже записана выше — см. комментарий у is_blocked выше
 
     bot_id_str = str(event.bot_id)
     if await handoff.is_active(redis, bot_id_str, event.chat_id):

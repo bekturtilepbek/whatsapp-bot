@@ -6,7 +6,7 @@ import { formatBishkekDateTime } from "@/lib/formatDate";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Table } from "@/components/ui/Table";
+import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
 
 interface PromptEditorProps {
@@ -17,6 +17,10 @@ interface PromptEditorProps {
   initialBody: string | null;
   initialVersions: PromptVersion[];
 }
+
+// Строки короче этого порога не нуждаются в сворачивании — превью и полный
+// текст совпадали бы, кнопка "Показать полностью" была бы бессмысленной.
+const PREVIEW_LENGTH = 200;
 
 export function PromptEditor({
   botId,
@@ -30,7 +34,10 @@ export function PromptEditor({
   const [body, setBody] = useState(initialBody ?? "");
   const [versions, setVersions] = useState<PromptVersion[]>(initialVersions);
   const [saving, setSaving] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Какие версии в открытой модалке сейчас показаны полностью (не только
+  // превью) — по id, чтобы разворачивать каждую версию независимо.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const save = async (newBody: string) => {
     setSaving(true);
@@ -47,6 +54,18 @@ export function PromptEditor({
     }
   };
 
+  const toggleExpanded = (id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-5">
       <Card className="p-5">
@@ -60,63 +79,69 @@ export function PromptEditor({
             className="mt-1.5"
           />
         </label>
-        <div className="mt-3">
+        <p className="mt-1.5 text-xs text-ink-soft">{body.length} символов</p>
+        <div className="mt-3 flex items-center gap-4">
           <Button onClick={() => void save(body)} disabled={saving}>
             {saving ? "Сохраняем…" : "Сохранить"}
           </Button>
+          {versions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className="text-sm font-medium text-accent hover:underline"
+            >
+              История изменений ({versions.length})
+            </button>
+          )}
         </div>
       </Card>
 
-      {versions.length > 0 &&
-        (showHistory ? (
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => setShowHistory(false)}
-              className="text-sm font-medium text-accent hover:underline"
-            >
-              Скрыть историю
-            </button>
-            <Table>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Дата</th>
-                    <th>Автор</th>
-                    <th>Текст</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {versions.map((version) => (
-                    <tr key={version.id}>
-                      <td className="font-mono">{formatBishkekDateTime(version.created_at)}</td>
-                      <td>{version.author}</td>
-                      <td>{(version.body ?? "").slice(0, 60)}</td>
-                      <td>
-                        <Button
-                          variant="secondary"
-                          onClick={() => void save(version.body ?? "")}
-                          disabled={saving}
-                        >
-                          Откатить
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Table>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setShowHistory(true)}
-            className="text-sm font-medium text-accent hover:underline"
-          >
-            История изменений ({versions.length})
-          </button>
-        ))}
+      <Modal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        title={`История изменений — ${label}`}
+        widthClassName="max-w-2xl"
+      >
+        <div className="flex flex-col divide-y divide-border">
+          {versions.map((version) => {
+            const text = version.body ?? "";
+            const isExpanded = expanded.has(version.id);
+            const isLong = text.length > PREVIEW_LENGTH;
+            return (
+              <div key={version.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-ink-soft">
+                    <span className="font-mono">{formatBishkekDateTime(version.created_at)}</span>
+                    {" · "}
+                    {version.author}
+                    {" · "}
+                    {text.length} символов
+                  </p>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void save(text)}
+                    disabled={saving}
+                  >
+                    Откатить
+                  </Button>
+                </div>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-ink">
+                  {isExpanded || !isLong ? text : `${text.slice(0, PREVIEW_LENGTH)}…`}
+                </p>
+                {isLong && (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpanded(version.id)}
+                    className="mt-1 text-xs font-medium text-accent hover:underline"
+                  >
+                    {isExpanded ? "Свернуть" : "Показать полностью"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
     </div>
   );
 }

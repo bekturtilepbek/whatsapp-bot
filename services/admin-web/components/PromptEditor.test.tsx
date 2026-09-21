@@ -24,7 +24,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("renders the current prompt body with history hidden behind a link", () => {
+it("renders the current prompt body with history hidden behind a link, and shows a char count", () => {
   render(
     <PromptEditor
       botId="1"
@@ -36,6 +36,7 @@ it("renders the current prompt body with history hidden behind a link", () => {
     />,
   );
   expect(screen.getByRole("textbox")).toHaveValue("текущий текст");
+  expect(screen.getByText("13 символов")).toBeInTheDocument();
   expect(screen.queryByText(/старый текст/)).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
@@ -139,7 +140,7 @@ it("shows an error when saving fails", async () => {
   });
 });
 
-it("renders version history as a table once revealed", () => {
+it("opens version history in a modal once revealed, closed by default", () => {
   render(
     <PromptEditor
       botId="1"
@@ -150,9 +151,34 @@ it("renders version history as a table once revealed", () => {
       initialVersions={[existingVersion]}
     />,
   );
-  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
 
-  expect(screen.getByRole("table")).toBeInTheDocument();
+  expect(screen.getByRole("dialog")).toBeInTheDocument();
+});
+
+it("truncates a long version body behind a 'show more' toggle", () => {
+  const longVersion: PromptVersion = {
+    id: "v-long",
+    body: "а".repeat(250),
+    author: "admin",
+    created_at: "2026-09-08T10:00:00Z",
+  };
+  render(
+    <PromptEditor
+      botId="1"
+      apiBaseUrl="http://api"
+      kind="main"
+      label="Основной промпт"
+      initialBody="текущий текст"
+      initialVersions={[longVersion]}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /история изменений/i }));
+
+  expect(screen.getByText(`${"а".repeat(200)}…`)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /показать полностью/i }));
+  expect(screen.getByText("а".repeat(250))).toBeInTheDocument();
 });

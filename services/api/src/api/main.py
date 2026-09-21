@@ -15,8 +15,12 @@ import structlog
 from db.engine import make_engine, make_session_factory, session_scope
 from db.users import get_user_by_email
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from .audit import audit_middleware
+from .db import SessionDep
+from .redis_client import RedisDep
 from .routers import audit_log, auth, bots, documents, products, sandbox, usage, users
 from .security import hash_password
 
@@ -76,6 +80,16 @@ app.include_router(usage.router)
 app.include_router(users.router)
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
+@app.get("/health", response_model=None)
+async def health(session: SessionDep, redis: RedisDep) -> dict[str, str] | JSONResponse:
+    # FEATURES.md 8.8: раньше проверялось только "процесс отвечает на порту" —
+    # Postgres/Redis, упавшие ПОСЛЕ старта (compose гарантирует их здоровье
+    # только на старте, depends_on: service_healthy), никак не отражались бы
+    # в healthcheck, маскируя реальный простой сколько угодно долго.
+    try:
+        await session.execute(text("SELECT 1"))
+        await redis.ping()
+    except Exception:
+        logger.warning("health check failed", exc_info=True)
+        return JSONResponse(status_code=503, content={"status": "degraded"})
     return {"status": "ok"}

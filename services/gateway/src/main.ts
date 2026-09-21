@@ -11,13 +11,26 @@ import { SessionManager } from "./session/manager.js";
 import { createStorage } from "./storage/index.js";
 
 const app = Fastify({ logger: { name: "gateway" } });
-const pool = getPool();
-const redis = getRedis();
+const pool = getPool(app.log);
+const redis = getRedis(app.log);
 const storage = createStorage();
 const sessions = new SessionManager(pool, redis, app.log, storage);
 const outbound = new OutboundConsumer(redis, sessions, app.log, storage);
 
-app.get("/health", async () => ({ status: "ok" }));
+app.get("/health", async (_request, reply) => {
+  // FEATURES.md 8.8: раньше — только "процесс отвечает на порту". Postgres/
+  // Redis, упавшие ПОСЛЕ старта (compose гарантирует их здоровье только на
+  // старте, depends_on: service_healthy), не отражались бы в healthcheck
+  // вообще, маскируя реальный простой сколько угодно долго.
+  try {
+    await pool.query("SELECT 1");
+    await redis.ping();
+  } catch (err) {
+    app.log.warn({ err }, "health check failed");
+    return reply.code(503).send({ status: "degraded" });
+  }
+  return { status: "ok" };
+});
 
 app.get<{ Params: { botId: string } }>("/qr/:botId", async (request, reply) => {
   const { botId } = request.params;

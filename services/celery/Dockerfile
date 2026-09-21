@@ -1,6 +1,12 @@
 # Контекст сборки — корень репозитория (нужен доступ к libs/*)
 FROM python:3.12-slim
 
+# Тот же принцип, что в services/worker/Dockerfile — celery сам настраивает
+# логирование своего фреймворка, но structlog-вызовы внутри задач
+# (tasks/followup.py и т.п.) идут через дефолтный print()-логгер и подвержены
+# той же буферизации stdout без этой переменной.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
 COPY libs /app/libs

@@ -1,6 +1,12 @@
 # Контекст сборки — корень репозитория (нужен доступ к libs/*)
 FROM python:3.12-slim
 
+# Тот же принцип, что в services/worker/Dockerfile: structlog нигде не
+# настроен явно (дефолтный print()-логгер), без этой переменной CPython
+# буферизует stdout, раз он не TTY — логи (в т.ч. audit-middleware, sandbox)
+# могут задерживаться или теряться при падении контейнера.
+ENV PYTHONUNBUFFERED=1
+
 # FEATURES.md 4.9 ревизия — сжатие видео при загрузке (api/video.py).
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*

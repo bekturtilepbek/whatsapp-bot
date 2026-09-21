@@ -40,6 +40,7 @@ export function BlockedNumbersTable({
   const handleAdd = async (event: FormEvent) => {
     event.preventDefault();
     if (!phone.trim()) {
+      showError("Введите номер телефона");
       return;
     }
     setAdding(true);

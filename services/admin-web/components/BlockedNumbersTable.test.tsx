@@ -28,6 +28,16 @@ it("renders each blocked number", () => {
   expect(screen.getByText("996700000002")).toBeInTheDocument();
 });
 
+it("shows an error and does not call the api when the phone field is empty", async () => {
+  render(
+    <BlockedNumbersTable botId="1" apiBaseUrl="http://api" numbers={numbers} pageSize={10} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /добавить/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/введите номер телефона/i);
+  expect(api.addBlockedNumber).not.toHaveBeenCalled();
+});
+
 it("adds a number and prepends it to the list", async () => {
   vi.mocked(api.addBlockedNumber).mockResolvedValue({ phone: "996700000003" });
   render(

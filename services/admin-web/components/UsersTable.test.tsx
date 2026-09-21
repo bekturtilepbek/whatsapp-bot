@@ -79,6 +79,14 @@ it("hides the platform owner's own row", () => {
   expect(screen.queryByText("owner@example.com")).not.toBeInTheDocument();
 });
 
+it("shows an error and does not call the api when email or password is empty", async () => {
+  render(<UsersTable apiBaseUrl="http://api" users={users} bots={bots} />);
+  fireEvent.click(screen.getByRole("button", { name: /создать пользователя/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/введите email и пароль/i);
+  expect(api.createUser).not.toHaveBeenCalled();
+});
+
 it("creates a user and adds it to the list", async () => {
   const created: CabinetUser = {
     id: "u3",

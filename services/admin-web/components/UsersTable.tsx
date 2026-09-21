@@ -32,7 +32,10 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
-    if (!email.trim() || !password.trim()) return;
+    if (!email.trim() || !password.trim()) {
+      showError("Введите email и пароль");
+      return;
+    }
     setCreating(true);
     try {
       const created = await createUser(apiBaseUrl, { email, password, bot_ids: [] });

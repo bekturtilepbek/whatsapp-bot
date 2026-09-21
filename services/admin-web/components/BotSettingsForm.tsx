@@ -60,6 +60,13 @@ function diffSettings(
   if (current.model !== baseline.model) {
     changed.model = current.model;
   }
+  if (
+    current.product_display.show_name !== baseline.product_display.show_name ||
+    current.product_display.show_description !== baseline.product_display.show_description ||
+    current.product_display.show_price !== baseline.product_display.show_price
+  ) {
+    changed.product_display = current.product_display;
+  }
   return changed;
 }
 
@@ -257,6 +264,55 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             className="mt-1.5 max-w-xs"
           />
         </label>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Вывод товаров</h2>
+        <p className="mb-4 text-xs text-ink-soft">
+          Применяется ко всем товарам бота, кроме тех, где включено своё переопределение
+          (вкладка «Товары» → карточка товара).
+        </p>
+        <div className="flex flex-col gap-3">
+          <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+            <Switch
+              checked={settings.product_display.show_name}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  product_display: { ...settings.product_display, show_name: e.target.checked },
+                })
+              }
+            />
+            Показывать название
+          </label>
+          <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+            <Switch
+              checked={settings.product_display.show_description}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  product_display: {
+                    ...settings.product_display,
+                    show_description: e.target.checked,
+                  },
+                })
+              }
+            />
+            Показывать описание
+          </label>
+          <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+            <Switch
+              checked={settings.product_display.show_price}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  product_display: { ...settings.product_display, show_price: e.target.checked },
+                })
+              }
+            />
+            Показывать цену
+          </label>
+        </div>
       </Card>
 
       <Button type="submit" disabled={saving}>

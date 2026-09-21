@@ -23,6 +23,7 @@ const initialSettings: Required<BotSettings> = {
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
   model: "gpt-4o-mini",
+  product_display: { show_name: true, show_description: true, show_price: true },
 };
 
 afterEach(() => {
@@ -41,6 +42,9 @@ it("renders current settings", () => {
   expect(screen.getByLabelText(/реагировать эмодзи/i)).toBeChecked();
   expect(screen.getByLabelText(/эмодзи реакции/i)).toHaveValue("👍");
   expect(screen.getByLabelText(/модель llm/i)).toHaveValue("gpt-4o-mini");
+  expect(screen.getByLabelText(/показывать название/i)).toBeChecked();
+  expect(screen.getByLabelText(/показывать описание/i)).toBeChecked();
+  expect(screen.getByLabelText(/показывать цену/i)).toBeChecked();
 });
 
 it("saves only the fields that were actually changed", async () => {
@@ -112,6 +116,20 @@ it("saves a changed model (Волна 4)", async () => {
 
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { model: "gpt-4o" });
+  });
+});
+
+it("saves the whole product_display object when any of its switches changed (FEATURES.md 4.5)", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  fireEvent.click(screen.getByLabelText(/показывать цену/i));
+  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
+      product_display: { show_name: true, show_description: true, show_price: false },
+    });
   });
 });
 

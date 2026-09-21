@@ -45,6 +45,19 @@ export interface BotSettings {
   // до этой настройки — падает в платформенный OPENAI_MODEL (см.
   // libs/llm/src/llm/client.py::current_model).
   model?: string;
+  // FEATURES.md 4.5 — глобальный вывод карточки товара. Тот же трёхключевой
+  // формат, что и Product.display_custom (ProductForm.tsx) — бэкенд
+  // (product_search.py::_resolve_display_config) читает его как fallback,
+  // когда на конкретном товаре нет своего display_custom («всё или
+  // ничего»). Раньше в кабинете не было формы для этого поля вообще —
+  // только per-товар переопределение.
+  product_display?: ProductDisplay;
+}
+
+export interface ProductDisplay {
+  show_name?: boolean;
+  show_description?: boolean;
+  show_price?: boolean;
 }
 
 export const AVAILABLE_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
@@ -61,6 +74,7 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
   model: AVAILABLE_MODELS[0],
+  product_display: { show_name: true, show_description: true, show_price: true },
 };
 
 /** Срезает завершающие "/" — оператор мог вписать API_INTERNAL_URL в прод

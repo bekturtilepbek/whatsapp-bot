@@ -20,7 +20,20 @@ export default async function BotSettingsPage({
     notFound();
   }
 
-  const initialSettings = { ...DEFAULT_BOT_SETTINGS, ...bot.settings };
+  // Шаллоу-спред достаточен для всех полей, кроме product_display: это
+  // вложенный объект, и {...DEFAULT, ...bot.settings} заменил бы его
+  // ЦЕЛИКОМ, даже если на боте задан только один из трёх ключей — оставшиеся
+  // потерялись бы из формы (хотя бэкенд их видит как true по умолчанию,
+  // product_search.py::_resolve_display_config). Мержим этот подобъект
+  // отдельно, на уровень глубже.
+  const initialSettings = {
+    ...DEFAULT_BOT_SETTINGS,
+    ...bot.settings,
+    product_display: {
+      ...DEFAULT_BOT_SETTINGS.product_display,
+      ...bot.settings?.product_display,
+    },
+  };
   const telegramLeadBinding = tools.find((t) => t.tool_name === "send_telegram_lead") ?? null;
 
   return (

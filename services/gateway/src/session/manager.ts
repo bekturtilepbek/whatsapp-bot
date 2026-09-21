@@ -12,6 +12,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import type { Redis } from "ioredis";
 import type { Pool } from "pg";
+import sharp from "sharp";
 
 import type { TransportLogger } from "../logger.js";
 
@@ -51,6 +52,31 @@ const IN_STREAM = "wa:in";
  */
 function isMediaDownloadSkipped(event: InboundText): boolean {
   return event.from_me || event.chat_id.endsWith("@g.us") || event.chat_id === "status@broadcast";
+}
+
+const IMAGE_THUMBNAIL_WIDTH = 32;
+
+/**
+ * Baileys сам умеет генерировать превью (jpegThumbnail) для outbound-фото —
+ * но делает это, читая ОРИГИНАЛЬНЫЙ файл, который сам же асинхронно пишет на
+ * диск (encryptedStream → originalFileStream.end(), без ожидания реального
+ * flush) ПАРАЛЛЕЛЬНО с чтением этого же файла для превью (Promise.all) —
+ * гонка внутри самой библиотеки. Живая проверка 2026-09-22: воспроизводится
+ * стабильно (2/2) на реальном фото товара — Sharp падает с "Input file
+ * contains unsupported image format" (усечённый на середине записи файл),
+ * само фото при этом доставляется, просто без превью. Обходим: генерируем
+ * превью сами из буфера, который уже целиком в памяти (гонки быть не может),
+ * и передаём готовым — Baileys не лезет генерировать его сам
+ * (generateThumbnail пропускается, если jpegThumbnail уже задан).
+ */
+async function buildJpegThumbnail(image: Buffer, logger: TransportLogger): Promise<string | undefined> {
+  try {
+    const buf = await sharp(image).resize(IMAGE_THUMBNAIL_WIDTH).jpeg({ quality: 50 }).toBuffer();
+    return buf.toString("base64");
+  } catch (err) {
+    logger.warn({ err }, "failed to build jpeg thumbnail, sending without preview");
+    return undefined;
+  }
 }
 
 interface RunningSession {
@@ -172,9 +198,10 @@ export class SessionManager {
     mimeType: string,
     clientMsgId: string,
   ): Promise<void> {
+    const jpegThumbnail = await buildJpegThumbnail(image, this.logger);
     await this.activeSocket(botId).sendMessage(
       chatId,
-      { image, mimetype: mimeType },
+      { image, mimetype: mimeType, ...(jpegThumbnail ? { jpegThumbnail } : {}) },
       { messageId: clientMsgId },
     );
   }

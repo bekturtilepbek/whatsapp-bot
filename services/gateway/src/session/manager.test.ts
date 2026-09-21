@@ -95,6 +95,8 @@ describe("SessionManager.sendText / sendTyping", () => {
     const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
     await sessions.startSession("bot-1");
 
+    // Не настоящий JPEG — Sharp не сможет построить превью, sendImage должен
+    // деградировать в отправку без jpegThumbnail, а не упасть.
     const image = Buffer.from("fake-jpeg-bytes");
     await sessions.sendImage("bot-1", "996700000000@s.whatsapp.net", image, "image/jpeg", "img-msg-1");
 
@@ -103,6 +105,27 @@ describe("SessionManager.sendText / sendTyping", () => {
       { image, mimetype: "image/jpeg" },
       { messageId: "img-msg-1" },
     );
+  });
+
+  it("sendImage attaches a jpegThumbnail built from the real image bytes", async () => {
+    // Обходит гонку внутри Baileys (encryptedStream пишет originalFilePath
+    // асинхронно, не дожидаясь flush, пока Promise.all параллельно читает тот
+    // же файл для превью — живой баг, найден 2026-09-22) — считаем превью
+    // сами из буфера, который уже целиком в памяти.
+    const sharp = (await import("sharp")).default;
+    const image = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: { r: 255, g: 0, b: 0 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+    await sessions.startSession("bot-1");
+
+    await sessions.sendImage("bot-1", "996700000000@s.whatsapp.net", image, "image/jpeg", "img-msg-2");
+
+    const [, content] = sendMessageMock.mock.calls.at(-1)!;
+    expect(typeof (content as { jpegThumbnail?: string }).jpegThumbnail).toBe("string");
+    expect((content as { jpegThumbnail?: string }).jpegThumbnail!.length).toBeGreaterThan(0);
   });
 
   it("sendDocument passes clientMsgId as Baileys messageId with document+mimetype+fileName", async () => {

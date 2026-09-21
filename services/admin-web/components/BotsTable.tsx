@@ -43,7 +43,7 @@ export function BotsTable({ bots }: BotsTableProps) {
               <td className="font-mono">{bot.phone ?? "—"}</td>
               <td>
                 <Link href={`/bots/${bot.id}`} className="font-medium text-accent hover:underline">
-                  Открыть →
+                  Открыть
                 </Link>
               </td>
             </tr>

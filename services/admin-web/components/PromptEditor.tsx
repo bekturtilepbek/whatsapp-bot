@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fetchPromptVersions, patchBotPrompt, type PromptKind, type PromptVersion } from "@/lib/api";
+import { formatBishkekDateTime } from "@/lib/formatDate";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -74,7 +75,7 @@ export function PromptEditor({
               onClick={() => setShowHistory(false)}
               className="text-sm font-medium text-accent hover:underline"
             >
-              Скрыть историю ↑
+              Скрыть историю
             </button>
             <Table>
               <table>
@@ -89,12 +90,7 @@ export function PromptEditor({
                 <tbody>
                   {versions.map((version) => (
                     <tr key={version.id}>
-                      {/* Чистая строковая операция над ISO-текстом, не new Date(...) —
-                       * иначе разное форматирование на SSR и на клиенте даёт
-                       * hydration-mismatch (урок QR-экрана, components/QrPanel.tsx). */}
-                      <td className="font-mono">
-                        {version.created_at.slice(0, 16).replace("T", " ")}
-                      </td>
+                      <td className="font-mono">{formatBishkekDateTime(version.created_at)}</td>
                       <td>{version.author}</td>
                       <td>{(version.body ?? "").slice(0, 60)}</td>
                       <td>
@@ -118,7 +114,7 @@ export function PromptEditor({
             onClick={() => setShowHistory(true)}
             className="text-sm font-medium text-accent hover:underline"
           >
-            История изменений ({versions.length}) →
+            История изменений ({versions.length})
           </button>
         ))}
     </div>

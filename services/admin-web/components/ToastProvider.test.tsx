@@ -57,7 +57,7 @@ it("starts fading a success toast after its duration, then removes it", () => {
   expect(screen.getByRole("status")).toHaveClass("opacity-0");
 
   act(() => {
-    vi.advanceTimersByTime(200);
+    vi.advanceTimersByTime(500);
   });
   expect(screen.queryByRole("status")).toBeNull();
 });
@@ -76,7 +76,7 @@ it("keeps an error toast alive longer than a success toast", () => {
   expect(screen.queryByRole("alert")).not.toBeNull();
 
   act(() => {
-    vi.advanceTimersByTime(2000 + 200); // error-таймаут (8с) + переход ухода
+    vi.advanceTimersByTime(2000 + 500); // error-таймаут (8с) + переход ухода
   });
   expect(screen.queryByRole("alert")).toBeNull();
 });
@@ -95,7 +95,7 @@ it("stacks multiple toasts and dismisses one manually", () => {
   const [firstCloseButton] = screen.getAllByLabelText("Закрыть уведомление");
   fireEvent.click(firstCloseButton);
   act(() => {
-    vi.advanceTimersByTime(200); // переход ухода
+    vi.advanceTimersByTime(500); // переход ухода
   });
   // Первая кнопка закрытия — у error-toast (добавлен раньше) — status остаётся
   expect(screen.queryByRole("alert")).toBeNull();

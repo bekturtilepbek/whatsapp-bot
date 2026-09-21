@@ -71,7 +71,7 @@ it("rejects submit in create mode without any media", async () => {
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
-  expect(await screen.findByRole("alert")).toHaveTextContent(/фото или видео/i);
+  expect(await screen.findByRole("alert")).toHaveTextContent(/нужно хотя бы одно медиа/i);
   expect(api.createProduct).not.toHaveBeenCalled();
 });
 
@@ -81,7 +81,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
   const photo = makeFile();
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Новый товар" } });
-  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [photo] } });
+  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [photo] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -119,7 +119,7 @@ it("sends display_custom only when the override checkbox is on", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByLabelText(/переопределить вывод/i));
   fireEvent.click(screen.getByLabelText(/показывать цену/i));
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
@@ -151,7 +151,7 @@ it("shows an error when saving fails", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/фото и видео/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -161,7 +161,7 @@ it("shows an error when saving fails", async () => {
 
 it("does not render a media input in edit mode (media has its own section)", () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
-  expect(screen.queryByLabelText(/^фото и видео$/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^медиа$/i)).not.toBeInTheDocument();
 });
 
 it("renders existing photos with a delete button in edit mode", () => {

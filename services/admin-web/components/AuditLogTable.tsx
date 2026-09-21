@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Select";
 import { Table } from "@/components/ui/Table";
+import { formatBishkekDateTime } from "@/lib/formatDate";
 
 interface AuditLogTableProps {
   apiBaseUrl: string;
@@ -15,13 +16,6 @@ interface AuditLogTableProps {
    * тот же приём, что в BlockedNumbersTable/ProductsTable: пришло МЕНЬШЕ
    * pageSize — дальше грузить нечего. */
   pageSize: number;
-}
-
-function formatTimestamp(iso: string): string {
-  // Чистая строковая операция, не new Date() — иначе разное форматирование
-  // на SSR и на клиенте даёт hydration-mismatch (тот же урок, что в
-  // PromptEditor.tsx).
-  return iso.slice(0, 16).replace("T", " ");
 }
 
 export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogTableProps) {
@@ -98,7 +92,7 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
             <table>
               <thead>
                 <tr>
-                  <th>Время (UTC)</th>
+                  <th>Время (Бишкек)</th>
                   <th>Кто</th>
                   <th>Бот</th>
                   <th>Действие</th>
@@ -108,7 +102,7 @@ export function AuditLogTable({ apiBaseUrl, entries, bots, pageSize }: AuditLogT
               <tbody>
                 {rows.map((entry) => (
                   <tr key={entry.id}>
-                    <td className="font-mono">{formatTimestamp(entry.created_at)}</td>
+                    <td className="font-mono">{formatBishkekDateTime(entry.created_at)}</td>
                     <td>{entry.actor_email}</td>
                     <td>{entry.bot_name ?? "—"}</td>
                     <td>

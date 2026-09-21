@@ -19,6 +19,11 @@ interface Toast {
   id: number;
   message: string;
   kind: ToastKind;
+  // true в момент монтирования — тост рендерится сдвинутым влево и
+  // прозрачным, затем на следующем кадре сбрасывается в false, чтобы CSS-
+  // переход анимированно "въехал" его слева направо (иначе браузер не
+  // увидит смену состояния и просто не проиграет transition).
+  entering: boolean;
   // true — тост уже помечен на закрытие: рендерится с классами ухода
   // (прозрачность/сдвиг), реально размонтируется только после
   // LEAVE_TRANSITION_MS, чтобы CSS-переход успел доиграть.
@@ -36,10 +41,12 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 // внутри диапазона V1 (5-10с).
 const ERROR_DURATION_MS = 8000;
 const SUCCESS_DURATION_MS = 6000;
-// Должно совпадать с duration-200 в className тоста ниже — иначе тост либо
-// обрежется до конца анимации, либо повиснет в DOM после того, как уже стал
-// невидимым.
-const LEAVE_TRANSITION_MS = 200;
+// Появление быстрое и чёткое (duration-[250ms] в className тоста ниже),
+// исчезание — заметно медленнее (просьба пользователя: тост не должен
+// "выдёргиваться" из вида). Должно совпадать с duration-[500ms] там же —
+// иначе тост либо обрежется до конца анимации, либо повиснет в DOM после
+// того, как уже стал невидимым.
+const LEAVE_TRANSITION_MS = 500;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -66,7 +73,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const showToast = useCallback(
     (message: string, kind: ToastKind) => {
       const id = nextId.current++;
-      setToasts((current) => [...current, { id, message, kind, leaving: false }]);
+      setToasts((current) => [...current, { id, message, kind, entering: true, leaving: false }]);
+      // Двойной requestAnimationFrame — браузер должен успеть отрисовать
+      // "entering"-состояние (сдвинут влево, прозрачен) ДО того, как мы
+      // сбросим флаг, иначе оба кадра схлопнутся в один и transition не
+      // запустится (тост появится сразу на месте, без анимации).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setToasts((current) => current.map((t) => (t.id === id ? { ...t, entering: false } : t)));
+        });
+      });
       const duration = kind === "error" ? ERROR_DURATION_MS : SUCCESS_DURATION_MS;
       setTimeout(() => startLeave(id), duration);
     },
@@ -84,9 +100,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             role={toast.kind === "error" ? "alert" : "status"}
-            className={`flex max-w-[24rem] items-center gap-3 rounded-lg border-l-[3px] bg-surface px-4 py-3 text-sm text-ink shadow-elevated transition-all duration-200 ease-in ${
+            className={`flex max-w-[24rem] items-center gap-3 rounded-lg border-l-[3px] bg-surface px-4 py-3 text-sm text-ink shadow-elevated transition-all ${
               toast.kind === "error" ? "border-l-danger" : "border-l-success"
-            } ${toast.leaving ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100"}`}
+            } ${
+              toast.leaving
+                ? "duration-[500ms] ease-in translate-y-1 opacity-0"
+                : toast.entering
+                  ? "-translate-x-8 opacity-0"
+                  : "duration-[250ms] ease-out translate-x-0 translate-y-0 opacity-100"
+            }`}
           >
             <span>{toast.message}</span>
             <button

@@ -17,10 +17,10 @@ it("maps status=open to connected", () => {
   expect(toConnectionStatus({ ...baseBot, status: "open" })).toBe("connected");
 });
 
-it("maps connecting/qr/reconnecting to pending", () => {
-  expect(toConnectionStatus({ ...baseBot, status: "connecting" })).toBe("pending");
-  expect(toConnectionStatus({ ...baseBot, status: "qr" })).toBe("pending");
-  expect(toConnectionStatus({ ...baseBot, status: "reconnecting" })).toBe("pending");
+it("maps connecting/qr/reconnecting to disconnected", () => {
+  expect(toConnectionStatus({ ...baseBot, status: "connecting" })).toBe("disconnected");
+  expect(toConnectionStatus({ ...baseBot, status: "qr" })).toBe("disconnected");
+  expect(toConnectionStatus({ ...baseBot, status: "reconnecting" })).toBe("disconnected");
 });
 
 it("maps logged_out to disconnected even when linked_at is still set", () => {

@@ -14,7 +14,7 @@ export default async function NewBotPage() {
   return (
     <main>
       <Link href="/bots" className="text-sm text-ink-soft hover:text-ink">
-        ← Назад к списку
+        Назад к списку
       </Link>
       <PageHeader title="Новый бот" />
       <Card className="max-w-sm p-5">

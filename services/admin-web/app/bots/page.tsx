@@ -17,7 +17,7 @@ export default async function BotsPage() {
         action={
           isOwner ? (
             <Link href="/bots/new" className={buttonClasses()}>
-              Создать бота →
+              Создать бота
             </Link>
           ) : undefined
         }

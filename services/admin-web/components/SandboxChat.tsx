@@ -8,6 +8,7 @@ import {
   type SandboxHistoryItem,
   type SandboxMediaItem,
 } from "@/lib/api";
+import { formatBishkekTime } from "@/lib/formatDate";
 import { useToast } from "@/components/ToastProvider";
 
 interface SandboxChatProps {
@@ -38,12 +39,11 @@ function attachmentPlaceholder(file: File): string {
 
 const TEXTAREA_MAX_HEIGHT_PX = 120;
 
-// Только время (не new Date().toLocaleDateString() с датой) — WhatsApp
-// в пределах одного дня показывает именно так. Формируется на клиенте в
-// момент отправки/получения (не при SSR исходных данных), поэтому в
-// отличие от AuditLogTable.tsx здесь нет риска hydration-mismatch.
+// Только время по Бишкеку (не дата) — WhatsApp в пределах одного дня
+// показывает именно так. Раньше — toLocaleTimeString() браузера, теперь
+// единообразно с остальным кабинетом (lib/formatDate.ts).
 function formatTime(): string {
-  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return formatBishkekTime(new Date().toISOString());
 }
 
 // Обычный <style> (не <style jsx>) — styled-jsx требует SWC/Babel-трансформ

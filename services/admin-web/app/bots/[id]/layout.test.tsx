@@ -71,7 +71,7 @@ it("hides the sandbox tab for a non-owner", async () => {
 // безопасно, пока ни один child BotLayout (сейчас — TabLink, синхронный
 // client-компонент) не станет сам async Server Component-ом.
 
-it("shows the pending status when the session is mid-connection", async () => {
+it("shows disconnected when the session is mid-connection", async () => {
   mockedFetchBot.mockResolvedValue({ ...bot, status: "qr" });
   mockedIsOwner.mockResolvedValue(true);
   const element = await BotLayout({
@@ -79,7 +79,7 @@ it("shows the pending status when the session is mid-connection", async () => {
     children: <div>Содержимое вкладки</div>,
   });
   render(element);
-  expect(screen.getByText("Подключается")).toBeInTheDocument();
+  expect(screen.getByText("Не подключён")).toBeInTheDocument();
 });
 
 it("shows disconnected when linked but logged out, even though linked_at is still set", async () => {

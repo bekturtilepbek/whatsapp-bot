@@ -1,4 +1,4 @@
-export type BotConnectionStatus = "connected" | "pending" | "disconnected";
+export type BotConnectionStatus = "connected" | "disconnected";
 
 interface StatusPulseProps {
   status: BotConnectionStatus;
@@ -17,12 +17,6 @@ const STATUS_CONFIG: Record<BotConnectionStatus, StatusConfig> = {
     pillClass: "bg-success-soft text-success",
     dotClass: "bg-success",
     animated: true,
-  },
-  pending: {
-    label: "Подключается",
-    pillClass: "bg-warning-soft text-warning",
-    dotClass: "bg-warning",
-    animated: false,
   },
   disconnected: {
     label: "Не подключён",

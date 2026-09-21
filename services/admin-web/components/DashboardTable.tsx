@@ -4,6 +4,7 @@ import { StatusPulse } from "@/components/ui/StatusPulse";
 import { Table } from "@/components/ui/Table";
 import type { Bot } from "@/lib/api";
 import { toConnectionStatus } from "@/lib/botStatus";
+import { formatBishkekDateTime } from "@/lib/formatDate";
 
 interface DashboardTableProps {
   bots: Bot[];
@@ -28,10 +29,7 @@ function statusOrder(status: string | null | undefined): number {
 
 function formatLastSeen(iso: string | null | undefined): string {
   if (!iso) return "—";
-  // Строковая операция, не new Date() — иначе разное форматирование на
-  // SSR и на клиенте даёт hydration-mismatch (тот же приём, что в
-  // AuditLogTable.tsx/PromptEditor.tsx).
-  return iso.slice(0, 16).replace("T", " ");
+  return formatBishkekDateTime(iso);
 }
 
 export function DashboardTable({ bots }: DashboardTableProps) {

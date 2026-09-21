@@ -101,7 +101,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       return;
     }
     if (!product && newMedia.length === 0) {
-      showError("Нужно хотя бы одно фото или видео");
+      showError("Нужно хотя бы одно медиа");
       return;
     }
     setSaving(true);
@@ -233,13 +233,13 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       {!product && (
         <Card className="p-5">
           <label className="mb-0 block text-sm font-medium text-ink">
-            Фото и видео
+            Медиа
             <input
               type="file"
               multiple
               accept={MEDIA_ACCEPT}
               onChange={(e) => setNewMedia(e.target.files ? Array.from(e.target.files) : [])}
-              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint"
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-accent-hover"
             />
           </label>
         </Card>
@@ -247,7 +247,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
 
       {product && (
         <Card className="p-5">
-          <h2 className="mb-4 text-[15px] font-semibold text-ink">Фото и видео</h2>
+          <h2 className="mb-4 text-[15px] font-semibold text-ink">Медиа</h2>
           <div className="flex flex-wrap gap-4">
             {media.map((item) => (
               <div key={item.id} className="w-24">
@@ -278,7 +278,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
               accept={MEDIA_ACCEPT}
               disabled={mediaBusy}
               onChange={(e) => void handleAddMedia(e.target.files)}
-              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:border-ink-faint disabled:opacity-60"
+              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-accent-hover disabled:opacity-60"
             />
           </label>
         </Card>

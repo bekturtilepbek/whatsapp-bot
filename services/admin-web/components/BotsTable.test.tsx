@@ -54,8 +54,8 @@ it("shows a paused badge for a disabled bot", () => {
   expect(screen.getByText("на паузе")).toBeInTheDocument();
 });
 
-it("shows the pending status for a bot mid-connection", () => {
+it("shows the disconnected status for a bot mid-connection", () => {
   const pending: Bot[] = [{ ...bots[0], status: "qr", linked_at: null }];
   render(<BotsTable bots={pending} />);
-  expect(screen.getByText("Подключается")).toBeInTheDocument();
+  expect(screen.getByText("Не подключён")).toBeInTheDocument();
 });

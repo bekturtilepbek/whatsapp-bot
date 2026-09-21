@@ -35,7 +35,8 @@ describe("DashboardTable", () => {
       />
     );
     expect(screen.getByText("Подключён")).toBeInTheDocument();
-    expect(screen.getByText("2026-09-12 10:30")).toBeInTheDocument();
+    // 10:30 UTC = 16:30 в Бишкеке (UTC+6).
+    expect(screen.getByText("12.09.2026, 16:30")).toBeInTheDocument();
     // "open" не дублируется мелкой подписью — для здорового бота это шум,
     // подпись нужна только там, где StatusPulse что-то схлопывает.
     expect(screen.queryByText("open")).not.toBeInTheDocument();
@@ -51,7 +52,7 @@ describe("DashboardTable", () => {
 
   it("shows the raw status as a caption for a bot with a problem status", () => {
     render(<DashboardTable bots={[makeBot({ status: "reconnecting" })]} />);
-    expect(screen.getByText("Подключается")).toBeInTheDocument();
+    expect(screen.getByText("Не подключён")).toBeInTheDocument();
     expect(screen.getByText("reconnecting")).toBeInTheDocument();
   });
 

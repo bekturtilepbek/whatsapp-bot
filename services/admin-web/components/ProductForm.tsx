@@ -20,6 +20,7 @@ import { MediaThumbnail } from "@/components/ui/MediaThumbnail";
 import { NumberField } from "@/components/ui/NumberField";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
+import { useInvalidShake } from "@/lib/useInvalidShake";
 
 // Пусто по умолчанию для <input accept>, чтобы фото и видео товара
 // принимались одной формой (эталон V1 — одна смешанная галерея, FEATURES.md
@@ -82,6 +83,7 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
   const [media, setMedia] = useState<ProductMedia[]>(product?.media ?? []);
   const [saving, setSaving] = useState(false);
   const [mediaBusy, setMediaBusy] = useState(false);
+  const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
   // PATCH на бэкенде мержит поля: null/пропуск значит «не трогать», а не
   // «очистить» (см. аналогичное поведение bots.image_prompt/pdf_prompt).
@@ -98,10 +100,12 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     e.preventDefault();
     if (state.name.trim() === "") {
       showError("Название обязательно");
+      shake(["name"]);
       return;
     }
     if (!product && newMedia.length === 0) {
       showError("Нужно хотя бы одно медиа");
+      shake(["media"]);
       return;
     }
     setSaving(true);
@@ -160,13 +164,22 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="max-w-xl space-y-5">
       <Card className="flex flex-col gap-4 p-5">
         <label className="mb-0 block text-sm font-medium text-ink">
-          Название
-          <Input
-            type="text"
-            value={state.name}
-            onChange={(e) => setState({ ...state, name: e.target.value })}
-            className="mt-1.5"
-          />
+          Название <span className="text-danger">*</span>
+          <div
+            key={isInvalid("name") ? `name-shake-${shakeKey}` : "name"}
+            className={isInvalid("name") ? "animate-shake" : undefined}
+          >
+            <Input
+              type="text"
+              value={state.name}
+              invalid={isInvalid("name")}
+              onChange={(e) => {
+                setState({ ...state, name: e.target.value });
+                clear("name");
+              }}
+              className="mt-1.5"
+            />
+          </div>
         </label>
         <div>
           <label className="mb-0 block text-sm font-medium text-ink">
@@ -233,14 +246,22 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
       {!product && (
         <Card className="p-5">
           <label className="mb-0 block text-sm font-medium text-ink">
-            Медиа
-            <input
-              type="file"
-              multiple
-              accept={MEDIA_ACCEPT}
-              onChange={(e) => setNewMedia(e.target.files ? Array.from(e.target.files) : [])}
-              className="mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-accent-hover"
-            />
+            Медиа <span className="text-danger">*</span>
+            <div
+              key={isInvalid("media") ? `media-shake-${shakeKey}` : "media"}
+              className={isInvalid("media") ? "animate-shake" : undefined}
+            >
+              <input
+                type="file"
+                multiple
+                accept={MEDIA_ACCEPT}
+                onChange={(e) => {
+                  setNewMedia(e.target.files ? Array.from(e.target.files) : []);
+                  clear("media");
+                }}
+                className={`mt-1.5 block text-sm text-ink-soft file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-accent-hover ${isInvalid("media") ? "rounded-lg outline outline-2 outline-danger" : ""}`}
+              />
+            </div>
           </label>
         </Card>
       )}

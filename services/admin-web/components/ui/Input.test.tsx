@@ -15,3 +15,10 @@ it("forwards disabled and value", () => {
   const field = screen.getByDisplayValue("Кофейня");
   expect(field).toBeDisabled();
 });
+
+it("marks itself aria-invalid and red-bordered when invalid", () => {
+  render(<Input placeholder="Название" invalid onChange={() => {}} />);
+  const field = screen.getByPlaceholderText("Название");
+  expect(field).toHaveAttribute("aria-invalid", "true");
+  expect(field.className).toContain("border-danger");
+});

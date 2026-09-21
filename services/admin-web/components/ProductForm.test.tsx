@@ -57,12 +57,24 @@ it("renders existing values in edit mode", () => {
   expect(screen.getByLabelText(/описание/i)).toHaveValue("Старое описание");
 });
 
-it("rejects an empty name without calling the api", async () => {
+it("rejects an empty name without calling the api, marking the field invalid", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(api.createProduct).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/название/i)).toHaveAttribute("aria-invalid", "true");
+});
+
+it("clears the invalid marker on the name field once the user starts typing", async () => {
+  render(<ProductForm botId="1" apiBaseUrl="http://api" />);
+  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText(/название/i)).toHaveAttribute("aria-invalid", "true");
+
+  fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Т" } });
+
+  expect(screen.getByLabelText(/название/i)).not.toHaveAttribute("aria-invalid");
 });
 
 it("rejects submit in create mode without any media", async () => {
@@ -81,7 +93,7 @@ it("creates a product with trimmed optional fields and the selected photo", asyn
   const photo = makeFile();
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Новый товар" } });
-  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [photo] } });
+  fireEvent.change(screen.getByLabelText(/^медиа/i), { target: { files: [photo] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -119,7 +131,7 @@ it("sends display_custom only when the override checkbox is on", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/^медиа/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByLabelText(/переопределить вывод/i));
   fireEvent.click(screen.getByLabelText(/показывать цену/i));
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
@@ -151,7 +163,7 @@ it("shows an error when saving fails", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
-  fireEvent.change(screen.getByLabelText(/^медиа$/i), { target: { files: [makeFile()] } });
+  fireEvent.change(screen.getByLabelText(/^медиа/i), { target: { files: [makeFile()] } });
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
@@ -161,7 +173,7 @@ it("shows an error when saving fails", async () => {
 
 it("does not render a media input in edit mode (media has its own section)", () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
-  expect(screen.queryByLabelText(/^медиа$/i)).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(/^медиа/i)).not.toBeInTheDocument();
 });
 
 it("renders existing photos with a delete button in edit mode", () => {

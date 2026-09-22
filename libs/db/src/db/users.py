@@ -24,9 +24,9 @@ async def create_user(
     *,
     email: str,
     password_hash: str,
-    is_platform_owner: bool = False,
+    role: str = "client",
 ) -> User:
-    user = User(email=email, password_hash=password_hash, is_platform_owner=is_platform_owner)
+    user = User(email=email, password_hash=password_hash, role=role)
     session.add(user)
     await session.flush()
     return user
@@ -55,5 +55,17 @@ async def set_user_password(
     if user is None:
         return None
     user.password_hash = password_hash
+    await session.flush()
+    return user
+
+
+async def set_user_role(session: AsyncSession, user_id: uuid.UUID, role: str) -> User | None:
+    """superadmin сюда не приходит — схема (UserPatch) ограничивает role
+    типом Literal["admin", "prompter", "client"], superadmin назначается
+    только bootstrap-скриптом (main.py)."""
+    user = await get_user(session, user_id)
+    if user is None:
+        return None
+    user.role = role
     await session.flush()
     return user

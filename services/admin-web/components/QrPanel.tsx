@@ -18,9 +18,20 @@ interface QrPanelProps {
   /** 5с по умолчанию (FEATURES.md 6.1) — тесты передают меньшее значение
    * вместо фейковых таймеров. */
   pollIntervalMs?: number;
+  /** client урезан (FullBotAccess, ролевой пересмотр 2026-09-22) — бэкенд
+   * уже отклоняет /qr и /logout 403-м, но показывать кнопку "Отключить"
+   * (и QR для нового сканирования), которая гарантированно упадёт, не
+   * стоит. По умолчанию true — остальные роли/страницы не меняются. */
+  canManageConnection?: boolean;
 }
 
-export function QrPanel({ initialBot, apiBaseUrl, stats, pollIntervalMs = 5000 }: QrPanelProps) {
+export function QrPanel({
+  initialBot,
+  apiBaseUrl,
+  stats,
+  pollIntervalMs = 5000,
+  canManageConnection = true,
+}: QrPanelProps) {
   const router = useRouter();
   const { showError, showSuccess } = useToast();
   const [bot, setBot] = useState<Bot>(initialBot);
@@ -176,15 +187,36 @@ export function QrPanel({ initialBot, apiBaseUrl, stats, pollIntervalMs = 5000 }
               <p className="text-base font-bold text-ink">WhatsApp подключён</p>
               <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>
             </div>
-            <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
-              {loggingOut ? "Отключаем…" : "Отключить"}
-            </Button>
+            {canManageConnection && (
+              <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
+                {loggingOut ? "Отключаем…" : "Отключить"}
+              </Button>
+            )}
           </Card>
           {pollError && (
             <p role="alert" className="mt-3 text-sm text-danger">
               {pollError}
             </p>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!canManageConnection) {
+    return (
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
+        {left}
+        <div>
+          <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
+            <IconBadge variant="warning" size="lg">
+              <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <rect x="6" y="5" width="2.5" height="10" rx="1" fill="currentColor" />
+                <rect x="11.5" y="5" width="2.5" height="10" rx="1" fill="currentColor" />
+              </svg>
+            </IconBadge>
+            <p className="text-base font-bold text-ink">WhatsApp не подключён</p>
+          </Card>
         </div>
       </div>
     );

@@ -61,7 +61,7 @@ async def session(database_url: str) -> AsyncIterator[AsyncSession]:
 
 
 async def _make_user(session: AsyncSession, *, email: str = "owner@example.com") -> uuid.UUID:
-    user = User(email=email, password_hash="unused", is_platform_owner=True, is_active=True)
+    user = User(email=email, password_hash="unused", role="superadmin", is_active=True)
     session.add(user)
     await session.flush()
     await session.commit()

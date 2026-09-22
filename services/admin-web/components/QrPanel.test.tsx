@@ -162,3 +162,31 @@ it("shows an error toast when toggling bot.enabled fails", async () => {
   });
   expect(refreshMock).not.toHaveBeenCalled();
 });
+
+it("hides the disconnect button for a role without connection management (client)", () => {
+  render(
+    <QrPanel
+      initialBot={linkedBot}
+      apiBaseUrl="http://api"
+      stats={stats}
+      pollIntervalMs={10000}
+      canManageConnection={false}
+    />,
+  );
+  expect(screen.getByText(/996700000000/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /отключить/i })).not.toBeInTheDocument();
+});
+
+it("hides the QR scan card for a role without connection management (client) when not yet linked", () => {
+  render(
+    <QrPanel
+      initialBot={unlinkedBot}
+      apiBaseUrl="http://api"
+      stats={stats}
+      pollIntervalMs={10000}
+      canManageConnection={false}
+    />,
+  );
+  expect(screen.queryByRole("img", { name: /qr/i })).not.toBeInTheDocument();
+  expect(screen.getByText(/не подключён/i)).toBeInTheDocument();
+});

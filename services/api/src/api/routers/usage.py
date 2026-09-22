@@ -1,6 +1,6 @@
-"""GET /usage (FEATURES.md 6.15) — owner-only, сумма токенов/стоимости по
-боту за период. cost — локальная оценка (см. db.usage docstring), не
-биллинговые данные OpenAI.
+"""GET /usage (FEATURES.md 6.15) — superadmin/admin (platform-wide),
+сумма токенов/стоимости по боту за период. cost — локальная оценка (см.
+db.usage docstring), не биллинговые данные OpenAI.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..db import SessionDep
 from ..schemas.usage import UsageSummaryOut
-from ..security import PlatformOwner
+from ..security import PlatformWide
 
 router = APIRouter(prefix="/usage", tags=["usage"])
 
@@ -24,7 +24,7 @@ DEFAULT_PERIOD = "30d"
 @router.get("", response_model=list[UsageSummaryOut])
 async def list_usage(
     session: SessionDep,
-    _owner: PlatformOwner,
+    _admin: PlatformWide,
     period: str = Query(DEFAULT_PERIOD),
 ) -> list[UsageSummaryOut]:
     if period not in PERIOD_TO_DAYS:

@@ -5,7 +5,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { TabLink } from "@/components/ui/TabLink";
 import { fetchBot } from "@/lib/api";
 import { toConnectionStatus } from "@/lib/botStatus";
-import { currentUserIsOwner } from "@/lib/currentUser";
+import { fetchCurrentUser } from "@/lib/currentUser";
 import { API_INTERNAL_URL } from "@/lib/env";
 
 export default async function BotLayout({
@@ -16,10 +16,15 @@ export default async function BotLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [bot, isOwner] = await Promise.all([fetchBot(API_INTERNAL_URL, id), currentUserIsOwner()]);
+  const [bot, user] = await Promise.all([fetchBot(API_INTERNAL_URL, id), fetchCurrentUser()]);
   if (!bot) {
     notFound();
   }
+  // client урезан — только вкладки без технических/рискованных действий
+  // (промпты/настройки/чёрный список/QR, FEATURES.md 6.18 ролевой
+  // пересмотр 2026-09-22); остальным ролям с доступом к боту — полный
+  // список, как раньше.
+  const isClient = user?.role === "client";
 
   return (
     <div>
@@ -33,29 +38,33 @@ export default async function BotLayout({
 
       <Tabs ariaLabel="Разделы бота">
         <TabLink href={`/bots/${bot.id}`}>Обзор</TabLink>
-        <TabLink href={`/bots/${bot.id}/prompts`} exact={false}>
-          Промпты
-        </TabLink>
+        {!isClient && (
+          <TabLink href={`/bots/${bot.id}/prompts`} exact={false}>
+            Промпты
+          </TabLink>
+        )}
         <TabLink href={`/bots/${bot.id}/products`} exact={false}>
           Товары
         </TabLink>
-        <TabLink href={`/bots/${bot.id}/settings`} exact={false}>
-          Настройки
-        </TabLink>
+        {!isClient && (
+          <TabLink href={`/bots/${bot.id}/settings`} exact={false}>
+            Настройки
+          </TabLink>
+        )}
         <TabLink href={`/bots/${bot.id}/documents`} exact={false}>
           Документы
         </TabLink>
-        <TabLink href={`/bots/${bot.id}/blocked-numbers`} exact={false}>
-          Чёрный список
-        </TabLink>
+        {!isClient && (
+          <TabLink href={`/bots/${bot.id}/blocked-numbers`} exact={false}>
+            Чёрный список
+          </TabLink>
+        )}
         <TabLink href={`/bots/${bot.id}/chats`} exact={false}>
           Активные чаты
         </TabLink>
-        {isOwner && (
-          <TabLink href={`/bots/${bot.id}/sandbox`} exact={false}>
-            Песочница
-          </TabLink>
-        )}
+        <TabLink href={`/bots/${bot.id}/sandbox`} exact={false}>
+          Песочница
+        </TabLink>
       </Tabs>
 
       {children}

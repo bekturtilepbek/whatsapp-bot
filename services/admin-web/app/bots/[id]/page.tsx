@@ -1,5 +1,6 @@
 import { QrPanel } from "@/components/QrPanel";
 import { fetchBot, fetchBotStats } from "@/lib/api";
+import { fetchCurrentUser } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotOverviewPage({
@@ -8,9 +9,10 @@ export default async function BotOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [bot, stats] = await Promise.all([
+  const [bot, stats, user] = await Promise.all([
     fetchBot(API_INTERNAL_URL, id),
     fetchBotStats(API_INTERNAL_URL, id),
+    fetchCurrentUser(),
   ]);
   if (!bot) {
     // Уже прошли notFound() в layout.tsx (тот же id) — Next.js дедуплицирует
@@ -22,7 +24,12 @@ export default async function BotOverviewPage({
   }
   return (
     <main>
-      <QrPanel initialBot={bot} apiBaseUrl={API_PROXY_PATH} stats={stats} />
+      <QrPanel
+        initialBot={bot}
+        apiBaseUrl={API_PROXY_PATH}
+        stats={stats}
+        canManageConnection={user?.role !== "client"}
+      />
     </main>
   );
 }

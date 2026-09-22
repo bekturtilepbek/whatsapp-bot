@@ -24,7 +24,7 @@ from db.models import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
-from tests.auth_helpers import override_non_owner_auth, override_owner_auth
+from tests.auth_helpers import override_admin_auth, override_non_owner_auth, override_owner_auth
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
@@ -159,6 +159,57 @@ async def test_create_user_requires_owner(client: httpx.AsyncClient) -> None:
         "/users", json={"email": "blocked@example.com", "password": "s3cret", "bot_ids": []}
     )
     assert response.status_code == 403
+
+
+async def test_list_users_requires_superadmin_not_just_admin(client: httpx.AsyncClient) -> None:
+    """Ролевой пересмотр 2026-09-22: единственное, что отличает Admin от
+    Superadmin — управление пользователями. Admin ДОЛЖЕН получать 403
+    здесь, иначе разница ролей не работает."""
+    override_admin_auth()
+    response = await client.get("/users")
+    assert response.status_code == 403
+
+
+async def test_create_user_with_role(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/users",
+        json={
+            "email": "new-prompter@example.com",
+            "password": "s3cret",
+            "role": "prompter",
+            "bot_ids": [],
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["role"] == "prompter"
+
+
+async def test_patch_user_changes_role(client: httpx.AsyncClient) -> None:
+    created = await client.post(
+        "/users",
+        json={"email": "role-change@example.com", "password": "s3cret", "bot_ids": []},
+    )
+    user_id = created.json()["id"]
+    assert created.json()["role"] == "client"
+
+    response = await client.patch(f"/users/{user_id}", json={"role": "admin"})
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+
+
+async def test_create_user_with_superadmin_role_returns_422(client: httpx.AsyncClient) -> None:
+    """superadmin назначается только bootstrap-скриптом (main.py), не через
+    API — схема (Literal) отклоняет значение до хендлера."""
+    response = await client.post(
+        "/users",
+        json={
+            "email": "wannabe-superadmin@example.com",
+            "password": "s3cret",
+            "role": "superadmin",
+            "bot_ids": [],
+        },
+    )
+    assert response.status_code == 422
 
 
 async def test_grant_bot_access_requires_owner(

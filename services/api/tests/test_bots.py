@@ -126,7 +126,7 @@ async def test_patch_enabled_only_does_not_touch_system_prompt(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    response = await client.patch(f"/bots/{bot_id}", json={"enabled": False})
+    response = await client.patch(f"/bots/{bot_id}/enabled", json={"enabled": False})
     assert response.status_code == 200
     body = response.json()
     assert body["enabled"] is False
@@ -183,7 +183,7 @@ async def test_patch_system_prompt_only(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
+    response = await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "новый промпт"})
     assert response.status_code == 200
     body = response.json()
     assert body["system_prompt"] == "новый промпт"
@@ -194,7 +194,9 @@ async def test_patch_bot_updates_image_prompt(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    response = await client.patch(f"/bots/{bot_id}", json={"image_prompt": "Опиши товар клиенту."})
+    response = await client.patch(
+        f"/bots/{bot_id}/prompts", json={"image_prompt": "Опиши товар клиенту."}
+    )
     assert response.status_code == 200
     assert response.json()["image_prompt"] == "Опиши товар клиенту."
 
@@ -215,7 +217,7 @@ async def test_patch_bot_updates_pdf_prompt(
 ) -> None:
     bot_id = await _make_bot(session_factory)
     response = await client.patch(
-        f"/bots/{bot_id}", json={"pdf_prompt": "Изучи документ и ответь клиенту."}
+        f"/bots/{bot_id}/prompts", json={"pdf_prompt": "Изучи документ и ответь клиенту."}
     )
     assert response.status_code == 200
     assert response.json()["pdf_prompt"] == "Изучи документ и ответь клиенту."
@@ -233,7 +235,7 @@ async def test_get_bot_includes_null_pdf_prompt_by_default(
 
 
 async def test_patch_unknown_bot_is_404(client: httpx.AsyncClient) -> None:
-    response = await client.patch(f"/bots/{uuid.uuid4()}", json={"enabled": False})
+    response = await client.patch(f"/bots/{uuid.uuid4()}/enabled", json={"enabled": False})
     assert response.status_code == 404
 
 
@@ -311,7 +313,7 @@ async def test_client_without_grant_gets_403_on_bot_route(
         id=uuid.uuid4(),
         email="client@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )
@@ -333,7 +335,7 @@ async def test_client_with_grant_gets_200_on_bot_route(
         id=uuid.uuid4(),
         email="client2@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )
@@ -345,6 +347,98 @@ async def test_client_with_grant_gets_200_on_bot_route(
 
     response = await client.get(f"/bots/{bot_id}")
     assert response.status_code == 200
+
+
+async def _make_granted_client(
+    session_factory: async_sessionmaker[AsyncSession], bot_id: uuid.UUID, email: str
+) -> None:
+    """Ролевой пересмотр 2026-09-22: client с грантом на бота видит его
+    (BotAccessUser), но урезан на технических/рискованных действиях
+    (FullBotAccess — промпты/настройки/чёрный список/тулзы/QR)."""
+    from api.security import get_current_user
+    from db.bot_access import grant_bot_access
+    from db.models import User
+
+    client_user = User(
+        id=uuid.uuid4(),
+        email=email,
+        password_hash="unused",
+        role="client",
+        is_active=True,
+        created_at=datetime.now(),
+    )
+    async with session_factory() as session:
+        session.add(client_user)
+        await grant_bot_access(session, client_user.id, bot_id)
+        await session.commit()
+    app.dependency_overrides[get_current_user] = lambda: client_user
+
+
+async def test_granted_client_can_toggle_enabled(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-enabled@example.com")
+
+    response = await client.patch(f"/bots/{bot_id}/enabled", json={"enabled": False})
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
+
+
+async def test_granted_client_gets_403_on_prompts(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-prompts@example.com")
+
+    response = await client.patch(
+        f"/bots/{bot_id}/prompts", json={"system_prompt": "попытка клиента"}
+    )
+    assert response.status_code == 403
+
+
+async def test_granted_client_gets_403_on_settings(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-settings@example.com")
+
+    response = await client.patch(f"/bots/{bot_id}", json={"name": "Переименовано клиентом"})
+    assert response.status_code == 403
+
+
+async def test_granted_client_gets_403_on_blocked_numbers(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-blocked@example.com")
+
+    response = await client.get(f"/bots/{bot_id}/blocked-numbers")
+    assert response.status_code == 403
+
+
+async def test_granted_client_gets_403_on_tools(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-tools@example.com")
+
+    response = await client.get(f"/bots/{bot_id}/tools")
+    assert response.status_code == 403
+
+
+async def test_granted_client_can_still_see_active_chats_and_prompt_history(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Активные чаты и история промптов (только чтение) остаются
+    BotAccessUser — доступны client, в отличие от записи промптов."""
+    bot_id = await _make_bot(session_factory)
+    await _make_granted_client(session_factory, bot_id, "client-readonly@example.com")
+
+    chats = await client.get(f"/bots/{bot_id}/chats")
+    assert chats.status_code == 200
+    versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
+    assert versions.status_code == 200
 
 
 async def test_list_bots_filters_by_grant_for_non_owner(
@@ -360,7 +454,7 @@ async def test_list_bots_filters_by_grant_for_non_owner(
         id=uuid.uuid4(),
         email="client3@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )
@@ -406,7 +500,7 @@ async def test_create_bot_non_owner_returns_403(client: httpx.AsyncClient) -> No
         id=uuid.uuid4(),
         email="not-owner@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )

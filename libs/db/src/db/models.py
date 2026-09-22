@@ -401,9 +401,12 @@ class Document(Base):
 
 
 class User(Base):
-    """Пользователь кабинета. Владелец платформы (is_platform_owner=True)
-    видит все боты без грантов; клиент — только те, что перечислены в
-    BotAccess (FEATURES.md 6.18)."""
+    """Пользователь кабинета. Роль (superadmin/admin/prompter/client) —
+    services/api/src/api/security.py решает по ней доступ. superadmin/
+    admin видят все боты без грантов; prompter/client — только те, что
+    перечислены в BotAccess (FEATURES.md 6.18). Plain String, не Postgres
+    ENUM — тот же принцип, что у PromptVersion.kind (см. ниже) —
+    миграция на новую роль проще."""
 
     __tablename__ = "users"
 
@@ -412,9 +415,7 @@ class User(Base):
     )
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
-    is_platform_owner: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    role: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'client'"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -422,8 +423,8 @@ class User(Base):
 
 
 class BotAccess(Base):
-    """Грант доступа клиента к конкретному боту. Владельцу платформы
-    (User.is_platform_owner) грант не нужен."""
+    """Грант доступа prompter/client к конкретному боту. superadmin/admin
+    (User.role) гранты не нужны — видят все боты."""
 
     __tablename__ = "bot_access"
     __table_args__ = (UniqueConstraint("user_id", "bot_id", name="uq_bot_access_user_bot"),)

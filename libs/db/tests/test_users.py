@@ -23,6 +23,7 @@ from db.users import (
     list_users,
     set_user_active,
     set_user_password,
+    set_user_role,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,15 +72,15 @@ async def test_create_then_get_by_email(session: AsyncSession) -> None:
     fetched = await get_user_by_email(session, "owner@example.com")
     assert fetched is not None
     assert fetched.id == user.id
-    assert fetched.is_platform_owner is False
+    assert fetched.role == "client"
     assert fetched.is_active is True
 
 
 async def test_create_platform_owner(session: AsyncSession) -> None:
     user = await create_user(
-        session, email="owner2@example.com", password_hash="hash", is_platform_owner=True
+        session, email="owner2@example.com", password_hash="hash", role="superadmin"
     )
-    assert user.is_platform_owner is True
+    assert user.role == "superadmin"
 
 
 async def test_get_by_email_unknown_returns_none(session: AsyncSession) -> None:
@@ -129,3 +130,15 @@ async def test_set_user_password(session: AsyncSession) -> None:
     updated = await set_user_password(session, user.id, "new-hash")
     assert updated is not None
     assert updated.password_hash == "new-hash"
+
+
+async def test_set_user_role(session: AsyncSession) -> None:
+    user = await create_user(session, email="e@example.com", password_hash="hash")
+    assert user.role == "client"
+    updated = await set_user_role(session, user.id, "prompter")
+    assert updated is not None
+    assert updated.role == "prompter"
+
+
+async def test_set_user_role_unknown_returns_none(session: AsyncSession) -> None:
+    assert await set_user_role(session, uuid.uuid4(), "admin") is None

@@ -1,6 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { PromptEditor } from "@/components/PromptEditor";
 import { fetchBot, fetchPromptVersions } from "@/lib/api";
+import { fetchCurrentUser } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotPromptsPage({
@@ -9,6 +10,14 @@ export default async function BotPromptsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // client урезан (FullBotAccess) — чтение версий промптов бэкенд бы
+  // пропустил, но сохранение (PromptEditor → PATCH .../prompts) уже нет;
+  // вкладка вообще не должна быть доступна client, поэтому редиректим
+  // сразу, не дожидаясь попытки сохранить (тот же паттерн, что у /settings).
+  const user = await fetchCurrentUser();
+  if (user?.role === "client") {
+    redirect(`/bots/${id}`);
+  }
   const [bot, mainVersions, imageVersions, pdfVersions] = await Promise.all([
     fetchBot(API_INTERNAL_URL, id),
     fetchPromptVersions(API_INTERNAL_URL, id, "main"),

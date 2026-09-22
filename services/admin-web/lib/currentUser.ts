@@ -6,9 +6,15 @@
 
 import { API_INTERNAL_URL } from "./env";
 
+export type UserRole = "superadmin" | "admin" | "prompter" | "client";
+
+// superadmin/admin видят все боты без грантов и платформенные разделы
+// (кроме "Пользователи" — только superadmin, см. app/users/page.tsx).
+export const PLATFORM_WIDE_ROLES: readonly UserRole[] = ["superadmin", "admin"];
+
 export interface CurrentUser {
   email: string;
-  is_platform_owner: boolean;
+  role: UserRole;
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser | null> {
@@ -23,7 +29,12 @@ export async function fetchCurrentUser(): Promise<CurrentUser | null> {
   return (await res.json()) as CurrentUser;
 }
 
-export async function currentUserIsOwner(): Promise<boolean> {
+export async function currentUserIsPlatformWide(): Promise<boolean> {
   const user = await fetchCurrentUser();
-  return user?.is_platform_owner ?? false;
+  return user !== null && PLATFORM_WIDE_ROLES.includes(user.role);
+}
+
+export async function currentUserIsSuperadmin(): Promise<boolean> {
+  const user = await fetchCurrentUser();
+  return user?.role === "superadmin";
 }

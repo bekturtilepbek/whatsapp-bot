@@ -107,7 +107,7 @@ async def test_first_edit_captures_prior_value_as_baseline_version(
     что было ДО неё — иначе "откат" на первой же правке был бы no-op.
     """
     bot_id = await _make_bot(session_factory)  # system_prompt="исходный промпт"
-    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
+    response = await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "новый промпт"})
     assert response.status_code == 200
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
@@ -121,7 +121,9 @@ async def test_first_save_matching_existing_value_creates_no_version(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)  # system_prompt="исходный промпт"
-    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "исходный промпт"})
+    response = await client.patch(
+        f"/bots/{bot_id}/prompts", json={"system_prompt": "исходный промпт"}
+    )
     assert response.status_code == 200
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
@@ -132,7 +134,7 @@ async def test_patch_changing_prompt_creates_version(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
+    response = await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "новый промпт"})
     assert response.status_code == 200
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
@@ -148,8 +150,8 @@ async def test_patch_with_same_text_does_not_duplicate_version(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
-    response = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "новый промпт"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "новый промпт"})
+    response = await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "новый промпт"})
     assert response.status_code == 200
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
@@ -160,8 +162,8 @@ async def test_versions_returned_newest_first(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    await client.patch(f"/bots/{bot_id}", json={"system_prompt": "версия 1"})
-    await client.patch(f"/bots/{bot_id}", json={"system_prompt": "версия 2"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "версия 1"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "версия 2"})
 
     versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
     body = versions.json()
@@ -175,11 +177,11 @@ async def test_rollback_via_patch_appends_new_version_without_losing_history(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    await client.patch(f"/bots/{bot_id}", json={"system_prompt": "версия 1"})
-    await client.patch(f"/bots/{bot_id}", json={"system_prompt": "версия 2"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "версия 1"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "версия 2"})
 
     # "Откат" — PATCH тем же текстом, что был у версии 1.
-    rollback = await client.patch(f"/bots/{bot_id}", json={"system_prompt": "версия 1"})
+    rollback = await client.patch(f"/bots/{bot_id}/prompts", json={"system_prompt": "версия 1"})
     assert rollback.status_code == 200
     assert rollback.json()["system_prompt"] == "версия 1"
 
@@ -196,8 +198,8 @@ async def test_image_and_pdf_prompts_version_independently(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     bot_id = await _make_bot(session_factory)
-    await client.patch(f"/bots/{bot_id}", json={"image_prompt": "опиши фото"})
-    await client.patch(f"/bots/{bot_id}", json={"pdf_prompt": "изучи документ"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"image_prompt": "опиши фото"})
+    await client.patch(f"/bots/{bot_id}/prompts", json={"pdf_prompt": "изучи документ"})
 
     main_versions = await client.get(f"/bots/{bot_id}/prompts/main/versions")
     image_versions = await client.get(f"/bots/{bot_id}/prompts/image/versions")
@@ -224,5 +226,5 @@ async def test_patch_unknown_bot_with_prompt_field_is_404(
     client: httpx.AsyncClient,
 ) -> None:
     unknown_id = uuid.uuid4()
-    response = await client.patch(f"/bots/{unknown_id}", json={"system_prompt": "x"})
+    response = await client.patch(f"/bots/{unknown_id}/prompts", json={"system_prompt": "x"})
     assert response.status_code == 404

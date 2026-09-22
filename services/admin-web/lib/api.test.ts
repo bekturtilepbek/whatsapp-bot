@@ -116,7 +116,7 @@ describe("patchBotPrompt", () => {
     const result = await patchBotPrompt("http://api", "1", "main", "новый текст");
 
     expect(result).toEqual(bot);
-    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1", {
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1/prompts", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ system_prompt: "новый текст" }),
@@ -129,13 +129,13 @@ describe("patchBotPrompt", () => {
 
     await patchBotPrompt("http://api", "1", "image", "опиши фото");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://api/bots/1",
+      "http://api/bots/1/prompts",
       expect.objectContaining({ body: JSON.stringify({ image_prompt: "опиши фото" }) }),
     );
 
     await patchBotPrompt("http://api", "1", "pdf", "изучи документ");
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://api/bots/1",
+      "http://api/bots/1/prompts",
       expect.objectContaining({ body: JSON.stringify({ pdf_prompt: "изучи документ" }) }),
     );
   });

@@ -2,14 +2,14 @@ import { expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import BotLayout from "@/app/bots/[id]/layout";
 import { fetchBot, type Bot } from "@/lib/api";
-import { currentUserIsOwner } from "@/lib/currentUser";
+import { fetchCurrentUser } from "@/lib/currentUser";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return { ...actual, fetchBot: vi.fn() };
 });
 vi.mock("@/lib/currentUser", () => ({
-  currentUserIsOwner: vi.fn(),
+  fetchCurrentUser: vi.fn(),
 }));
 vi.mock("@/lib/env", () => ({
   API_INTERNAL_URL: "http://api.internal",
@@ -26,7 +26,7 @@ vi.mock("next/navigation", async (importOriginal) => {
 });
 
 const mockedFetchBot = vi.mocked(fetchBot);
-const mockedIsOwner = vi.mocked(currentUserIsOwner);
+const mockedFetchCurrentUser = vi.mocked(fetchCurrentUser);
 
 const bot: Bot = {
   id: "1",
@@ -39,9 +39,9 @@ const bot: Bot = {
   pdf_prompt: null,
 };
 
-it("renders the bot name, connection status and every tab, including the sandbox tab for the owner", async () => {
+it("renders the bot name, connection status and every tab for a superadmin, including prompts/settings/blocked-numbers/sandbox", async () => {
   mockedFetchBot.mockResolvedValue(bot);
-  mockedIsOwner.mockResolvedValue(true);
+  mockedFetchCurrentUser.mockResolvedValue({ email: "owner@example.com", role: "superadmin" });
   const element = await BotLayout({
     params: Promise.resolve({ id: "1" }),
     children: <div>Содержимое вкладки</div>,
@@ -51,20 +51,44 @@ it("renders the bot name, connection status and every tab, including the sandbox
   expect(screen.getByText("Кофейня «Аромат»")).toBeInTheDocument();
   expect(screen.getByText("Подключён")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Обзор" })).toHaveAttribute("href", "/bots/1");
+  expect(screen.getByRole("link", { name: "Промпты" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Настройки" })).toHaveAttribute("href", "/bots/1/settings");
+  expect(screen.getByRole("link", { name: "Чёрный список" })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "Песочница" })).toBeInTheDocument();
   expect(screen.getByText("Содержимое вкладки")).toBeInTheDocument();
 });
 
-it("hides the sandbox tab for a non-owner", async () => {
+it("shows every tab, including sandbox, for a prompter (full bot access, ролевой пересмотр 2026-09-22)", async () => {
   mockedFetchBot.mockResolvedValue(bot);
-  mockedIsOwner.mockResolvedValue(false);
+  mockedFetchCurrentUser.mockResolvedValue({ email: "prompter@example.com", role: "prompter" });
   const element = await BotLayout({
     params: Promise.resolve({ id: "1" }),
     children: <div>Содержимое вкладки</div>,
   });
   render(element);
-  expect(screen.queryByRole("link", { name: "Песочница" })).not.toBeInTheDocument();
+
+  expect(screen.getByRole("link", { name: "Промпты" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Настройки" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Чёрный список" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Песочница" })).toBeInTheDocument();
+});
+
+it("hides prompts/settings/blocked-numbers, but keeps sandbox, for a client", async () => {
+  mockedFetchBot.mockResolvedValue(bot);
+  mockedFetchCurrentUser.mockResolvedValue({ email: "client@example.com", role: "client" });
+  const element = await BotLayout({
+    params: Promise.resolve({ id: "1" }),
+    children: <div>Содержимое вкладки</div>,
+  });
+  render(element);
+
+  expect(screen.queryByRole("link", { name: "Промпты" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Настройки" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Чёрный список" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Товары" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Документы" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Активные чаты" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Песочница" })).toBeInTheDocument();
 });
 
 // render(await BotLayout({...})) резолвит только один уровень async —
@@ -73,7 +97,7 @@ it("hides the sandbox tab for a non-owner", async () => {
 
 it("shows disconnected when the session is mid-connection", async () => {
   mockedFetchBot.mockResolvedValue({ ...bot, status: "qr" });
-  mockedIsOwner.mockResolvedValue(true);
+  mockedFetchCurrentUser.mockResolvedValue({ email: "owner@example.com", role: "superadmin" });
   const element = await BotLayout({
     params: Promise.resolve({ id: "1" }),
     children: <div>Содержимое вкладки</div>,
@@ -84,7 +108,7 @@ it("shows disconnected when the session is mid-connection", async () => {
 
 it("shows disconnected when linked but logged out, even though linked_at is still set", async () => {
   mockedFetchBot.mockResolvedValue({ ...bot, status: "logged_out" });
-  mockedIsOwner.mockResolvedValue(true);
+  mockedFetchCurrentUser.mockResolvedValue({ email: "owner@example.com", role: "superadmin" });
   const element = await BotLayout({
     params: Promise.resolve({ id: "1" }),
     children: <div>Содержимое вкладки</div>,

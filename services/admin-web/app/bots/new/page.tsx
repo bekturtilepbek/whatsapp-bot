@@ -3,11 +3,11 @@ import { redirect } from "next/navigation";
 import { NewBotForm } from "@/components/NewBotForm";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { currentUserIsOwner } from "@/lib/currentUser";
+import { currentUserIsPlatformWide } from "@/lib/currentUser";
 import { API_PROXY_PATH } from "@/lib/env";
 
 export default async function NewBotPage() {
-  if (!(await currentUserIsOwner())) {
+  if (!(await currentUserIsPlatformWide())) {
     redirect("/bots");
   }
 

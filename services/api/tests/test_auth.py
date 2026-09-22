@@ -88,14 +88,14 @@ async def _make_user(
     email: str = "user@example.com",
     password: str = "correct horse",
     is_active: bool = True,
-    is_platform_owner: bool = False,
+    role: str = "client",
 ) -> None:
     async with session_factory() as session:
         user = await create_user(
             session,
             email=email,
             password_hash=hash_password(password),
-            is_platform_owner=is_platform_owner,
+            role=role,
         )
         user.is_active = is_active
         await session.commit()
@@ -104,16 +104,14 @@ async def _make_user(
 async def test_login_success_returns_token_and_user(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    await _make_user(
-        session_factory, email="a@example.com", password="s3cret", is_platform_owner=True
-    )
+    await _make_user(session_factory, email="a@example.com", password="s3cret", role="superadmin")
     response = await client.post(
         "/auth/login", json={"email": "a@example.com", "password": "s3cret"}
     )
     assert response.status_code == 200
     body = response.json()
     assert body["user"]["email"] == "a@example.com"
-    assert body["user"]["is_platform_owner"] is True
+    assert body["user"]["role"] == "superadmin"
     assert isinstance(body["token"], str) and body["token"]
 
 
@@ -188,7 +186,7 @@ async def test_bootstrap_creates_platform_owner_when_absent(
     async with session_factory() as session:
         user = await get_user_by_email(session, "owner@example.com")
         assert user is not None
-        assert user.is_platform_owner is True
+        assert user.role == "superadmin"
         assert verify_password("bootstrap-pass", user.password_hash)
 
 
@@ -203,7 +201,7 @@ async def test_bootstrap_is_idempotent_and_does_not_touch_existing_password(
         session_factory,
         email="existing-owner@example.com",
         password="original-pass",
-        is_platform_owner=True,
+        role="superadmin",
     )
 
     monkeypatch.setenv("DATABASE_URL", database_url)

@@ -2,8 +2,9 @@
 
 JWT payload — только {sub: user_id, exp}, БЕЗ роли/доступа к ботам: то
 проверяется свежо из БД на каждый запрос (require_bot_access/
-require_platform_owner), чтобы отзыв гранта или деактивация пользователя
-срабатывали немедленно, не дожидаясь протухания токена (30 дней).
+require_full_bot_access/require_platform_wide/require_user_manager), чтобы
+отзыв гранта, смена роли или деактивация пользователя срабатывали
+немедленно, не дожидаясь протухания токена (30 дней).
 """
 
 from __future__ import annotations
@@ -71,12 +72,19 @@ async def get_current_user(
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
+# superadmin/admin видят все боты без грантов и все платформенные разделы
+# (кроме /users — там только superadmin, см. require_user_manager).
+# prompter/client — только по гранту в bot_access; на уровне конкретного
+# бота prompter имеет полный доступ (как superadmin/admin), а client —
+# урезанный (см. require_full_bot_access).
+PLATFORM_WIDE_ROLES = {"superadmin", "admin"}
+
 
 async def require_bot_access(bot_id: uuid.UUID, user: CurrentUser, session: SessionDep) -> User:
     """bot_id приходит из пути роута, в котором эта зависимость
     используется — FastAPI резолвит одноимённый параметр пути
     автоматически."""
-    if user.is_platform_owner:
+    if user.role in PLATFORM_WIDE_ROLES:
         return user
     if not await has_bot_access(session, user.id, bot_id):
         raise HTTPException(status_code=403, detail="no access to this bot")
@@ -86,10 +94,31 @@ async def require_bot_access(bot_id: uuid.UUID, user: CurrentUser, session: Sess
 BotAccessUser = Annotated[User, Depends(require_bot_access)]
 
 
-async def require_platform_owner(user: CurrentUser) -> User:
-    if not user.is_platform_owner:
-        raise HTTPException(status_code=403, detail="platform owner only")
+async def require_full_bot_access(bot_id: uuid.UUID, user: BotAccessUser) -> User:
+    """Доступ есть (require_bot_access уже проверил), но client урезан —
+    без промптов/тулз/чёрного списка/настроек/QR (FEATURES.md 6.18
+    ролевой пересмотр, 2026-09-22)."""
+    if user.role == "client":
+        raise HTTPException(status_code=403, detail="client has limited bot access")
     return user
 
 
-PlatformOwner = Annotated[User, Depends(require_platform_owner)]
+FullBotAccess = Annotated[User, Depends(require_full_bot_access)]
+
+
+async def require_platform_wide(user: CurrentUser) -> User:
+    if user.role not in PLATFORM_WIDE_ROLES:
+        raise HTTPException(status_code=403, detail="admin only")
+    return user
+
+
+PlatformWide = Annotated[User, Depends(require_platform_wide)]
+
+
+async def require_user_manager(user: CurrentUser) -> User:
+    if user.role != "superadmin":
+        raise HTTPException(status_code=403, detail="superadmin only")
+    return user
+
+
+UserManager = Annotated[User, Depends(require_user_manager)]

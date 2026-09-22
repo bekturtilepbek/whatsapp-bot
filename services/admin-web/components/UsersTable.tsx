@@ -7,6 +7,7 @@ import {
   patchUser,
   revokeBotAccess,
   type CabinetUser,
+  type CabinetUserRole,
 } from "@/lib/api";
 import type { Bot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { Table } from "@/components/ui/Table";
 import { useInvalidShake } from "@/lib/useInvalidShake";
@@ -24,11 +26,21 @@ interface UsersTableProps {
   bots: Bot[];
 }
 
+// superadmin сюда не входит — назначается только bootstrap-скриптом, не
+// через кабинет (services/api/src/api/schemas/users.py::AssignableRole).
+type AssignableRole = Exclude<CabinetUserRole, "superadmin">;
+const ASSIGNABLE_ROLES: { value: AssignableRole; label: string }[] = [
+  { value: "admin", label: "Админ" },
+  { value: "prompter", label: "Промптер" },
+  { value: "client", label: "Клиент" },
+];
+
 export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
   const { showError, showSuccess } = useToast();
   const [rows, setRows] = useState(users);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<AssignableRole>("client");
   const [creating, setCreating] = useState(false);
   const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
@@ -44,15 +56,26 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
     }
     setCreating(true);
     try {
-      const created = await createUser(apiBaseUrl, { email, password, bot_ids: [] });
+      const created = await createUser(apiBaseUrl, { email, password, role, bot_ids: [] });
       setRows((current) => [...current, created]);
       setEmail("");
       setPassword("");
+      setRole("client");
       showSuccess("Пользователь создан");
     } catch (err) {
       showError(err instanceof Error ? err.message : "Не удалось создать");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const changeRole = async (userId: string, newRole: AssignableRole) => {
+    try {
+      const updated = await patchUser(apiBaseUrl, userId, { role: newRole });
+      setRows((current) => current.map((u) => (u.id === userId ? updated : u)));
+      showSuccess("Роль изменена");
+    } catch (err) {
+      showError(err instanceof Error ? err.message : "Не удалось изменить роль");
     }
   };
 
@@ -93,7 +116,7 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
     }
   };
 
-  const clientRows = rows.filter((u) => !u.is_platform_owner);
+  const clientRows = rows.filter((u) => u.role !== "superadmin");
 
   return (
     <div className="space-y-5">
@@ -142,6 +165,20 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
               />
             </div>
           </label>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Роль
+            <Select
+              value={role}
+              onChange={(event) => setRole(event.target.value as AssignableRole)}
+              className="mt-1.5"
+            >
+              {ASSIGNABLE_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </Select>
+          </label>
           <Button type="submit" disabled={creating}>
             {creating ? "Создаём…" : "Создать пользователя"}
           </Button>
@@ -159,6 +196,7 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
             <thead>
               <tr>
                 <th>Email</th>
+                <th>Роль</th>
                 <th>Активен</th>
                 {bots.map((bot) => (
                   <th key={bot.id}>{bot.name}</th>
@@ -169,6 +207,21 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
               {clientRows.map((user) => (
                 <tr key={user.id}>
                   <td>{user.email}</td>
+                  <td>
+                    <Select
+                      value={user.role}
+                      onChange={(event) =>
+                        void changeRole(user.id, event.target.value as AssignableRole)
+                      }
+                      aria-label={`Роль: ${user.email}`}
+                    >
+                      {ASSIGNABLE_ROLES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </td>
                   <td>
                     <Switch
                       checked={user.is_active}

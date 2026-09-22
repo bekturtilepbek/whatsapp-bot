@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 import { AuditLogTable } from "@/components/AuditLogTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchAuditLog, fetchBots } from "@/lib/api";
-import { currentUserIsOwner } from "@/lib/currentUser";
+import { currentUserIsPlatformWide } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 const AUDIT_LOG_PAGE_SIZE = 50;
 
 export default async function AuditLogPage() {
-  if (!(await currentUserIsOwner())) {
+  if (!(await currentUserIsPlatformWide())) {
     redirect("/bots");
   }
 

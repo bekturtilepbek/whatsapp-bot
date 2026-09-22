@@ -294,7 +294,7 @@ async def test_client_without_grant_gets_403(
         id=uuid.uuid4(),
         email="no-grant@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )

@@ -35,14 +35,29 @@ class BotCreate(BaseModel):
 
 
 class BotPatch(BaseModel):
-    """Все поля опциональны — трогаем только реально переданные (exclude_unset)."""
+    """Имя + настройки — вкладка "Настройки" (FullBotAccess, недоступно
+    роли client, FEATURES.md 6.18 ролевой пересмотр). enabled и промпты —
+    отдельные роуты/схемы ниже (BotEnabledPatch/BotPromptsPatch): разные
+    вкладки кабинета, разный уровень доступа (enabled-тумблер на "Обзоре"
+    доступен и client, промпты — нет)."""
 
     name: str | None = None
-    enabled: bool | None = None
+    settings: dict[str, Any] | None = None
+
+
+class BotEnabledPatch(BaseModel):
+    """Тумблер "Обзора" (пауза/возобновление) — доступен всем ролям с
+    доступом к боту, включая client."""
+
+    enabled: bool
+
+
+class BotPromptsPatch(BaseModel):
+    """Вкладка "Промпты" — FullBotAccess, недоступно client."""
+
     system_prompt: str | None = None
     image_prompt: str | None = None
     pdf_prompt: str | None = None
-    settings: dict[str, Any] | None = None
 
 
 class BotStats(BaseModel):

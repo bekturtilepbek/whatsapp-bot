@@ -1,5 +1,7 @@
 """POST /bots/{bot_id}/sandbox/messages (FEATURES.md 9.6) — тестовый прогон
-промпта без реальных клиентов, owner-only (тратит реальные токены OpenAI).
+промпта без реальных клиентов, доступна всем ролям с доступом к боту
+(ролевой пересмотр 2026-09-22 — раньше owner-only; тратит реальные токены
+OpenAI, но это уже не повод резать доступ ролям с полным доступом к боту).
 
 Часть A (тулзы, 2026-09-16): тулзы бота (tool_bindings) подключены через
 run_tool_loop — тот же контракт, что и в реальном пайплайне
@@ -52,7 +54,7 @@ from ..schemas.sandbox import (
     SandboxMessageIn,
     SandboxMessageOut,
 )
-from ..security import PlatformOwner
+from ..security import BotAccessUser
 from ..storage import StorageDep
 
 DEFAULT_MEDIA_MAX_SIZE_BYTES = 16 * 1024 * 1024
@@ -91,7 +93,7 @@ async def send_sandbox_message(
     session_factory: SessionFactoryDep,
     redis: RedisDep,
     storage: StorageDep,
-    _owner: PlatformOwner,
+    _user: BotAccessUser,
 ) -> SandboxMessageOut:
     if not body.message.strip():
         raise HTTPException(status_code=422, detail="message must not be empty")
@@ -171,7 +173,7 @@ async def send_sandbox_message(
 async def get_sandbox_media(
     bot_id: uuid.UUID,
     storage: StorageDep,
-    _owner: PlatformOwner,
+    _user: BotAccessUser,
     key: str = Query(...),
     mime_type: str = Query(...),
 ) -> Response:
@@ -207,7 +209,7 @@ def _parse_history(raw: str | None) -> list[HistoryMessage]:
 async def send_sandbox_media_message(
     bot_id: uuid.UUID,
     session: SessionDep,
-    _owner: PlatformOwner,
+    _user: BotAccessUser,
     file: UploadFile = File(...),  # noqa: B008
     history: str | None = Form(None),
     caption: str | None = Form(None),

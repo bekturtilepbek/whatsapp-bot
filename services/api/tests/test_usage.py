@@ -26,7 +26,7 @@ from db.usage import record_usage
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 
-from tests.auth_helpers import override_non_owner_auth, override_owner_auth
+from tests.auth_helpers import override_admin_auth, override_non_owner_auth, override_owner_auth
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
@@ -144,3 +144,11 @@ async def test_get_usage_non_owner_returns_403(
     override_non_owner_auth()
     response = await client.get("/usage")
     assert response.status_code == 403
+
+
+async def test_get_usage_admin_gets_200(client: httpx.AsyncClient) -> None:
+    """Ролевой пересмотр 2026-09-22: /usage — PlatformWide (superadmin И
+    admin), в отличие от /users (только superadmin)."""
+    override_admin_auth()
+    response = await client.get("/usage")
+    assert response.status_code == 200

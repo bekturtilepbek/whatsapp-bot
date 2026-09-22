@@ -220,19 +220,20 @@ export async function patchBotPrompt(
 ): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
   const field = PROMPT_FIELD_BY_KIND[kind];
-  const res = await apiFetch(`${base}/bots/${id}`, {
+  const res = await apiFetch(`${base}/bots/${id}/prompts`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ [field]: body }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+    throw new Error(`PATCH /bots/${id}/prompts failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
 
-/** FEATURES.md 6.3 — переименование бота после создания (BotAccessUser,
- * не только владелец платформы — это витринная строка, не секьюрити). */
+/** FEATURES.md 6.3 — переименование бота после создания. Живёт на
+ * /bots/{id} вместе с settings (FullBotAccess — недоступно роли client,
+ * см. lib/currentUser.ts и services/api/src/api/security.py). */
 export async function patchBotName(baseUrl: string, id: string, name: string): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}`, {
@@ -246,17 +247,17 @@ export async function patchBotName(baseUrl: string, id: string, name: string): P
   return (await res.json()) as Bot;
 }
 
-/** FEATURES.md 1.7 — пауза бота. Тот же паттерн, что patchBotName — PATCH
- * с одним полем, бэкенд уже принимает `enabled` (BotPatch). */
+/** FEATURES.md 1.7 — пауза бота. Свой роут (не /bots/{id}) — доступен и
+ * роли client (тумблер на вкладке "Обзор"), в отличие от имени/настроек. */
 export async function patchBotEnabled(baseUrl: string, id: string, enabled: boolean): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
-  const res = await apiFetch(`${base}/bots/${id}`, {
+  const res = await apiFetch(`${base}/bots/${id}/enabled`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+    throw new Error(`PATCH /bots/${id}/enabled failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -595,12 +596,14 @@ export async function deleteBlockedNumber(
   }
 }
 
-// Пользователи кабинета (FEATURES.md 6.18, только для владельца платформы).
+// Пользователи кабинета (FEATURES.md 6.18, только для суперадмина).
+
+export type CabinetUserRole = "superadmin" | "admin" | "prompter" | "client";
 
 export interface CabinetUser {
   id: string;
   email: string;
-  is_platform_owner: boolean;
+  role: CabinetUserRole;
   is_active: boolean;
   bot_ids: string[];
 }
@@ -616,7 +619,12 @@ export async function fetchUsers(baseUrl: string): Promise<CabinetUser[]> {
 
 export async function createUser(
   baseUrl: string,
-  input: { email: string; password: string; bot_ids: string[] },
+  input: {
+    email: string;
+    password: string;
+    role: Exclude<CabinetUserRole, "superadmin">;
+    bot_ids: string[];
+  },
 ): Promise<CabinetUser> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/users`, {
@@ -653,7 +661,11 @@ export async function revokeBotAccess(baseUrl: string, userId: string, botId: st
 export async function patchUser(
   baseUrl: string,
   userId: string,
-  patch: { is_active?: boolean; password?: string },
+  patch: {
+    is_active?: boolean;
+    password?: string;
+    role?: Exclude<CabinetUserRole, "superadmin">;
+  },
 ): Promise<CabinetUser> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/users/${userId}`, {

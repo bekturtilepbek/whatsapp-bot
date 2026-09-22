@@ -35,7 +35,7 @@ class UserOut(BaseModel):
 
     id: UUID
     email: str
-    is_platform_owner: bool
+    role: str
     is_active: bool
 
 

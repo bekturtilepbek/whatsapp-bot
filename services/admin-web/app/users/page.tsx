@@ -2,11 +2,14 @@ import { redirect } from "next/navigation";
 import { UsersTable } from "@/components/UsersTable";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fetchBots, fetchUsers } from "@/lib/api";
-import { currentUserIsOwner } from "@/lib/currentUser";
+import { currentUserIsSuperadmin } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function UsersPage() {
-  if (!(await currentUserIsOwner())) {
+  // Только суперадмин — Admin намеренно НЕ управляет пользователями
+  // (единственное, что отличает его от Superadmin, FEATURES.md 6.18
+  // ролевой пересмотр 2026-09-22).
+  if (!(await currentUserIsSuperadmin())) {
     redirect("/bots");
   }
 
@@ -14,11 +17,11 @@ export default async function UsersPage() {
     fetchUsers(API_INTERNAL_URL),
     fetchBots(API_INTERNAL_URL),
   ]);
-  const clientCount = users.filter((u) => !u.is_platform_owner).length;
+  const nonSuperadminCount = users.filter((u) => u.role !== "superadmin").length;
 
   return (
     <main>
-      <PageHeader title="Пользователи" subtitle={`Пользователей: ${clientCount}`} />
+      <PageHeader title="Пользователи" subtitle={`Пользователей: ${nonSuperadminCount}`} />
       <UsersTable apiBaseUrl={API_PROXY_PATH} users={users} bots={bots} />
     </main>
   );

@@ -131,7 +131,7 @@ async def client(
         owner = User(
             email=f"owner-{uuid.uuid4()}@example.com",
             password_hash="unused",
-            is_platform_owner=True,
+            role="superadmin",
             is_active=True,
         )
         session.add(owner)
@@ -314,7 +314,7 @@ async def test_get_audit_log_non_owner_returns_403(
         id=uuid.uuid4(),
         email="client@example.com",
         password_hash="unused",
-        is_platform_owner=False,
+        role="client",
         is_active=True,
         created_at=datetime.now(),
     )

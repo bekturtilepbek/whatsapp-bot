@@ -1,15 +1,14 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { SandboxChat } from "@/components/SandboxChat";
 import { fetchBot } from "@/lib/api";
-import { currentUserIsOwner } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
+// Доступна всем ролям с доступом к боту (FEATURES.md 6.18 ролевой
+// пересмотр 2026-09-22 — раньше owner-only) — гейт теперь только на
+// бэкенде (require_bot_access), как у остальных вкладок бота.
 export default async function SandboxPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [isOwner, bot] = await Promise.all([currentUserIsOwner(), fetchBot(API_INTERNAL_URL, id)]);
-  if (!isOwner) {
-    redirect(`/bots/${id}`);
-  }
+  const bot = await fetchBot(API_INTERNAL_URL, id);
   if (!bot) {
     notFound();
   }

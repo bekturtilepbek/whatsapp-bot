@@ -1,5 +1,5 @@
 import { logout } from "@/app/login/actions";
-import { fetchCurrentUser } from "@/lib/currentUser";
+import { fetchCurrentUser, PLATFORM_WIDE_ROLES } from "@/lib/currentUser";
 import { BrandMark } from "@/components/ui/BrandMark";
 import { SidebarNavLink } from "@/components/ui/SidebarNavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -22,13 +22,17 @@ export async function Sidebar() {
         </SidebarNavLink>
       </nav>
 
-      {user.is_platform_owner && (
+      {PLATFORM_WIDE_ROLES.includes(user.role) && (
         <nav aria-label="Платформа" className="mt-5 flex flex-col gap-0.5">
           <div className="px-2.5 pb-1.5 text-[10.5px] font-bold uppercase tracking-wider text-ink-faint">
             Платформа
           </div>
           <SidebarNavLink href="/dashboard">Дашборд</SidebarNavLink>
-          <SidebarNavLink href="/users">Пользователи</SidebarNavLink>
+          {/* Только суперадмин — Admin намеренно не управляет
+              пользователями (FEATURES.md 6.18 ролевой пересмотр). */}
+          {user.role === "superadmin" && (
+            <SidebarNavLink href="/users">Пользователи</SidebarNavLink>
+          )}
           <SidebarNavLink href="/audit-log">Аудит-лог</SidebarNavLink>
           <SidebarNavLink href="/usage">Расходы</SidebarNavLink>
         </nav>

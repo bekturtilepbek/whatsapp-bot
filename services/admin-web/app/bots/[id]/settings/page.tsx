@@ -1,9 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
 import { RenameBotForm } from "@/components/RenameBotForm";
 import { TelegramLeadToolForm } from "@/components/TelegramLeadToolForm";
 import { Card } from "@/components/ui/Card";
 import { DEFAULT_BOT_SETTINGS, fetchBot, fetchBotTools } from "@/lib/api";
+import { fetchCurrentUser } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotSettingsPage({
@@ -12,6 +13,13 @@ export default async function BotSettingsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  // client урезан (FullBotAccess) — бэкенд и так отклоняет fetchBotTools
+  // 403-м, но без этой проверки страница падает страшным Next.js error
+  // overlay вместо аккуратного редиректа (тот же паттерн, что у /users).
+  const user = await fetchCurrentUser();
+  if (user?.role === "client") {
+    redirect(`/bots/${id}`);
+  }
   const [bot, tools] = await Promise.all([
     fetchBot(API_INTERNAL_URL, id),
     fetchBotTools(API_INTERNAL_URL, id),

@@ -1,5 +1,7 @@
 """GET/POST /users, POST/DELETE .../bot-access, PATCH /users/{id} —
-владелец платформы управляет клиентскими аккаунтами (FEATURES.md 6.18).
+только суперадмин управляет аккаунтами (FEATURES.md 6.18 + ролевой
+пересмотр 2026-09-22: Admin намеренно НЕ получает доступ к этому
+роутеру — единственное, что отличает его от Superadmin).
 """
 
 from __future__ import annotations
@@ -16,13 +18,14 @@ from db.users import (
     list_users,
     set_user_active,
     set_user_password,
+    set_user_role,
 )
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..db import SessionDep
 from ..schemas.users import UserCreate, UserPatch, UserWithAccessOut
-from ..security import PlatformOwner, hash_password
+from ..security import UserManager, hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -36,21 +39,21 @@ async def _to_out(session: SessionDep, user: User) -> UserWithAccessOut:
     return UserWithAccessOut(
         id=user.id,
         email=user.email,
-        is_platform_owner=user.is_platform_owner,
+        role=user.role,
         is_active=user.is_active,
         bot_ids=bot_ids,
     )
 
 
 @router.get("", response_model=list[UserWithAccessOut])
-async def list_users_route(session: SessionDep, _owner: PlatformOwner) -> list[UserWithAccessOut]:
+async def list_users_route(session: SessionDep, _owner: UserManager) -> list[UserWithAccessOut]:
     users = await list_users(session)
     return [await _to_out(session, u) for u in users]
 
 
 @router.post("", response_model=UserWithAccessOut, status_code=201)
 async def create_user_route(
-    body: UserCreate, session: SessionDep, _owner: PlatformOwner
+    body: UserCreate, session: SessionDep, _owner: UserManager
 ) -> UserWithAccessOut:
     if await get_user_by_email(session, body.email) is not None:
         raise HTTPException(status_code=409, detail="email already registered")
@@ -60,7 +63,9 @@ async def create_user_route(
     for bot_id in body.bot_ids:
         if await get_bot(session, bot_id) is None:
             raise HTTPException(status_code=404, detail="bot not found")
-    user = await create_user(session, email=body.email, password_hash=hash_password(body.password))
+    user = await create_user(
+        session, email=body.email, password_hash=hash_password(body.password), role=body.role
+    )
     for bot_id in body.bot_ids:
         await grant_bot_access(session, user.id, bot_id)
     await session.commit()
@@ -69,7 +74,7 @@ async def create_user_route(
 
 @router.post("/{user_id}/bot-access", status_code=204)
 async def grant_bot_access_route(
-    user_id: uuid.UUID, body: _BotAccessIn, session: SessionDep, _owner: PlatformOwner
+    user_id: uuid.UUID, body: _BotAccessIn, session: SessionDep, _owner: UserManager
 ) -> None:
     if await get_user(session, user_id) is None:
         raise HTTPException(status_code=404, detail="user not found")
@@ -81,7 +86,7 @@ async def grant_bot_access_route(
 
 @router.delete("/{user_id}/bot-access/{bot_id}", status_code=204)
 async def revoke_bot_access_route(
-    user_id: uuid.UUID, bot_id: uuid.UUID, session: SessionDep, _owner: PlatformOwner
+    user_id: uuid.UUID, bot_id: uuid.UUID, session: SessionDep, _owner: UserManager
 ) -> None:
     await revoke_bot_access(session, user_id, bot_id)
     await session.commit()
@@ -89,7 +94,7 @@ async def revoke_bot_access_route(
 
 @router.patch("/{user_id}", response_model=UserWithAccessOut)
 async def patch_user_route(
-    user_id: uuid.UUID, body: UserPatch, session: SessionDep, _owner: PlatformOwner
+    user_id: uuid.UUID, body: UserPatch, session: SessionDep, _owner: UserManager
 ) -> UserWithAccessOut:
     if body.is_active is not None:
         updated = await set_user_active(session, user_id, body.is_active)
@@ -97,6 +102,10 @@ async def patch_user_route(
             raise HTTPException(status_code=404, detail="user not found")
     if body.password is not None:
         updated = await set_user_password(session, user_id, hash_password(body.password))
+        if updated is None:
+            raise HTTPException(status_code=404, detail="user not found")
+    if body.role is not None:
+        updated = await set_user_role(session, user_id, body.role)
         if updated is None:
             raise HTTPException(status_code=404, detail="user not found")
     user = await get_user(session, user_id)

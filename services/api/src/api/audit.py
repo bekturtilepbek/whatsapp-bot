@@ -38,6 +38,12 @@ AUDIT_METHODS = frozenset({"POST", "PATCH", "DELETE", "PUT"})
 ACTION_REGISTRY: dict[tuple[str, str], str] = {
     ("POST", "/bots"): "bots.create",
     ("PATCH", "/bots/{bot_id}"): "bots.update",
+    # Ролевой пересмотр 2026-09-22 (FEATURES.md 6.18) разбил PATCH /bots/{id}
+    # на три роута (name+settings / enabled / промпты) — каждый теперь свой
+    # эндпоинт, значит своя запись здесь, иначе новый роут молча не
+    # аудируется (документированное поведение ACTION_REGISTRY).
+    ("PATCH", "/bots/{bot_id}/enabled"): "bots.update_enabled",
+    ("PATCH", "/bots/{bot_id}/prompts"): "bots.update_prompts",
     ("POST", "/bots/{bot_id}/logout"): "bots.logout",
     ("POST", "/bots/{bot_id}/chats/{chat_id}/release"): "bots.release_chat",
     ("POST", "/bots/{bot_id}/blocked-numbers"): "blocked_numbers.create",

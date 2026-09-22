@@ -1,8 +1,10 @@
 """GET/PATCH /bots/{id} (STAGE1_CORE Блок 3, п.2).
 
-Доступ на каждый bot_id-роут — через require_bot_access/require_platform_owner
-(FEATURES.md 6.18, services/api/src/api/security.py): владелец платформы видит
-всё, клиент — только бота(ов) с грантом в bot_access.
+Доступ на каждый bot_id-роут — через require_bot_access/require_full_bot_access/
+require_platform_wide (FEATURES.md 6.18, services/api/src/api/security.py):
+superadmin/admin видят всё; prompter/client — только бота(ов) с грантом в
+bot_access, причём client на самом боте урезан (без промптов/тулз/чёрного
+списка/настроек/QR — см. FullBotAccess).
 """
 
 from __future__ import annotations
@@ -28,10 +30,18 @@ from ..gateway_client import GatewayClientDep
 from ..handoff import list_active_chat_ids
 from ..redis_client import RedisDep
 from ..schemas.blocked_contacts import BlockedNumberIn, BlockedNumberOut
-from ..schemas.bots import ActiveChatOut, BotCreate, BotOut, BotPatch, BotStats
+from ..schemas.bots import (
+    ActiveChatOut,
+    BotCreate,
+    BotEnabledPatch,
+    BotOut,
+    BotPatch,
+    BotPromptsPatch,
+    BotStats,
+)
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
-from ..security import BotAccessUser, CurrentUser, PlatformOwner
+from ..security import PLATFORM_WIDE_ROLES, BotAccessUser, CurrentUser, FullBotAccess, PlatformWide
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -45,13 +55,13 @@ BLOCKED_LIST_MAX_LIMIT = 100
 
 @router.get("", response_model=list[BotOut])
 async def list_all_bots(session: SessionDep, user: CurrentUser) -> list[BotOut]:
-    filter_user_id = None if user.is_platform_owner else user.id
+    filter_user_id = None if user.role in PLATFORM_WIDE_ROLES else user.id
     bots = await list_bots(session, user_id=filter_user_id)
     return [BotOut.model_validate(bot) for bot in bots]
 
 
 @router.post("", response_model=BotOut, status_code=201)
-async def create_bot_route(body: BotCreate, session: SessionDep, _owner: PlatformOwner) -> BotOut:
+async def create_bot_route(body: BotCreate, session: SessionDep, _admin: PlatformWide) -> BotOut:
     """Онбординг бота из UI (FEATURES.md 6.20) — только имя, всё остальное
     server_default модели. Owner-only: создание бота — административное
     действие, тот же уровень доступа, что и у users.py. Никакой привязки
@@ -95,23 +105,48 @@ async def read_bot(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) 
 
 @router.patch("/{bot_id}", response_model=BotOut)
 async def patch_bot(
-    bot_id: uuid.UUID, patch: BotPatch, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, patch: BotPatch, session: SessionDep, user: FullBotAccess
 ) -> BotOut:
+    """Имя + настройки — вкладка "Настройки" (недоступна client, см.
+    FullBotAccess). enabled/промпты — отдельные роуты ниже."""
     data = patch.model_dump(exclude_unset=True)
     name = data.get("name")
     if name is not None:
         name = name.strip()
         if not name:
             raise HTTPException(status_code=422, detail="name must not be empty")
+    bot = await update_bot(session, bot_id, name=name, settings_patch=data.get("settings"))
+    await session.commit()
+    if bot is None:
+        raise HTTPException(status_code=404, detail="bot not found")
+    return BotOut.model_validate(bot)
+
+
+@router.patch("/{bot_id}/enabled", response_model=BotOut)
+async def patch_bot_enabled(
+    bot_id: uuid.UUID, patch: BotEnabledPatch, session: SessionDep, user: BotAccessUser
+) -> BotOut:
+    """Пауза/возобновление — тумблер на вкладке "Обзор", доступен всем
+    ролям с доступом к боту (включая client)."""
+    bot = await update_bot(session, bot_id, enabled=patch.enabled)
+    await session.commit()
+    if bot is None:
+        raise HTTPException(status_code=404, detail="bot not found")
+    return BotOut.model_validate(bot)
+
+
+@router.patch("/{bot_id}/prompts", response_model=BotOut)
+async def patch_bot_prompts(
+    bot_id: uuid.UUID, patch: BotPromptsPatch, session: SessionDep, user: FullBotAccess
+) -> BotOut:
+    """Вкладка "Промпты" — недоступна client, см. FullBotAccess."""
+    data = patch.model_dump(exclude_unset=True)
     bot = await update_bot(
         session,
         bot_id,
-        name=name,
-        enabled=data.get("enabled"),
         system_prompt=data.get("system_prompt"),
         image_prompt=data.get("image_prompt"),
         pdf_prompt=data.get("pdf_prompt"),
-        settings_patch=data.get("settings"),
     )
     await session.commit()
     if bot is None:
@@ -162,12 +197,12 @@ async def list_prompt_versions(
 
 
 @router.get("/{bot_id}/qr")
-async def get_qr(bot_id: uuid.UUID, gateway: GatewayClientDep, user: BotAccessUser) -> Response:
+async def get_qr(bot_id: uuid.UUID, gateway: GatewayClientDep, user: FullBotAccess) -> Response:
     return await _proxy_to_gateway(gateway, "GET", f"/qr/{bot_id}")
 
 
 @router.post("/{bot_id}/logout")
-async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep, user: BotAccessUser) -> Response:
+async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep, user: FullBotAccess) -> Response:
     return await _proxy_to_gateway(gateway, "POST", f"/bots/{bot_id}/logout")
 
 
@@ -194,7 +229,7 @@ def _strip_non_digits(phone: str) -> str:
 async def list_blocked(
     bot_id: uuid.UUID,
     session: SessionDep,
-    user: BotAccessUser,
+    user: FullBotAccess,
     limit: int = Query(BLOCKED_LIST_DEFAULT_LIMIT, ge=1, le=BLOCKED_LIST_MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> list[BlockedNumberOut]:
@@ -204,7 +239,7 @@ async def list_blocked(
 
 @router.post("/{bot_id}/blocked-numbers", response_model=BlockedNumberOut, status_code=201)
 async def add_blocked(
-    bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep, user: FullBotAccess
 ) -> BlockedNumberOut:
     phone = _strip_non_digits(body.phone)
     await add_blocked_number(session, bot_id, phone)
@@ -214,7 +249,7 @@ async def add_blocked(
 
 @router.delete("/{bot_id}/blocked-numbers/{phone}", status_code=204)
 async def delete_blocked(
-    bot_id: uuid.UUID, phone: str, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, phone: str, session: SessionDep, user: FullBotAccess
 ) -> None:
     await remove_blocked_number(session, bot_id, phone)
     await session.commit()
@@ -222,7 +257,7 @@ async def delete_blocked(
 
 @router.get("/{bot_id}/tools", response_model=list[ToolBindingOut])
 async def list_tools(
-    bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, session: SessionDep, user: FullBotAccess
 ) -> list[ToolBindingOut]:
     bindings = await list_enabled_tools(session, bot_id)
     return [ToolBindingOut(tool_name=b.tool_name, config=b.config) for b in bindings]
@@ -230,7 +265,7 @@ async def list_tools(
 
 @router.post("/{bot_id}/tools", response_model=ToolBindingOut, status_code=201)
 async def add_tool(
-    bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep, user: FullBotAccess
 ) -> ToolBindingOut:
     if body.tool_name not in all_tool_names():
         raise HTTPException(status_code=400, detail=f"unknown tool: {body.tool_name}")
@@ -241,7 +276,7 @@ async def add_tool(
 
 @router.delete("/{bot_id}/tools/{tool_name}", status_code=204)
 async def delete_tool(
-    bot_id: uuid.UUID, tool_name: str, session: SessionDep, user: BotAccessUser
+    bot_id: uuid.UUID, tool_name: str, session: SessionDep, user: FullBotAccess
 ) -> None:
     await disable_tool(session, bot_id, tool_name)
     await session.commit()

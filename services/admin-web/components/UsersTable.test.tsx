@@ -41,7 +41,7 @@ const bots: Bot[] = [
 const owner: CabinetUser = {
   id: "owner-1",
   email: "owner@example.com",
-  is_platform_owner: true,
+  role: "superadmin",
   is_active: true,
   bot_ids: [],
 };
@@ -51,14 +51,14 @@ const users: CabinetUser[] = [
   {
     id: "u1",
     email: "client1@example.com",
-    is_platform_owner: false,
+    role: "client",
     is_active: true,
     bot_ids: ["bot-1"],
   },
   {
     id: "u2",
     email: "client2@example.com",
-    is_platform_owner: false,
+    role: "prompter",
     is_active: false,
     bot_ids: [],
   },
@@ -103,11 +103,11 @@ it("only marks the empty field invalid when just one of email/password is filled
   expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-invalid", "true");
 });
 
-it("creates a user and adds it to the list", async () => {
+it("creates a user (default role client) and adds it to the list", async () => {
   const created: CabinetUser = {
     id: "u3",
     email: "new@example.com",
-    is_platform_owner: false,
+    role: "client",
     is_active: true,
     bot_ids: [],
   };
@@ -122,6 +122,7 @@ it("creates a user and adds it to the list", async () => {
     expect(api.createUser).toHaveBeenCalledWith("http://api", {
       email: "new@example.com",
       password: "secret123",
+      role: "client",
       bot_ids: [],
     });
   });
@@ -129,6 +130,32 @@ it("creates a user and adds it to the list", async () => {
   expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("");
   expect((screen.getByLabelText("Пароль") as HTMLInputElement).value).toBe("");
   expect(screen.getByRole("status")).toHaveTextContent(/создан/i);
+});
+
+it("creates a user with the selected role", async () => {
+  const created: CabinetUser = {
+    id: "u4",
+    email: "new-admin@example.com",
+    role: "admin",
+    is_active: true,
+    bot_ids: [],
+  };
+  vi.mocked(api.createUser).mockResolvedValue(created);
+  render(<UsersTable apiBaseUrl="http://api" users={users} bots={bots} />);
+
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new-admin@example.com" } });
+  fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "secret123" } });
+  fireEvent.change(screen.getByLabelText("Роль"), { target: { value: "admin" } });
+  fireEvent.click(screen.getByRole("button", { name: /создать пользователя/i }));
+
+  await waitFor(() => {
+    expect(api.createUser).toHaveBeenCalledWith("http://api", {
+      email: "new-admin@example.com",
+      password: "secret123",
+      role: "admin",
+      bot_ids: [],
+    });
+  });
 });
 
 it("shows an error and keeps the form filled when creating fails", async () => {
@@ -143,6 +170,34 @@ it("shows an error and keeps the form filled when creating fails", async () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/create failed/i);
   });
   expect((screen.getByLabelText("Email") as HTMLInputElement).value).toBe("new@example.com");
+});
+
+it("changes a user's role via the row select", async () => {
+  const updated: CabinetUser = { ...users[1], role: "admin" };
+  vi.mocked(api.patchUser).mockResolvedValue(updated);
+  render(<UsersTable apiBaseUrl="http://api" users={users} bots={bots} />);
+
+  fireEvent.change(screen.getByLabelText("Роль: client1@example.com"), {
+    target: { value: "admin" },
+  });
+
+  await waitFor(() => {
+    expect(api.patchUser).toHaveBeenCalledWith("http://api", "u1", { role: "admin" });
+  });
+  expect(screen.getByRole("status")).toHaveTextContent(/роль изменена/i);
+});
+
+it("shows an error when changing a role fails", async () => {
+  vi.mocked(api.patchUser).mockRejectedValue(new Error("role change failed"));
+  render(<UsersTable apiBaseUrl="http://api" users={users} bots={bots} />);
+
+  fireEvent.change(screen.getByLabelText("Роль: client1@example.com"), {
+    target: { value: "admin" },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/role change failed/i);
+  });
 });
 
 it("grants bot access via checkbox", async () => {

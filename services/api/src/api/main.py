@@ -43,7 +43,7 @@ async def _bootstrap_platform_owner() -> None:
             from db.users import create_user
 
             await create_user(
-                session, email=email, password_hash=hash_password(password), is_platform_owner=True
+                session, email=email, password_hash=hash_password(password), role="superadmin"
             )
             await session.commit()
     finally:

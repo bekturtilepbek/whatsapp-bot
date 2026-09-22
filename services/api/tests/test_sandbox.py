@@ -1,5 +1,7 @@
-"""POST /bots/{bot_id}/sandbox/messages (FEATURES.md 9.6): owner-only
-тестовый прогон промпта. Часть A (9.6, тулзы) — тулзы бота (tool_bindings)
+"""POST /bots/{bot_id}/sandbox/messages (FEATURES.md 9.6): тестовый
+прогон промпта, доступен всем ролям с доступом к боту (ролевой пересмотр
+2026-09-22 — раньше owner-only). Часть A (9.6, тулзы) — тулзы бота
+(tool_bindings)
 подключены через run_tool_loop, как в реальном пайплайне
 (worker/pipeline/consumer.py::_reply), но с тем же принципом, что и раньше:
 ничего не пишется в contacts/messages. side_effecting-тулзы (сейчас только
@@ -34,6 +36,7 @@ from api.redis_client import get_redis
 from api.routers import sandbox as sandbox_module
 from api.storage import get_storage
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
+from db.bot_access import grant_bot_access
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, Product, ProductMedia, UsageEvent
 from db.tool_bindings import enable as enable_tool_binding
@@ -44,7 +47,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
 from tools import telegram_lead as telegram_lead_module
 
-from tests.auth_helpers import override_non_owner_auth, override_owner_auth
+from tests.auth_helpers import (
+    FAKE_CLIENT_USER,
+    FAKE_PROMPTER_USER,
+    override_non_owner_auth,
+    override_owner_auth,
+    override_prompter_auth,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "libs" / "db" / "alembic.ini"
@@ -263,10 +272,39 @@ async def test_sandbox_message_unknown_bot_returns_404(client: httpx.AsyncClient
 async def test_sandbox_message_non_owner_returns_403(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
+    """Без гранта на ЭТОТ конкретный bot_id — 403 при любой роли (это
+    require_bot_access, не специфика песочницы)."""
     bot_id = await _make_bot(session_factory)
     override_non_owner_auth()
     response = await client.post(f"/bots/{bot_id}/sandbox/messages", json={"message": "Привет"})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("override_auth", "fake_user"),
+    [(override_non_owner_auth, FAKE_CLIENT_USER), (override_prompter_auth, FAKE_PROMPTER_USER)],
+)
+async def test_sandbox_message_with_grant_returns_200_for_any_role(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    override_auth: object,
+    fake_user: object,
+) -> None:
+    """Ролевой пересмотр 2026-09-22: песочница больше не owner-only —
+    client/prompter с грантом на бота теперь проходят (BotAccessUser)."""
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        # merge, не add — fake_user тот же Python-объект переиспользуется
+        # между параметризациями/тестами, INSERT дважды упал бы на PK.
+        await session.merge(fake_user)  # type: ignore[arg-type]
+        await grant_bot_access(session, fake_user.id, bot_id)  # type: ignore[attr-defined]
+        await session.commit()
+    monkeypatch.setattr(sandbox_module, "complete", _fake_complete([], []))
+    override_auth()  # type: ignore[operator]
+
+    response = await client.post(f"/bots/{bot_id}/sandbox/messages", json={"message": "Привет"})
+    assert response.status_code == 200
 
 
 async def test_sandbox_message_too_much_history_returns_422(

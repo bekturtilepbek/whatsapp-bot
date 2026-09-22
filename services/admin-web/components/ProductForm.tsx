@@ -163,12 +163,14 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     // HTML5-валидация (required/min) тихо блокирует submit ДО нашей проверки.
     <form noValidate onSubmit={(e) => void handleSubmit(e)} className="max-w-xl space-y-5">
       <Card className="flex flex-col gap-4 p-5">
-        <label className="mb-0 block text-sm font-medium text-ink">
-          Название <span className="text-danger">*</span>
+        <label
+          className={`mb-0 block text-sm font-medium ${isInvalid("name") ? "text-danger" : "text-ink"}`}
+        >
           <div
             key={isInvalid("name") ? `name-shake-${shakeKey}` : "name"}
             className={isInvalid("name") ? "animate-shake" : undefined}
           >
+            Название <span className="text-danger">*</span>
             <Input
               type="text"
               value={state.name}
@@ -245,12 +247,14 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
 
       {!product && (
         <Card className="p-5">
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Медиа <span className="text-danger">*</span>
+          <label
+            className={`mb-0 block text-sm font-medium ${isInvalid("media") ? "text-danger" : "text-ink"}`}
+          >
             <div
               key={isInvalid("media") ? `media-shake-${shakeKey}` : "media"}
               className={isInvalid("media") ? "animate-shake" : undefined}
             >
+              Медиа <span className="text-danger">*</span>
               <input
                 type="file"
                 multiple

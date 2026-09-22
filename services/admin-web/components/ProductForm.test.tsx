@@ -64,6 +64,13 @@ it("rejects an empty name without calling the api, marking the field invalid", a
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(api.createProduct).not.toHaveBeenCalled();
   expect(screen.getByLabelText(/название/i)).toHaveAttribute("aria-invalid", "true");
+  // Подпись поля должна покраснеть вместе с рамкой — не только сам инпут.
+  expect(screen.getByText("Название").closest("label")).toHaveClass("text-danger");
+  // И трястись вместе с текстом, не только с полем ввода — оба внутри
+  // одной .animate-shake обёртки.
+  const shakeWrapper = document.querySelector(".animate-shake");
+  expect(shakeWrapper).toContainElement(screen.getByText("Название"));
+  expect(shakeWrapper).toContainElement(screen.getByLabelText(/название/i));
 });
 
 it("clears the invalid marker on the name field once the user starts typing", async () => {
@@ -77,7 +84,7 @@ it("clears the invalid marker on the name field once the user starts typing", as
   expect(screen.getByLabelText(/название/i)).not.toHaveAttribute("aria-invalid");
 });
 
-it("rejects submit in create mode without any media", async () => {
+it("rejects submit in create mode without any media, marking the field invalid", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
 
   fireEvent.change(screen.getByLabelText(/название/i), { target: { value: "Товар" } });
@@ -85,6 +92,7 @@ it("rejects submit in create mode without any media", async () => {
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/нужно хотя бы одно медиа/i);
   expect(api.createProduct).not.toHaveBeenCalled();
+  expect(screen.getByText("Медиа").closest("label")).toHaveClass("text-danger");
 });
 
 it("creates a product with trimmed optional fields and the selected photo", async () => {

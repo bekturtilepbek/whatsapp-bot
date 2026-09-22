@@ -140,6 +140,10 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
       setMessages((current) => current.slice(0, -1));
     } finally {
       setSending(false);
+      // textarea снова disabled=false только ПОСЛЕ этого ре-рендера — focus()
+      // на ещё disabled-поле браузер тихо игнорирует, поэтому не сразу, а в
+      // следующем кадре (тот же приём, что уже есть у resizeTextarea рядом).
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   };
 
@@ -322,6 +326,13 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
           overflow: hidden;
           box-shadow: 0 4px 24px rgba(0, 0, 0, 0.18);
           background: #efeae2;
+          /* Мокап всегда выглядит как светлый WhatsApp, независимо от темы
+             кабинета (FEATURES.md 9.6 — сознательно, "телефонная" панель).
+             Текст пузырей и textarea своего color не задавали — наследовали
+             text-ink от <body>, в тёмной теме это светлый цвет поверх
+             светлых/белых пузырей и поля ввода = невидимый текст. color
+             здесь — не декоративный штрих, а обязательный сброс каскада. */
+          color: #111b21;
         }
 
         .sbx-header {

@@ -5,7 +5,7 @@ import { plexMono, plexSans } from "@/lib/fonts";
 import "./globals.css";
 
 export const metadata = {
-  title: "Панель ботов",
+  title: "Espada.ai",
 };
 
 // Выполняется синхронно ДО первой отрисовки <body> (обычный <script> в

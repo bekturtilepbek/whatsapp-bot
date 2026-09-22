@@ -49,7 +49,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center justify-center gap-2">
           <BrandMark />
-          <span className="text-sm font-bold text-ink">Платформа ботов</span>
+          <span className="text-sm font-bold text-ink">Espada.ai</span>
         </div>
         <Card className="p-8">
           <h1 className="mb-6 text-lg font-semibold text-ink">Вход</h1>

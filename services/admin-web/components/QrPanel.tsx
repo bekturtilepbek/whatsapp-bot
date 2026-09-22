@@ -171,7 +171,7 @@ export function QrPanel({
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
         {left}
         <div>
-          <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
+          <Card className="mx-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center shadow-elevated">
             <IconBadge variant="success" size="lg">
               <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path
@@ -208,7 +208,7 @@ export function QrPanel({
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
         {left}
         <div>
-          <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
+          <Card className="mx-auto flex max-w-sm flex-col items-center gap-3 p-8 text-center shadow-elevated">
             <IconBadge variant="warning" size="lg">
               <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <rect x="6" y="5" width="2.5" height="10" rx="1" fill="currentColor" />
@@ -226,9 +226,14 @@ export function QrPanel({
     <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
       {left}
       <div>
-        <Card className="p-5 shadow-elevated">
+        {/* max-w-sm — без него Card тянется на всю ширину grid-колонки
+            (1fr от 1.5fr_1fr, на широком экране много шире 300px QR),
+            вокруг фиксированной картинки оставалось пустое поле
+            (пользователь прислал скриншот). mx-auto центрирует сам блок
+            внутри карточки той же ширины. */}
+        <Card className="mx-auto max-w-sm p-5 shadow-elevated">
           <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
-          <div className="relative mt-3 h-[300px] w-[300px]">
+          <div className="relative mx-auto mt-3 h-[300px] w-[300px]">
             {qrUrl && (
               // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
               <img
@@ -242,12 +247,18 @@ export function QrPanel({
               />
             )}
             {!qrImageLoaded && (
+              // Без своей рамки/фона — Card снаружи уже с рамкой, вторая
+              // рамка вокруг плейсхолдера давала эффект "рамка в рамке"
+              // (пользователь описал это как "пустой квадрат" — старый
+              // проект, bot_management.html, тоже держит рамку только на
+              // внешней карточке). Текст — тот же, что в эталоне V1.
               <div
                 role="status"
                 aria-label="Загружаем QR-код"
-                className="absolute inset-0 flex items-center justify-center rounded-lg border border-border bg-surface-alt"
+                className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center"
               >
                 <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+                <p className="text-sm text-ink-soft">Ожидание QR-кода…</p>
               </div>
             )}
           </div>

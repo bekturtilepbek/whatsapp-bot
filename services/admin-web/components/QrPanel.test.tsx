@@ -73,10 +73,12 @@ it("shows a loading placeholder until the QR image actually finishes loading ove
 
   const img = screen.getByRole("img", { name: /qr/i });
   expect(screen.getByRole("status", { name: /загружаем qr/i })).toBeInTheDocument();
+  expect(screen.getByText(/ожидание qr-кода/i)).toBeInTheDocument();
 
   fireEvent.load(img);
 
   expect(screen.queryByRole("status", { name: /загружаем qr/i })).not.toBeInTheDocument();
+  expect(screen.queryByText(/ожидание qr-кода/i)).not.toBeInTheDocument();
 });
 
 it("switches to the connected view once polling finds linked_at set", async () => {

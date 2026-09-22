@@ -2,23 +2,25 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { fetchBot, logoutBot, patchBotEnabled, qrImageUrl, type Bot } from "@/lib/api";
+import { fetchBot, logoutBot, patchBotEnabled, qrImageUrl, type Bot, type BotStats } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { IconBadge } from "@/components/ui/IconBadge";
+import { StatTile } from "@/components/ui/StatTile";
 import { Switch } from "@/components/ui/Switch";
 
 interface QrPanelProps {
   initialBot: Bot;
   apiBaseUrl: string;
+  stats: BotStats;
   /** 5с по умолчанию (FEATURES.md 6.1) — тесты передают меньшее значение
    * вместо фейковых таймеров. */
   pollIntervalMs?: number;
 }
 
-export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPanelProps) {
+export function QrPanel({ initialBot, apiBaseUrl, stats, pollIntervalMs = 5000 }: QrPanelProps) {
   const router = useRouter();
   const { showError, showSuccess } = useToast();
   const [bot, setBot] = useState<Bot>(initialBot);
@@ -135,73 +137,95 @@ export function QrPanel({ initialBot, apiBaseUrl, pollIntervalMs = 5000 }: QrPan
     />
   );
 
+  // Раньше вся вкладка "Обзор" шла одной колонкой сверху вниз (пункт
+  // пользователя: "слишком много пустого пространства"). В старом проекте
+  // (bot_management.html) статус/тумблер/плитки и QR стояли рядом —
+  // .status-wrap { grid-template-columns: 1.5fr 1fr }. Тот же сплит: слева
+  // всё, что не требует внимания глазами постоянно (статус, плитки), справа
+  // QR — на него смотрят отдельно, при сканировании. На узком экране —
+  // одна колонка, QR под остальным (тот же brakpoint-приём, что и у
+  // status-wrap в старом проекте — 1fr ниже 820px).
+  const left = (
+    <div className="space-y-5">
+      {enabledBanner}
+      <div className="grid grid-cols-2 gap-5">
+        <StatTile label="Сообщений всего" value={stats.messages_count} />
+        <StatTile label="Контактов" value={stats.contacts_count} />
+      </div>
+    </div>
+  );
+
   if (bot.linked_at) {
     return (
-      <div>
-        {enabledBanner}
-        <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
-          <IconBadge variant="success" size="lg">
-            <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <path
-                d="M5 10.5l3.2 3.2L15 6.5"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </IconBadge>
-          <div>
-            <p className="text-base font-bold text-ink">WhatsApp подключён</p>
-            <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>
-          </div>
-          <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
-            {loggingOut ? "Отключаем…" : "Отключить"}
-          </Button>
-        </Card>
-        {pollError && (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {pollError}
-          </p>
-        )}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
+        {left}
+        <div>
+          <Card className="flex flex-col items-center gap-3 p-8 text-center shadow-elevated">
+            <IconBadge variant="success" size="lg">
+              <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path
+                  d="M5 10.5l3.2 3.2L15 6.5"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </IconBadge>
+            <div>
+              <p className="text-base font-bold text-ink">WhatsApp подключён</p>
+              <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>
+            </div>
+            <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
+              {loggingOut ? "Отключаем…" : "Отключить"}
+            </Button>
+          </Card>
+          {pollError && (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              {pollError}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
-      {enabledBanner}
-      <Card className="p-5 shadow-elevated">
-        <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
-        <div className="relative mt-3 h-[300px] w-[300px]">
-          {qrUrl && (
-            // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
-            <img
-              src={qrUrl}
-              alt="QR-код для подключения WhatsApp"
-              width={300}
-              height={300}
-              onLoad={() => setQrImageLoaded(true)}
-              onError={() => setQrImageLoaded(true)}
-              className={`h-[300px] w-[300px] rounded-lg border border-border ${qrImageLoaded ? "" : "invisible"}`}
-            />
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
+      {left}
+      <div>
+        <Card className="p-5 shadow-elevated">
+          <p className="text-sm text-ink">Отсканируйте QR в WhatsApp на телефоне</p>
+          <div className="relative mt-3 h-[300px] w-[300px]">
+            {qrUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- PNG отдаёт api напрямую, не статический ассет Next.js
+              <img
+                src={qrUrl}
+                alt="QR-код для подключения WhatsApp"
+                width={300}
+                height={300}
+                onLoad={() => setQrImageLoaded(true)}
+                onError={() => setQrImageLoaded(true)}
+                className={`h-[300px] w-[300px] rounded-lg border border-border ${qrImageLoaded ? "" : "invisible"}`}
+              />
+            )}
+            {!qrImageLoaded && (
+              <div
+                role="status"
+                aria-label="Загружаем QR-код"
+                className="absolute inset-0 flex items-center justify-center rounded-lg border border-border bg-surface-alt"
+              >
+                <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+              </div>
+            )}
+          </div>
+          {pollError && (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              {pollError}
+            </p>
           )}
-          {!qrImageLoaded && (
-            <div
-              role="status"
-              aria-label="Загружаем QR-код"
-              className="absolute inset-0 flex items-center justify-center rounded-lg border border-border bg-surface-alt"
-            >
-              <span className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-accent" />
-            </div>
-          )}
-        </div>
-        {pollError && (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {pollError}
-          </p>
-        )}
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }

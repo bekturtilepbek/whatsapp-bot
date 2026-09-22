@@ -39,15 +39,28 @@ const linkedBot: Bot = {
   image_prompt: null,
   pdf_prompt: null,
 };
+const stats = { messages_count: 42, contacts_count: 7 };
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
 it("shows the QR image while the bot is not linked", () => {
-  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(
+    <QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />,
+  );
   expect(screen.getByRole("img", { name: /qr/i })).toBeInTheDocument();
   expect(screen.queryByText(/отключить/i)).not.toBeInTheDocument();
+});
+
+it("renders the message/contact stat tiles alongside the QR panel (old project's layout: stats+toggle left, QR right)", () => {
+  render(
+    <QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />,
+  );
+  expect(screen.getByText("42")).toBeInTheDocument();
+  expect(screen.getByText("Сообщений всего")).toBeInTheDocument();
+  expect(screen.getByText("7")).toBeInTheDocument();
+  expect(screen.getByText("Контактов")).toBeInTheDocument();
 });
 
 it("shows a loading placeholder until the QR image actually finishes loading over the network", () => {
@@ -56,7 +69,7 @@ it("shows a loading placeholder until the QR image actually finishes loading ove
   // только появлялся URL картинки (мгновенно), а не когда браузер реально
   // ЗАКОНЧИЛ её грузить (пока gateway лениво поднимает сессию для бота,
   // который давно не открывали, это реально занимает пару секунд).
-  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
 
   const img = screen.getByRole("img", { name: /qr/i });
   expect(screen.getByRole("status", { name: /загружаем qr/i })).toBeInTheDocument();
@@ -68,7 +81,7 @@ it("shows a loading placeholder until the QR image actually finishes loading ove
 
 it("switches to the connected view once polling finds linked_at set", async () => {
   vi.mocked(api.fetchBot).mockResolvedValue(linkedBot);
-  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={20} />);
+  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={20} />);
 
   await waitFor(() => {
     expect(screen.getByText(/996700000000/)).toBeInTheDocument();
@@ -79,7 +92,7 @@ it("switches to the connected view once polling finds linked_at set", async () =
 it("logs out and returns to the QR view", async () => {
   vi.mocked(api.fetchBot).mockResolvedValue(unlinkedBot);
   vi.mocked(api.logoutBot).mockResolvedValue(undefined);
-  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
 
   fireEvent.click(screen.getByRole("button", { name: /отключить/i }));
 
@@ -98,7 +111,7 @@ it("logs out and returns to the QR view", async () => {
 
 it("shows an error when a poll fails", async () => {
   vi.mocked(api.fetchBot).mockRejectedValue(new Error("network error"));
-  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" pollIntervalMs={20} />);
+  render(<QrPanel initialBot={unlinkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={20} />);
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/network error/i);
@@ -112,7 +125,7 @@ it("shows an error toast when logout fails", async () => {
   // poll-статус (pollError) — независимые состояния.
   vi.mocked(api.logoutBot).mockRejectedValue(new Error("gateway unreachable"));
   vi.mocked(api.fetchBot).mockResolvedValue(linkedBot);
-  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
 
   fireEvent.click(screen.getByRole("button", { name: /отключить/i }));
 
@@ -125,7 +138,7 @@ it("toggles bot.enabled via the banner switch", async () => {
   const pausedBot = { ...linkedBot, enabled: false };
   const afterToggle = { ...linkedBot, enabled: true };
   vi.mocked(api.patchBotEnabled).mockResolvedValue(afterToggle);
-  render(<QrPanel initialBot={pausedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={pausedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
 
   expect(screen.getByText(/бот на паузе/i)).toBeInTheDocument();
 
@@ -140,7 +153,7 @@ it("toggles bot.enabled via the banner switch", async () => {
 
 it("shows an error toast when toggling bot.enabled fails", async () => {
   vi.mocked(api.patchBotEnabled).mockRejectedValue(new Error("update failed"));
-  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" pollIntervalMs={10000} />);
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
 
   fireEvent.click(screen.getByRole("checkbox", { name: /бот активен/i }));
 

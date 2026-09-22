@@ -11,11 +11,16 @@ vi.mock("@/lib/env", () => ({
   API_INTERNAL_URL: "http://api.internal",
   API_PROXY_PATH: "/api-proxy",
 }));
-// QrPanel — client-компонент со своим поллингом/интервалом (уже покрыт
-// QrPanel.test.tsx отдельно) — здесь заглушка, эта страница проверяет
-// только стат-плитки над ним.
+// QrPanel — client-компонент со своим поллингом/интервалом и теперь своей
+// стат-плиточной раскладкой (оба покрыты QrPanel.test.tsx отдельно) —
+// здесь заглушка, показывающая только то, что реально дошло в props, чтобы
+// проверить именно передачу stats со страницы, а не их рендер.
 vi.mock("@/components/QrPanel", () => ({
-  QrPanel: () => <div data-testid="qr-panel-stub" />,
+  QrPanel: ({ stats }: { stats: BotStats }) => (
+    <div data-testid="qr-panel-stub">
+      {stats.messages_count}/{stats.contacts_count}
+    </div>
+  ),
 }));
 
 const mockedFetchBot = vi.mocked(fetchBot);
@@ -34,18 +39,14 @@ const bot: Bot = {
 
 const stats: BotStats = { messages_count: 1234, contacts_count: 56 };
 
-it("renders message and contact count tiles above the QR panel", async () => {
+it("fetches stats alongside the bot and passes them through to QrPanel", async () => {
   mockedFetchBot.mockResolvedValue(bot);
   mockedFetchBotStats.mockResolvedValue(stats);
 
   const element = await BotOverviewPage({ params: Promise.resolve({ id: "1" }) });
   render(element);
 
-  expect(screen.getByText("1 234")).toBeInTheDocument();
-  expect(screen.getByText("Сообщений всего")).toBeInTheDocument();
-  expect(screen.getByText("56")).toBeInTheDocument();
-  expect(screen.getByText("Контактов")).toBeInTheDocument();
-  expect(screen.getByTestId("qr-panel-stub")).toBeInTheDocument();
+  expect(screen.getByTestId("qr-panel-stub")).toHaveTextContent("1234/56");
 });
 
 it("renders nothing when the bot is not found (notFound already handled in layout)", async () => {

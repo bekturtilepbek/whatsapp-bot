@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { ToastProvider } from "@/components/ToastProvider";
-import { plexMono, plexSans } from "@/lib/fonts";
+import { inter, plexMono } from "@/lib/fonts";
 import "./globals.css";
 
 export const metadata = {
@@ -33,7 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     // страницы у любого, кто хоть раз включал тёмную тему.
     <html
       lang="ru"
-      className={`${plexSans.variable} ${plexMono.variable}`}
+      className={`${inter.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <head>

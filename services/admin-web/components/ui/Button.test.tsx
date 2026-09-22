@@ -38,3 +38,10 @@ it("renders every variant without crashing", () => {
   rerender(<Button variant="danger">A</Button>);
   expect(screen.getByRole("button")).toBeInTheDocument();
 });
+
+it("fills danger buttons solid red with white text on hover", () => {
+  render(<Button variant="danger">Удалить</Button>);
+  const button = screen.getByRole("button", { name: "Удалить" });
+  expect(button.className).toContain("hover:bg-danger");
+  expect(button.className).toContain("hover:text-white");
+});

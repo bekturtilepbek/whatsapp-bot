@@ -85,6 +85,22 @@ it("shows an error and does not call the api when email or password is empty", a
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/введите email и пароль/i);
   expect(api.createUser).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-invalid", "true");
+  // getByText("Email") неоднозначен — то же слово есть в заголовке таблицы;
+  // подпись поля находим через сам инпут, а не текст.
+  expect(screen.getByLabelText("Email").closest("label")).toHaveClass("text-danger");
+  expect(screen.getByLabelText("Пароль").closest("label")).toHaveClass("text-danger");
+});
+
+it("only marks the empty field invalid when just one of email/password is filled", async () => {
+  render(<UsersTable apiBaseUrl="http://api" users={users} bots={bots} />);
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.com" } });
+  fireEvent.click(screen.getByRole("button", { name: /создать пользователя/i }));
+
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
+  expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-invalid", "true");
 });
 
 it("creates a user and adds it to the list", async () => {

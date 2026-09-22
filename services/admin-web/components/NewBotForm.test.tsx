@@ -39,6 +39,11 @@ it("shows an error and does not call the api when the name is empty", async () =
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/введите имя бота/i);
   expect(api.createBot).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Имя")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByText("Имя").closest("label")).toHaveClass("text-danger");
+  const shakeWrapper = document.querySelector(".animate-shake");
+  expect(shakeWrapper).toContainElement(screen.getByText("Имя"));
+  expect(shakeWrapper).toContainElement(screen.getByLabelText("Имя"));
 });
 
 it("creates a bot and navigates to its page", async () => {

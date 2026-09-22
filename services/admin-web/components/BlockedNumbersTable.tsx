@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Table } from "@/components/ui/Table";
+import { useInvalidShake } from "@/lib/useInvalidShake";
 
 interface BlockedNumbersTableProps {
   botId: string;
@@ -36,11 +37,13 @@ export function BlockedNumbersTable({
   const [adding, setAdding] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(numbers.length === pageSize);
+  const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
   const handleAdd = async (event: FormEvent) => {
     event.preventDefault();
     if (!phone.trim()) {
       showError("Введите номер телефона");
+      shake(["phone"]);
       return;
     }
     setAdding(true);
@@ -93,15 +96,26 @@ export function BlockedNumbersTable({
     <div className="space-y-5">
       <Card className="p-5">
         <form onSubmit={(event) => void handleAdd(event)} className="flex items-end gap-3">
-          <label className="mb-0 block flex-1 text-sm font-medium text-ink">
-            Номер телефона
-            <Input
-              type="text"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              placeholder="+996 700 00 00 00"
-              className="mt-1.5"
-            />
+          <label
+            className={`mb-0 block flex-1 text-sm font-medium ${isInvalid("phone") ? "text-danger" : "text-ink"}`}
+          >
+            <div
+              key={isInvalid("phone") ? `phone-shake-${shakeKey}` : "phone"}
+              className={isInvalid("phone") ? "animate-shake" : undefined}
+            >
+              Номер телефона
+              <Input
+                type="text"
+                value={phone}
+                onChange={(event) => {
+                  setPhone(event.target.value);
+                  clear("phone");
+                }}
+                placeholder="+996 700 00 00 00"
+                invalid={isInvalid("phone")}
+                className="mt-1.5"
+              />
+            </div>
           </label>
           <Button type="submit" disabled={adding}>
             {adding ? "Добавляем…" : "Добавить"}

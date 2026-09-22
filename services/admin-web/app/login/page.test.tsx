@@ -50,3 +50,26 @@ it("does not show a toast while no submission has happened yet", () => {
   render(<LoginPage />);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+
+it("shakes and reddens both fields, and blocks the action, when submitted empty", async () => {
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole("button", { name: /войти/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/введите email и пароль/i);
+  expect(login).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByLabelText("Пароль")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByText("Email").closest("label")).toHaveClass("text-danger");
+  expect(screen.getByText("Пароль").closest("label")).toHaveClass("text-danger");
+});
+
+it("clears the invalid marker on a field once the user starts typing", async () => {
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole("button", { name: /войти/i }));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+
+  fireEvent.change(screen.getByLabelText("Email"), { target: { value: "a@b.com" } });
+
+  expect(screen.getByLabelText("Email")).not.toHaveAttribute("aria-invalid");
+});

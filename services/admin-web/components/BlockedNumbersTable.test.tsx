@@ -36,6 +36,11 @@ it("shows an error and does not call the api when the phone field is empty", asy
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/введите номер телефона/i);
   expect(api.addBlockedNumber).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Номер телефона")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByText("Номер телефона").closest("label")).toHaveClass("text-danger");
+  const shakeWrapper = document.querySelector(".animate-shake");
+  expect(shakeWrapper).toContainElement(screen.getByText("Номер телефона"));
+  expect(shakeWrapper).toContainElement(screen.getByLabelText("Номер телефона"));
 });
 
 it("adds a number and prepends it to the list", async () => {

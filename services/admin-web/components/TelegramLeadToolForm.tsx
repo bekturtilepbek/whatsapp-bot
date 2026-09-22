@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
+import { useInvalidShake } from "@/lib/useInvalidShake";
 
 const TOOL_NAME = "send_telegram_lead";
 
@@ -36,11 +37,13 @@ export function TelegramLeadToolForm({
     String(initialBinding?.config.message_template ?? ""),
   );
   const [saving, setSaving] = useState(false);
+  const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (enabled && chatId.trim() === "") {
       showError("Укажите ID группы Telegram или выключите отправку заявок");
+      shake(["chatId"]);
       return;
     }
     setSaving(true);
@@ -69,16 +72,27 @@ export function TelegramLeadToolForm({
           <Switch checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           Отправлять заявки клиентов в Telegram-группу
         </label>
-        <label className="mb-4 block text-sm font-medium text-ink">
-          ID группы Telegram
-          <Input
-            type="text"
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            placeholder="-1001234567890"
-            disabled={!enabled}
-            className="mt-1.5 max-w-xs"
-          />
+        <label
+          className={`mb-4 block text-sm font-medium ${isInvalid("chatId") ? "text-danger" : "text-ink"}`}
+        >
+          <div
+            key={isInvalid("chatId") ? `chatId-shake-${shakeKey}` : "chatId"}
+            className={isInvalid("chatId") ? "animate-shake" : undefined}
+          >
+            ID группы Telegram
+            <Input
+              type="text"
+              value={chatId}
+              onChange={(e) => {
+                setChatId(e.target.value);
+                clear("chatId");
+              }}
+              placeholder="-1001234567890"
+              disabled={!enabled}
+              invalid={isInvalid("chatId")}
+              className="mt-1.5 max-w-xs"
+            />
+          </div>
         </label>
         <label className="mb-0 block text-sm font-medium text-ink">
           Текст сообщения (необязательно)

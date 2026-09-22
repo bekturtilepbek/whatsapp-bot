@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Switch } from "@/components/ui/Switch";
 import { Table } from "@/components/ui/Table";
+import { useInvalidShake } from "@/lib/useInvalidShake";
 
 interface UsersTableProps {
   apiBaseUrl: string;
@@ -29,11 +30,16 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [creating, setCreating] = useState(false);
+  const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
-    if (!email.trim() || !password.trim()) {
+    const invalidFields: string[] = [];
+    if (!email.trim()) invalidFields.push("email");
+    if (!password.trim()) invalidFields.push("password");
+    if (invalidFields.length > 0) {
       showError("Введите email и пароль");
+      shake(invalidFields);
       return;
     }
     setCreating(true);
@@ -94,25 +100,47 @@ export function UsersTable({ apiBaseUrl, users, bots }: UsersTableProps) {
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Новый пользователь</h2>
         <form onSubmit={(event) => void handleCreate(event)} className="flex flex-wrap items-end gap-3">
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Email
-            <Input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="client@example.com"
-              className="mt-1.5 max-w-xs"
-            />
+          <label
+            className={`mb-0 block text-sm font-medium ${isInvalid("email") ? "text-danger" : "text-ink"}`}
+          >
+            <div
+              key={isInvalid("email") ? `email-shake-${shakeKey}` : "email"}
+              className={isInvalid("email") ? "animate-shake" : undefined}
+            >
+              Email
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  clear("email");
+                }}
+                placeholder="client@example.com"
+                invalid={isInvalid("email")}
+                className="mt-1.5 max-w-xs"
+              />
+            </div>
           </label>
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Пароль
-            <Input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Пароль"
-              className="mt-1.5 max-w-xs"
-            />
+          <label
+            className={`mb-0 block text-sm font-medium ${isInvalid("password") ? "text-danger" : "text-ink"}`}
+          >
+            <div
+              key={isInvalid("password") ? `password-shake-${shakeKey}` : "password"}
+              className={isInvalid("password") ? "animate-shake" : undefined}
+            >
+              Пароль
+              <Input
+                type="password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  clear("password");
+                }}
+                placeholder="Пароль"
+                invalid={isInvalid("password")}
+                className="mt-1.5 max-w-xs"
+              />
+            </div>
           </label>
           <Button type="submit" disabled={creating}>
             {creating ? "Создаём…" : "Создать пользователя"}

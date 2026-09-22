@@ -89,6 +89,12 @@ it("blocks saving when enabled without a chat_id", async () => {
 
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(api.saveBotTool).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/id группы/i)).toHaveAttribute("aria-invalid", "true");
+  // getByText здесь неоднозначен — тот же текст есть в тосте с ошибкой;
+  // подпись поля находим через сам инпут, а не текст.
+  expect(screen.getByLabelText(/id группы/i).closest("label")).toHaveClass("text-danger");
+  const shakeWrapper = document.querySelector(".animate-shake");
+  expect(shakeWrapper).toContainElement(screen.getByLabelText(/id группы/i));
 });
 
 it("shows an error toast when saving fails", async () => {

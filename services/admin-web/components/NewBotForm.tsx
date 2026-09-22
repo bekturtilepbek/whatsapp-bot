@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { createBot } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { useInvalidShake } from "@/lib/useInvalidShake";
 
 interface NewBotFormProps {
   apiBaseUrl: string;
@@ -16,11 +17,13 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
   const { showError, showSuccess } = useToast();
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
+  const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
       showError("Введите имя бота");
+      shake(["name"]);
       return;
     }
     setCreating(true);
@@ -37,17 +40,26 @@ export function NewBotForm({ apiBaseUrl }: NewBotFormProps) {
 
   return (
     <form onSubmit={(event) => void handleSubmit(event)}>
-      <label className="mb-4 block text-sm font-medium text-ink">
-        Имя
-        <Input
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Название бота"
-          aria-label="Имя"
-          autoFocus
-          className="mt-1.5"
-        />
+      <label className={`mb-4 block text-sm font-medium ${isInvalid("name") ? "text-danger" : "text-ink"}`}>
+        <div
+          key={isInvalid("name") ? `name-shake-${shakeKey}` : "name"}
+          className={isInvalid("name") ? "animate-shake" : undefined}
+        >
+          Имя
+          <Input
+            type="text"
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              clear("name");
+            }}
+            placeholder="Название бота"
+            aria-label="Имя"
+            invalid={isInvalid("name")}
+            autoFocus
+            className="mt-1.5"
+          />
+        </div>
       </label>
       <Button type="submit" disabled={creating}>
         {creating ? "Создаём…" : "Создать"}

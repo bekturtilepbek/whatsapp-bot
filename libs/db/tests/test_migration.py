@@ -77,6 +77,7 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
             "pdf_prompt",
             "timezone",
             "settings",
+            "responsible_user_id",
             "created_at",
         }
 

@@ -15,9 +15,10 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from db.bot_access import grant_bot_access
-from db.bots import create_bot, list_bots
+from db.bots import create_bot, list_bots, update_bot
 from db.engine import make_engine, make_session_factory
 from db.models import Bot, User
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from testcontainers.postgres import PostgresContainer
 
@@ -93,3 +94,67 @@ async def test_create_bot_duplicate_name_is_allowed(session: AsyncSession) -> No
     await create_bot(session, name="dup")
     second = await create_bot(session, name="dup")
     assert second.name == "dup"
+
+
+async def test_create_bot_with_responsible_user(session: AsyncSession) -> None:
+    prompter = User(email="prompter1@example.com", password_hash="hash", role="prompter")
+    session.add(prompter)
+    await session.flush()
+
+    bot = await create_bot(session, name="with responsible", responsible_user_id=prompter.id)
+    assert bot.responsible_user_id == prompter.id
+
+
+async def test_deleting_responsible_user_sets_null_on_bot(session: AsyncSession) -> None:
+    """FK ondelete=SET NULL — увольнение/удаление сотрудника не должно
+    сносить бота, только обнулять ссылку (FEATURES.md 6.18)."""
+    prompter = User(email="prompter2@example.com", password_hash="hash", role="prompter")
+    session.add(prompter)
+    await session.flush()
+    bot = await create_bot(session, name="orphaned", responsible_user_id=prompter.id)
+    await session.commit()
+
+    await session.execute(delete(User).where(User.id == prompter.id))
+    await session.commit()
+
+    await session.refresh(bot)
+    assert bot.responsible_user_id is None
+
+
+async def test_update_bot_responsible_user_id_unset_does_not_touch(session: AsyncSession) -> None:
+    prompter = User(email="prompter3@example.com", password_hash="hash", role="prompter")
+    session.add(prompter)
+    await session.flush()
+    bot = await create_bot(session, name="stable", responsible_user_id=prompter.id)
+    await session.commit()
+
+    updated = await update_bot(session, bot.id, name="renamed")
+    assert updated is not None
+    assert updated.responsible_user_id == prompter.id
+
+
+async def test_update_bot_responsible_user_id_explicit_none_clears_it(
+    session: AsyncSession,
+) -> None:
+    prompter = User(email="prompter4@example.com", password_hash="hash", role="prompter")
+    session.add(prompter)
+    await session.flush()
+    bot = await create_bot(session, name="to be cleared", responsible_user_id=prompter.id)
+    await session.commit()
+
+    updated = await update_bot(session, bot.id, responsible_user_id=None)
+    assert updated is not None
+    assert updated.responsible_user_id is None
+
+
+async def test_update_bot_responsible_user_id_reassigns(session: AsyncSession) -> None:
+    old_prompter = User(email="prompter5@example.com", password_hash="hash", role="prompter")
+    new_prompter = User(email="prompter6@example.com", password_hash="hash", role="prompter")
+    session.add_all([old_prompter, new_prompter])
+    await session.flush()
+    bot = await create_bot(session, name="reassign", responsible_user_id=old_prompter.id)
+    await session.commit()
+
+    updated = await update_bot(session, bot.id, responsible_user_id=new_prompter.id)
+    assert updated is not None
+    assert updated.responsible_user_id == new_prompter.id

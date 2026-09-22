@@ -27,22 +27,38 @@ class BotOut(BaseModel):
     pdf_prompt: str | None
     timezone: str
     settings: dict[str, Any]
+    # Сотрудник (роль prompter), ведущий бота — FEATURES.md 6.18, ответственный
+    # при создании. email — витринное поле (join на users), сырой id в
+    # кабинете не показать читаемо; оба заполняются вручную в роутере
+    # (bot.responsible_user, а не автомачинг from_attributes — ORM-атрибута
+    # responsible_user_email не существует).
+    responsible_user_id: UUID | None
+    # Дефолт None — model_validate(bot) не видит этого поля на ORM-объекте
+    # (from_attributes читает только реальные атрибуты), значение
+    # проставляется ПОСЛЕ валидации в _to_bot_out (routers/bots.py); без
+    # дефолта здесь сама model_validate() упала бы "field required".
+    responsible_user_email: str | None = None
     created_at: datetime
 
 
 class BotCreate(BaseModel):
     name: str
+    responsible_user_id: UUID | None = None
 
 
 class BotPatch(BaseModel):
-    """Имя + настройки — вкладка "Настройки" (FullBotAccess, недоступно
-    роли client, FEATURES.md 6.18 ролевой пересмотр). enabled и промпты —
-    отдельные роуты/схемы ниже (BotEnabledPatch/BotPromptsPatch): разные
-    вкладки кабинета, разный уровень доступа (enabled-тумблер на "Обзоре"
-    доступен и client, промпты — нет)."""
+    """Имя + настройки + ответственный — вкладка "Настройки" (FullBotAccess,
+    недоступно роли client, FEATURES.md 6.18 ролевой пересмотр). enabled и
+    промпты — отдельные роуты/схемы ниже (BotEnabledPatch/BotPromptsPatch):
+    разные вкладки кабинета, разный уровень доступа (enabled-тумблер на
+    "Обзоре" доступен и client, промпты — нет)."""
 
     name: str | None = None
     settings: dict[str, Any] | None = None
+    # Явный None ≠ "не передано" (снять ответственного — валидная операция),
+    # поэтому в роутере отличаем через "responsible_user_id" in data
+    # (exclude_unset), а не через сам этот дефолт.
+    responsible_user_id: UUID | None = None
 
 
 class BotEnabledPatch(BaseModel):

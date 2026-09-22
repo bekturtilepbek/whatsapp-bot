@@ -15,13 +15,16 @@ import uuid
 import httpx
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
-from db.bots import create_bot, get_bot_with_session, list_bots, update_bot
+from db.bot_access import grant_bot_access
+from db.bots import UNSET, create_bot, get_bot_with_session, list_bots, update_bot
 from db.contacts import count_contacts, find_by_identifier
 from db.messages import count_messages
+from db.models import Bot
 from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
+from db.users import get_user
 from fastapi import APIRouter, HTTPException, Query, Response
 from tools.registry import all_tool_names
 
@@ -53,30 +56,55 @@ BLOCKED_LIST_DEFAULT_LIMIT = 20
 BLOCKED_LIST_MAX_LIMIT = 100
 
 
+def _to_bot_out(bot: Bot) -> BotOut:
+    """BotOut.responsible_user_email не ORM-атрибут (from_attributes его не
+    подхватит сам) — требует bot.responsible_user eager-loaded
+    (get_bot_with_session/list_bots уже это делают)."""
+    out = BotOut.model_validate(bot)
+    out.responsible_user_email = bot.responsible_user.email if bot.responsible_user else None
+    return out
+
+
+async def _validate_responsible_user(session: SessionDep, user_id: uuid.UUID) -> None:
+    """Ответственный — только роль prompter (FEATURES.md 6.18): клиенты и
+    админы не "ведут" бота в этом смысле."""
+    responsible = await get_user(session, user_id)
+    if responsible is None:
+        raise HTTPException(status_code=404, detail="responsible user not found")
+    if responsible.role != "prompter":
+        raise HTTPException(status_code=422, detail="responsible user must have the prompter role")
+
+
 @router.get("", response_model=list[BotOut])
 async def list_all_bots(session: SessionDep, user: CurrentUser) -> list[BotOut]:
     filter_user_id = None if user.role in PLATFORM_WIDE_ROLES else user.id
     bots = await list_bots(session, user_id=filter_user_id)
-    return [BotOut.model_validate(bot) for bot in bots]
+    return [_to_bot_out(bot) for bot in bots]
 
 
 @router.post("", response_model=BotOut, status_code=201)
 async def create_bot_route(body: BotCreate, session: SessionDep, _admin: PlatformWide) -> BotOut:
-    """Онбординг бота из UI (FEATURES.md 6.20) — только имя, всё остальное
-    server_default модели. Owner-only: создание бота — административное
-    действие, тот же уровень доступа, что и у users.py. Никакой привязки
-    к номеру здесь нет — это отдельный шаг (QR-экран, 6.1/6.2), уже сданный
-    и работающий "из коробки" для любого существующего bot_id: gateway
-    поднимает сессию Baileys лениво по первому GET /qr/:botId, а не при
-    создании строки в bots."""
+    """Онбординг бота из UI (FEATURES.md 6.20) — имя + опциональный
+    ответственный (prompter), всё остальное server_default модели.
+    PlatformWide: создание бота — административное действие. Никакой
+    привязки к номеру здесь нет — это отдельный шаг (QR-экран, 6.1/6.2),
+    уже сданный и работающий "из коробки" для любого существующего bot_id:
+    gateway поднимает сессию Baileys лениво по первому GET /qr/:botId, а
+    не при создании строки в bots."""
     name = body.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="name must not be empty")
-    bot = await create_bot(session, name=name)
+    if body.responsible_user_id is not None:
+        await _validate_responsible_user(session, body.responsible_user_id)
+    bot = await create_bot(session, name=name, responsible_user_id=body.responsible_user_id)
+    # Ответственный сразу получает доступ к боту (иначе не увидел бы его в
+    # своём /bots) — тот же grant_bot_access, что использует /users.
+    if body.responsible_user_id is not None:
+        await grant_bot_access(session, body.responsible_user_id, bot.id)
     await session.commit()
     created = await get_bot_with_session(session, bot.id)
     assert created is not None  # только что закоммитили
-    return BotOut.model_validate(created)
+    return _to_bot_out(created)
 
 
 async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) -> Response:
@@ -100,26 +128,38 @@ async def read_bot(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) 
     bot = await get_bot_with_session(session, bot_id)
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
-    return BotOut.model_validate(bot)
+    return _to_bot_out(bot)
 
 
 @router.patch("/{bot_id}", response_model=BotOut)
 async def patch_bot(
     bot_id: uuid.UUID, patch: BotPatch, session: SessionDep, user: FullBotAccess
 ) -> BotOut:
-    """Имя + настройки — вкладка "Настройки" (недоступна client, см.
-    FullBotAccess). enabled/промпты — отдельные роуты ниже."""
+    """Имя + настройки + ответственный — вкладка "Настройки" (недоступна
+    client, см. FullBotAccess). enabled/промпты — отдельные роуты ниже."""
     data = patch.model_dump(exclude_unset=True)
     name = data.get("name")
     if name is not None:
         name = name.strip()
         if not name:
             raise HTTPException(status_code=422, detail="name must not be empty")
-    bot = await update_bot(session, bot_id, name=name, settings_patch=data.get("settings"))
+    # dict.get(key, UNSET) возвращает UNSET, только если ключ ОТСУТСТВУЕТ —
+    # если клиент явно прислал null (снять ответственного), get вернёт
+    # именно None, а не UNSET, так и отличаем "не трогать" от "снять".
+    responsible_user_id = data.get("responsible_user_id", UNSET)
+    if responsible_user_id is not UNSET and responsible_user_id is not None:
+        await _validate_responsible_user(session, responsible_user_id)
+    bot = await update_bot(
+        session,
+        bot_id,
+        name=name,
+        settings_patch=data.get("settings"),
+        responsible_user_id=responsible_user_id,
+    )
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
-    return BotOut.model_validate(bot)
+    return _to_bot_out(bot)
 
 
 @router.patch("/{bot_id}/enabled", response_model=BotOut)
@@ -132,7 +172,7 @@ async def patch_bot_enabled(
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
-    return BotOut.model_validate(bot)
+    return _to_bot_out(bot)
 
 
 @router.patch("/{bot_id}/prompts", response_model=BotOut)
@@ -151,7 +191,7 @@ async def patch_bot_prompts(
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
-    return BotOut.model_validate(bot)
+    return _to_bot_out(bot)
 
 
 @router.get("/{bot_id}/stats", response_model=BotStats)

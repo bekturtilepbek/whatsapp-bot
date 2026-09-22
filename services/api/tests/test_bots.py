@@ -492,6 +492,108 @@ async def test_create_bot_empty_name_returns_422(client: httpx.AsyncClient) -> N
     assert response.status_code == 422
 
 
+async def test_create_bot_with_responsible_prompter_grants_access(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.bot_access import has_bot_access
+    from db.models import User
+
+    async with session_factory() as session:
+        prompter = User(email="responsible1@example.com", password_hash="hash", role="prompter")
+        session.add(prompter)
+        await session.commit()
+        prompter_id = prompter.id
+
+    response = await client.post(
+        "/bots", json={"name": "С ответственным", "responsible_user_id": str(prompter_id)}
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["responsible_user_id"] == str(prompter_id)
+    assert body["responsible_user_email"] == "responsible1@example.com"
+
+    async with session_factory() as session:
+        assert await has_bot_access(session, prompter_id, uuid.UUID(body["id"])) is True
+
+
+async def test_create_bot_with_non_prompter_responsible_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.models import User
+
+    async with session_factory() as session:
+        client_user = User(email="not-a-prompter@example.com", password_hash="hash", role="client")
+        session.add(client_user)
+        await session.commit()
+        client_user_id = client_user.id
+
+    response = await client.post(
+        "/bots", json={"name": "Плохой ответственный", "responsible_user_id": str(client_user_id)}
+    )
+    assert response.status_code == 422
+
+
+async def test_create_bot_with_unknown_responsible_returns_404(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/bots",
+        json={"name": "Несуществующий ответственный", "responsible_user_id": str(uuid.uuid4())},
+    )
+    assert response.status_code == 404
+
+
+async def test_patch_bot_reassigns_responsible_without_touching_grants(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.bot_access import has_bot_access
+    from db.models import User
+
+    async with session_factory() as session:
+        old_prompter = User(
+            email="old-responsible@example.com", password_hash="hash", role="prompter"
+        )
+        new_prompter = User(
+            email="new-responsible@example.com", password_hash="hash", role="prompter"
+        )
+        session.add_all([old_prompter, new_prompter])
+        await session.commit()
+        old_id, new_id = old_prompter.id, new_prompter.id
+
+    created = await client.post(
+        "/bots", json={"name": "Переназначение", "responsible_user_id": str(old_id)}
+    )
+    bot_id = created.json()["id"]
+
+    response = await client.patch(f"/bots/{bot_id}", json={"responsible_user_id": str(new_id)})
+    assert response.status_code == 200
+    assert response.json()["responsible_user_id"] == str(new_id)
+
+    # PATCH не отзывает грант у старого ответственного — переназначение и
+    # ревокация доступа сознательно разные действия (см. план).
+    async with session_factory() as session:
+        assert await has_bot_access(session, old_id, uuid.UUID(bot_id)) is True
+
+
+async def test_patch_bot_clears_responsible_with_explicit_null(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.models import User
+
+    async with session_factory() as session:
+        prompter = User(email="to-clear@example.com", password_hash="hash", role="prompter")
+        session.add(prompter)
+        await session.commit()
+        prompter_id = prompter.id
+
+    created = await client.post(
+        "/bots", json={"name": "Снять ответственного", "responsible_user_id": str(prompter_id)}
+    )
+    bot_id = created.json()["id"]
+
+    response = await client.patch(f"/bots/{bot_id}", json={"responsible_user_id": None})
+    assert response.status_code == 200
+    assert response.json()["responsible_user_id"] is None
+
+
 async def test_create_bot_non_owner_returns_403(client: httpx.AsyncClient) -> None:
     from api.security import get_current_user
     from db.models import User

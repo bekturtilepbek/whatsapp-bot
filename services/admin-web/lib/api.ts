@@ -20,6 +20,11 @@ export interface Bot {
   // всегда отдаёт оба поля, но старые фикстуры в тестах их не заполняют.
   status?: string | null;
   last_seen?: string | null;
+  // Сотрудник (роль prompter), ведущий бота (FEATURES.md 6.18) — опционально
+  // по той же причине, что остальные поля выше. email — витринное поле,
+  // сырой id нигде в UI не показываем.
+  responsible_user_id?: string | null;
+  responsible_user_email?: string | null;
 }
 
 // FEATURES.md 6.11 — настройки бота. Все поля опциональны: bots.settings —
@@ -124,15 +129,57 @@ export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null>
   return (await res.json()) as Bot;
 }
 
-export async function createBot(baseUrl: string, name: string): Promise<Bot> {
+export async function createBot(
+  baseUrl: string,
+  name: string,
+  responsibleUserId?: string | null,
+): Promise<Bot> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, responsible_user_id: responsibleUserId ?? null }),
   });
   if (!res.ok) {
     throw new Error(`POST /bots failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
+// FEATURES.md 6.18 — выбор ответственного (только роль prompter) при
+// создании/настройке бота. Узкая схема (id+email only) — доступна и Admin
+// (PlatformWide), не только Superadmin, в отличие от fetchUsers/GET /users.
+export interface PrompterBrief {
+  id: string;
+  email: string;
+}
+
+export async function fetchPrompters(baseUrl: string): Promise<PrompterBrief[]> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/users/prompters`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`GET /users/prompters failed: ${res.status}`);
+  }
+  return (await res.json()) as PrompterBrief[];
+}
+
+/** Смена ответственного на вкладке "Настройки" (тот же роут, что
+ * patchBotName/patchBotSettings — все три поля живут в BotPatch,
+ * FullBotAccess). null снимает ответственного явно (отличается от "не
+ * менять" — бэкенд различает по наличию ключа в теле). */
+export async function patchBotResponsibleUser(
+  baseUrl: string,
+  id: string,
+  responsibleUserId: string | null,
+): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ responsible_user_id: responsibleUserId }),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }

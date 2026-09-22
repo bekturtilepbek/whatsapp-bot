@@ -197,6 +197,46 @@ async def test_patch_user_changes_role(client: httpx.AsyncClient) -> None:
     assert response.json()["role"] == "admin"
 
 
+async def test_list_prompters_returns_only_prompters(client: httpx.AsyncClient) -> None:
+    await client.post(
+        "/users",
+        json={"email": "p1@example.com", "password": "s3cret", "role": "prompter", "bot_ids": []},
+    )
+    await client.post(
+        "/users",
+        json={"email": "c1@example.com", "password": "s3cret", "role": "client", "bot_ids": []},
+    )
+    await client.post(
+        "/users",
+        json={"email": "a1@example.com", "password": "s3cret", "role": "admin", "bot_ids": []},
+    )
+
+    response = await client.get("/users/prompters")
+    assert response.status_code == 200
+    emails = {u["email"] for u in response.json()}
+    assert "p1@example.com" in emails
+    assert "c1@example.com" not in emails
+    assert "a1@example.com" not in emails
+    # Узкая схема — id+email only, ничего лишнего (role/is_active/bot_ids).
+    assert set(response.json()[0].keys()) == {"id", "email"}
+
+
+async def test_list_prompters_available_to_admin_not_just_superadmin(
+    client: httpx.AsyncClient,
+) -> None:
+    """Admin создаёт ботов (PlatformWide) и должен видеть, кого назначить
+    ответственным — в отличие от /users (только superadmin)."""
+    override_admin_auth()
+    response = await client.get("/users/prompters")
+    assert response.status_code == 200
+
+
+async def test_list_prompters_requires_platform_wide(client: httpx.AsyncClient) -> None:
+    override_non_owner_auth()
+    response = await client.get("/users/prompters")
+    assert response.status_code == 403
+
+
 async def test_create_user_with_superadmin_role_returns_422(client: httpx.AsyncClient) -> None:
     """superadmin назначается только bootstrap-скриптом (main.py), не через
     API — схема (Literal) отклоняет значение до хендлера."""

@@ -14,12 +14,20 @@ from sqlalchemy.orm import selectinload
 from .models import Bot, BotAccess
 from .prompt_versions import record_version_if_changed
 
+# Сентинел для update_bot(responsible_user_id=...) — поле нужно уметь и НЕ
+# трогать (аргумент не передан), и явно обнулять (снять ответственного,
+# responsible_user_id=None) — обычный дефолт None не различил бы эти два
+# случая, как различают остальные параметры этой функции.
+UNSET: Any = object()
 
-async def create_bot(session: AsyncSession, *, name: str) -> Bot:
+
+async def create_bot(
+    session: AsyncSession, *, name: str, responsible_user_id: uuid.UUID | None = None
+) -> Bot:
     """Всё остальное (enabled/system_prompt/timezone/settings) — server_default
     модели (FEATURES.md 6.20). Дубликат name — не ошибка (никакой уникальности
     на уровне БД нет, name — витринная строка для людей, не идентификатор)."""
-    bot = Bot(name=name)
+    bot = Bot(name=name, responsible_user_id=responsible_user_id)
     session.add(bot)
     await session.flush()
     return bot
@@ -36,15 +44,18 @@ async def get_bot(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
 
 
 async def get_bot_with_session(session: AsyncSession, bot_id: uuid.UUID) -> Bot | None:
-    """Как get_bot, но с eager-loaded .session — для admin-роутов, которым
-    нужны Bot.phone/Bot.linked_at (см. models.py). НЕ использовать в
-    горячем пути (worker/celery) — тянет весь bot_sessions.auth_state
-    (Signal-ключи Baileys), там он не нужен и дорог.
+    """Как get_bot, но с eager-loaded .session/.responsible_user — для
+    admin-роутов, которым нужны Bot.phone/Bot.linked_at (см. models.py) и
+    email ответственного для витрины. НЕ использовать в горячем пути
+    (worker/celery) — тянет весь bot_sessions.auth_state (Signal-ключи
+    Baileys), там он не нужен и дорог.
     select() вместо session.get() — иначе eager-load молча пропускается,
     если Bot уже в identity map текущей сессии (session.get() не
     применяет options в этом случае)."""
     result = await session.execute(
-        select(Bot).options(selectinload(Bot.session)).where(Bot.id == bot_id)
+        select(Bot)
+        .options(selectinload(Bot.session), selectinload(Bot.responsible_user))
+        .where(Bot.id == bot_id)
     )
     return result.scalars().first()
 
@@ -52,7 +63,11 @@ async def get_bot_with_session(session: AsyncSession, bot_id: uuid.UUID) -> Bot 
 async def list_bots(session: AsyncSession, *, user_id: uuid.UUID | None = None) -> Sequence[Bot]:
     """user_id=None — все боты (владелец платформы). user_id задан —
     только боты с грантом в bot_access (клиент)."""
-    stmt = select(Bot).options(selectinload(Bot.session)).order_by(Bot.created_at)
+    stmt = (
+        select(Bot)
+        .options(selectinload(Bot.session), selectinload(Bot.responsible_user))
+        .order_by(Bot.created_at)
+    )
     if user_id is not None:
         stmt = stmt.join(BotAccess, BotAccess.bot_id == Bot.id).where(BotAccess.user_id == user_id)
     result = await session.execute(stmt)
@@ -69,8 +84,12 @@ async def update_bot(
     image_prompt: str | None = None,
     pdf_prompt: str | None = None,
     settings_patch: dict[str, Any] | None = None,
+    responsible_user_id: uuid.UUID | Any | None = UNSET,
 ) -> Bot | None:
-    """Частичное обновление: None-параметр = не трогать это поле.
+    """Частичное обновление: None-параметр = не трогать это поле — КРОМЕ
+    responsible_user_id, у которого None — валидное значение (снять
+    ответственного), поэтому его "не трогать" — отдельный сентинел UNSET
+    (дефолт), не None.
 
     name — скалярная колонка, не JSONB (FEATURES.md 6.3), уникальности нет
     (см. create_bot) — валидация непустой строки делает вызывающий (роутер),
@@ -105,6 +124,8 @@ async def update_bot(
         values["pdf_prompt"] = pdf_prompt
     if settings_patch is not None:
         values["settings"] = Bot.settings.op("||")(cast(settings_patch, JSONB))
+    if responsible_user_id is not UNSET:
+        values["responsible_user_id"] = responsible_user_id
 
     if system_prompt is not None:
         await record_version_if_changed(

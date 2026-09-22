@@ -64,6 +64,14 @@ class Bot(Base):
     settings: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    # Сотрудник (роль prompter), который "ведёт" бота — для отчётности/
+    # дашборда, НЕ то же самое, что доступ (bot_access остаётся отдельным
+    # many-to-many, у бота может быть несколько людей с доступом, но не
+    # больше одного ответственного). SET NULL, не CASCADE — увольнение/
+    # смена роли пользователя не должна сносить бота, только обнулять ссылку.
+    responsible_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -71,6 +79,7 @@ class Bot(Base):
     session: Mapped[BotSession | None] = relationship(
         back_populates="bot", uselist=False, cascade="all, delete-orphan"
     )
+    responsible_user: Mapped[User | None] = relationship(foreign_keys=[responsible_user_id])
 
     @property
     def phone(self) -> str | None:

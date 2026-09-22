@@ -18,6 +18,16 @@ class UserWithAccessOut(UserOut):
     bot_ids: list[UUID]
 
 
+class UserBriefOut(BaseModel):
+    """Узкий срез — для выбора ответственного (GET /users/prompters),
+    доступного PlatformWide (Admin тоже), не только UserManager
+    (superadmin). Никаких is_active/bot_ids/role — Admin не должен видеть
+    больше, чем нужно для выбора одного prompter'а."""
+
+    id: UUID
+    email: str
+
+
 class UserCreate(BaseModel):
     email: str
     password: PasswordStr

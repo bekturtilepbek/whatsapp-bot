@@ -1,16 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addProductMedia,
+  createBot,
   createProduct,
   deleteProduct,
   deleteProductMedia,
   fetchBot,
   fetchBots,
+  fetchPrompters,
   fetchProduct,
   fetchProducts,
   fetchPromptVersions,
   logoutBot,
   patchBotPrompt,
+  patchBotResponsibleUser,
   patchBotSettings,
   productMediaUrl,
   qrImageUrl,
@@ -88,6 +91,93 @@ describe("logoutBot", () => {
   it("throws when the response is not ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 502 }));
     await expect(logoutBot("http://api", "1")).rejects.toThrow();
+  });
+});
+
+describe("createBot", () => {
+  it("sends responsible_user_id as null when not selected", async () => {
+    const bot = { id: "1", name: "Bot", enabled: true, phone: null, linked_at: null };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => bot });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createBot("http://api", "Bot");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Bot", responsible_user_id: null }),
+    });
+  });
+
+  it("sends the selected responsible_user_id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createBot("http://api", "Bot", "p1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api/bots",
+      expect.objectContaining({
+        body: JSON.stringify({ name: "Bot", responsible_user_id: "p1" }),
+      }),
+    );
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    await expect(createBot("http://api", "Bot")).rejects.toThrow();
+  });
+});
+
+describe("fetchPrompters", () => {
+  it("returns the parsed prompter list on success", async () => {
+    const prompters = [{ id: "p1", email: "prompter1@example.com" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => prompters }),
+    );
+
+    const result = await fetchPrompters("http://api");
+
+    expect(result).toEqual(prompters);
+    expect(fetch).toHaveBeenCalledWith("http://api/users/prompters", { cache: "no-store" });
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    await expect(fetchPrompters("http://api")).rejects.toThrow();
+  });
+});
+
+describe("patchBotResponsibleUser", () => {
+  it("PATCHes /bots/{id} with the new responsible_user_id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await patchBotResponsibleUser("http://api", "1", "p2");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api/bots/1", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ responsible_user_id: "p2" }),
+    });
+  });
+
+  it("sends null to unassign the responsible user", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await patchBotResponsibleUser("http://api", "1", null);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api/bots/1",
+      expect.objectContaining({ body: JSON.stringify({ responsible_user_id: null }) }),
+    );
+  });
+
+  it("throws when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    await expect(patchBotResponsibleUser("http://api", "1", "p2")).rejects.toThrow();
   });
 });
 

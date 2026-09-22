@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
 import { RenameBotForm } from "@/components/RenameBotForm";
+import { ResponsibleUserForm } from "@/components/ResponsibleUserForm";
 import { TelegramLeadToolForm } from "@/components/TelegramLeadToolForm";
 import { Card } from "@/components/ui/Card";
-import { DEFAULT_BOT_SETTINGS, fetchBot, fetchBotTools } from "@/lib/api";
+import { DEFAULT_BOT_SETTINGS, fetchBot, fetchBotTools, fetchPrompters } from "@/lib/api";
 import { fetchCurrentUser } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
@@ -20,9 +21,10 @@ export default async function BotSettingsPage({
   if (user?.role === "client") {
     redirect(`/bots/${id}`);
   }
-  const [bot, tools] = await Promise.all([
+  const [bot, tools, prompters] = await Promise.all([
     fetchBot(API_INTERNAL_URL, id),
     fetchBotTools(API_INTERNAL_URL, id),
+    fetchPrompters(API_INTERNAL_URL),
   ]);
   if (!bot) {
     notFound();
@@ -49,6 +51,15 @@ export default async function BotSettingsPage({
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Название</h2>
         <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
+      </Card>
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Ответственный</h2>
+        <ResponsibleUserForm
+          botId={id}
+          apiBaseUrl={API_PROXY_PATH}
+          initialResponsibleUserId={bot.responsible_user_id ?? null}
+          prompters={prompters}
+        />
       </Card>
       <BotSettingsForm botId={id} apiBaseUrl={API_PROXY_PATH} initialSettings={initialSettings} />
       <TelegramLeadToolForm

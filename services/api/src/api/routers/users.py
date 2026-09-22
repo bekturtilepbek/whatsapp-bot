@@ -24,8 +24,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..db import SessionDep
-from ..schemas.users import UserCreate, UserPatch, UserWithAccessOut
-from ..security import UserManager, hash_password
+from ..schemas.users import UserBriefOut, UserCreate, UserPatch, UserWithAccessOut
+from ..security import PlatformWide, UserManager, hash_password
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -49,6 +49,15 @@ async def _to_out(session: SessionDep, user: User) -> UserWithAccessOut:
 async def list_users_route(session: SessionDep, _owner: UserManager) -> list[UserWithAccessOut]:
     users = await list_users(session)
     return [await _to_out(session, u) for u in users]
+
+
+@router.get("/prompters", response_model=list[UserBriefOut])
+async def list_prompters_route(session: SessionDep, _admin: PlatformWide) -> list[UserBriefOut]:
+    """Выбор ответственного при создании/настройке бота (FEATURES.md 6.18) —
+    осознанно PlatformWide, не UserManager: Admin тоже создаёт ботов и
+    должен видеть, кого назначить, но не весь /users."""
+    users = await list_users(session)
+    return [UserBriefOut(id=u.id, email=u.email) for u in users if u.role == "prompter"]
 
 
 @router.post("", response_model=UserWithAccessOut, status_code=201)

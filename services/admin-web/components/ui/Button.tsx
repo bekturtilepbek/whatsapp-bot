@@ -12,7 +12,7 @@ const BUTTON_BASE_CLASSES =
 const BUTTON_VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary: "bg-accent text-white hover:bg-accent-hover",
   secondary: "bg-surface text-ink border border-border hover:border-ink-faint",
-  danger: "bg-surface text-danger border border-danger hover:bg-danger/5",
+  danger: "bg-surface text-danger border border-danger hover:bg-danger hover:text-white",
 };
 
 /** Собирает те же классы, что рендерит Button — для случаев, когда элемент

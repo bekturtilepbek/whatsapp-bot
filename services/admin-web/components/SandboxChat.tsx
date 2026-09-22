@@ -80,6 +80,9 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
     if (!file) return;
     setAttachedFile(file);
     setAttachedPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined);
+    // Фокус обратно на ввод текста — чтобы можно было сразу дописать подпись
+    // и нажать Enter, не кликая по textarea вручную после выбора файла.
+    textareaRef.current?.focus();
   };
 
   const removeAttachment = () => {
@@ -195,6 +198,13 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
                       src={sandboxMediaUrl(apiBaseUrl, botId, item.storage_key, item.mime_type)}
                       alt={m.content}
                     />
+                  ) : item.mime_type.startsWith("video/") ? (
+                    <video
+                      key={j}
+                      className="sbx-bubble-media-video"
+                      src={sandboxMediaUrl(apiBaseUrl, botId, item.storage_key, item.mime_type)}
+                      controls
+                    />
                   ) : (
                     <a
                       key={j}
@@ -279,6 +289,7 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
             aria-label="Сообщение клиента"
             disabled={sending}
             rows={1}
+            autoFocus
           />
           <button
             type="submit"
@@ -428,6 +439,13 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
         }
 
         .sbx-bubble-media-image {
+          display: block;
+          max-width: 100%;
+          border-radius: 6px;
+          margin-bottom: 0.3rem;
+        }
+
+        .sbx-bubble-media-video {
           display: block;
           max-width: 100%;
           border-radius: 6px;

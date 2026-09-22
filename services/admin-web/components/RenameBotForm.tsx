@@ -38,7 +38,7 @@ export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormP
   };
 
   return (
-    <form onSubmit={(event) => void handleSubmit(event)}>
+    <form onSubmit={(event) => void handleSubmit(event)} className="flex items-center gap-2.5">
       {/* Без видимой <label>-подписи — заголовок карточки "Название" (см.
           app/bots/[id]/settings/page.tsx) уже описывает единственное поле
           формы, вторая подпись рядом была бы дублирующей. aria-label
@@ -48,9 +48,9 @@ export function RenameBotForm({ botId, apiBaseUrl, initialName }: RenameBotFormP
         value={name}
         onChange={(event) => setName(event.target.value)}
         aria-label="Название бота"
-        className="mb-4 max-w-sm"
+        className="max-w-sm"
       />
-      <Button type="submit" variant="secondary" disabled={saving}>
+      <Button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </Button>
     </form>

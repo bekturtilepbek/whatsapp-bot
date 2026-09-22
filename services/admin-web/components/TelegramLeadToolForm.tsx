@@ -98,7 +98,7 @@ export function TelegramLeadToolForm({
         </label>
       </Card>
 
-      <Button type="submit" variant="secondary" disabled={saving}>
+      <Button type="submit" disabled={saving}>
         {saving ? "Сохраняем…" : "Сохранить"}
       </Button>
     </form>

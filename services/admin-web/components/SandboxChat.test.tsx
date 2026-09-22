@@ -193,6 +193,31 @@ it("renders image media from a tool call inline in the bot bubble", async () => 
   });
 });
 
+it("renders video media from a tool call as an inline player, not a link", async () => {
+  vi.mocked(api.sendSandboxMessage).mockResolvedValue({
+    reply: "*Товар*\nВидео обзор",
+    tokens_in: 5,
+    tokens_out: 5,
+    model: "gpt-4o-mini",
+    media: [
+      { storage_key: "bots/b1/products/tour.mp4", mime_type: "video/mp4", filename: null },
+    ],
+  });
+  renderChat();
+
+  sendMessage("Есть видео товара?");
+
+  await waitFor(() => {
+    const video = document.querySelector("video.sbx-bubble-media-video");
+    expect(video).not.toBeNull();
+    expect(video).toHaveAttribute(
+      "src",
+      "http://api/bots/b1/sandbox/media?key=bots%2Fb1%2Fproducts%2Ftour.mp4&mime_type=video%2Fmp4",
+    );
+  });
+  expect(screen.queryByRole("link")).not.toBeInTheDocument();
+});
+
 it("renders non-image media as a download link with the filename", async () => {
   vi.mocked(api.sendSandboxMessage).mockResolvedValue({
     reply: "Отправляю файл price-list.pdf.",
@@ -228,6 +253,18 @@ function attachFile(file: File) {
 it("has an accessible attach-file input", () => {
   renderChat();
   expect(screen.getByLabelText("Прикрепить файл")).toBeInTheDocument();
+});
+
+it("focuses the message input on mount so typing can start immediately", () => {
+  renderChat();
+  expect(screen.getByLabelText("Сообщение клиента")).toHaveFocus();
+});
+
+it("returns focus to the message input after attaching a file", () => {
+  renderChat();
+  attachFile(new File(["x"], "photo.jpg", { type: "image/jpeg" }));
+
+  expect(screen.getByLabelText("Сообщение клиента")).toHaveFocus();
 });
 
 it("shows an image preview after attaching a photo and enables sending without typed text", () => {

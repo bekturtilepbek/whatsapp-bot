@@ -25,6 +25,39 @@
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 
+/* Тёмная тема — переопределяет те же самые CSS-переменные под более
+ * специфичным селектором (`@theme` выше кладёт их на :root), ни один
+ * компонент не трогаем — все утилиты уже читают цвет через var(...).
+ * Значения не придуманы с нуля — тот же :root/[data-theme="dark"] набор,
+ * что был в дизайне старого проекта (bot_management.html), светлая часть
+ * которого 1:1 стала текущей светлой палитрой (ADR-009) — берём отсюда
+ * и тёмную, вместо изобретения новой. Переключатель — components/ThemeToggle.tsx,
+ * атрибут выставляется и до гидратации (инлайн-скрипт в app/layout.tsx,
+ * против вспышки светлой темы), и по клику. Дефолт — всегда светлая, пока
+ * юзер явно не переключил (подтверждено пользователем — без auto-detect
+ * по prefers-color-scheme). */
+:root[data-theme="dark"] {
+  --color-ink: #e6edf3;
+  --color-ink-soft: #9aa6b5;
+  --color-ink-faint: #6b7684;
+  --color-canvas: #0f1419;
+  --color-surface: #161c24;
+  --color-surface-alt: #1c2430;
+  --color-border: #26303d;
+  --color-accent: #5b7cf5;
+  --color-accent-hover: #7d97f7;
+  --color-accent-soft: #1e2740;
+  --color-success: #3ddc84;
+  --color-success-soft: #15301f;
+  --color-warning: #e0a530;
+  --color-warning-soft: #332412;
+  --color-danger: #f0506e;
+  --color-danger-soft: #2a1620;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 10px 24px -6px rgba(0, 0, 0, 0.5), 0 4px 8px -4px rgba(0, 0, 0, 0.4);
+}
+
 /* Редизайн кабинета завершён (ADR-009) — все экраны переведены на
  * components/ui/ примитивы, временный @layer base для немигрированных
  * экранов сослужил свою службу и удалён. Единственное намеренно

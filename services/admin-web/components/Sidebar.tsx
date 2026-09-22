@@ -2,6 +2,7 @@ import { logout } from "@/app/login/actions";
 import { fetchCurrentUser } from "@/lib/currentUser";
 import { BrandMark } from "@/components/ui/BrandMark";
 import { SidebarNavLink } from "@/components/ui/SidebarNavLink";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export async function Sidebar() {
   const user = await fetchCurrentUser();
@@ -11,7 +12,8 @@ export async function Sidebar() {
     <aside className="sticky top-0 flex h-screen w-[272px] shrink-0 flex-col border-r border-border bg-surface px-3.5 py-5">
       <div className="mb-6 flex items-center gap-2 px-2">
         <BrandMark />
-        <span className="text-sm font-bold text-ink">Платформа ботов</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">Платформа ботов</span>
+        <ThemeToggle />
       </div>
 
       <nav aria-label="Основная" className="flex flex-col gap-0.5">

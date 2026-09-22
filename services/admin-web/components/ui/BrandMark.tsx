@@ -1,7 +1,6 @@
 export function BrandMark() {
   return (
-    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-xs font-bold text-white">
-      Б
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element -- статичный маленький PNG, next/image требует sharp в проде (не установлен), не стоит того ради логотипа
+    <img src="/brand/logo-master.png" alt="Логотип платформы" width={462} height={329} className="h-7 w-auto" />
   );
 }

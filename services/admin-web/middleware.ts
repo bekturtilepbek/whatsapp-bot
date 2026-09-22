@@ -24,5 +24,11 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/((?!api-proxy|_next/static|_next/image|favicon.ico).*)"],
+  // brand/*, icon.png, apple-icon.png — статичные ассеты логотипа
+  // (public/brand, app/icon.png, app/apple-icon.png): без сессии редирект
+  // на /login возвращал HTML вместо картинки, логотип не грузился даже на
+  // самой странице входа.
+  matcher: [
+    "/((?!api-proxy|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|brand/).*)",
+  ],
 };

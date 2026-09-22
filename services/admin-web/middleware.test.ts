@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "./middleware";
+import { config, middleware } from "./middleware";
 
 function makeRequest(path: string, cookie?: string): NextRequest {
   const headers = new Headers();
@@ -30,5 +30,17 @@ describe("middleware", () => {
     const response = middleware(makeRequest("/login", "session=token"));
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toContain("/bots");
+  });
+
+  it("excludes the logo/icon static assets from the matcher (unauthenticated requests must not be redirected)", () => {
+    // Матчер должен проверяться от начала строки — без ^ JS .test()
+    // сканирует с любой позиции и находит совпадение позже в строке
+    // (например, начиная сразу после "/brand/"), давая ложный "true".
+    const matcherRegex = new RegExp(`^${config.matcher[0]}$`);
+    expect(matcherRegex.test("/brand/logo-master.png")).toBe(false);
+    expect(matcherRegex.test("/icon.png")).toBe(false);
+    expect(matcherRegex.test("/apple-icon.png")).toBe(false);
+    // сами страницы приложения matcher по-прежнему ловит
+    expect(matcherRegex.test("/bots")).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ import {
   deleteProduct,
   deleteProductMedia,
   createUser,
+  saveBotTool,
   fetchBot,
   fetchBots,
   fetchPrompters,
@@ -68,6 +69,32 @@ describe("createUser", () => {
   ])("throws a readable message on %i", async (status, message) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status }));
     await expect(createUser("http://api", input)).rejects.toThrow(message);
+  });
+});
+
+describe("saveBotTool", () => {
+  // Раньше пользователь видел "POST /bots/1/tools failed: 422" вместо
+  // причины, которую API уже вернул в detail.
+  it("surfaces the API's validation message on 422", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: async () => ({ detail: "ID группы Telegram — число или @username" }),
+      }),
+    );
+    await expect(
+      saveBotTool("http://api", "1", "send_telegram_lead", { chat_id: "abc" }),
+    ).rejects.toThrow("ID группы Telegram — число или @username");
+  });
+
+  it("falls back to the status line when the body has no string detail", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }),
+    );
+    await expect(saveBotTool("http://api", "1", "x", {})).rejects.toThrow(/failed: 500/);
   });
 });
 

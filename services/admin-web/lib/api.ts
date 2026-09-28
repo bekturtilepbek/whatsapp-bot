@@ -107,6 +107,22 @@ function normalizeBaseUrl(baseUrl: string): string {
  * (см. middleware.ts, "hasSession && isLoginPage") — бесконечный цикл.
  * Вместо этого — редирект на Route Handler, который умеет стереть cookie
  * (Server Component этого не может при рендере, Next 15). */
+/** 4xx с понятной причиной в `detail` (строка) — показываем её, а не
+ * "POST … failed: 422"; иначе (нет тела, detail-массив Pydantic) — fallback. */
+async function errorFromResponse(res: Response, fallback: string): Promise<Error> {
+  if (res.status >= 400 && res.status < 500) {
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string" && body.detail) {
+        return new Error(body.detail);
+      }
+    } catch {
+      // не JSON — ниже fallback
+    }
+  }
+  return new Error(fallback);
+}
+
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   if (typeof window === "undefined") {
     const { cookies } = await import("next/headers");
@@ -162,7 +178,7 @@ export async function createBot(
     body: JSON.stringify({ name, responsible_user_id: responsibleUserId ?? null }),
   });
   if (!res.ok) {
-    throw new Error(`POST /bots failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -310,7 +326,7 @@ export async function patchBotName(baseUrl: string, id: string, name: string): P
     body: JSON.stringify({ name }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -393,7 +409,7 @@ export async function saveBotTool(
     body: JSON.stringify({ tool_name: toolName, config }),
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${id}/tools failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${id}/tools failed: ${res.status}`);
   }
   return (await res.json()) as ToolBinding;
 }
@@ -646,7 +662,7 @@ export async function addBlockedNumber(
     body: JSON.stringify({ phone }),
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/blocked-numbers failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/blocked-numbers failed: ${res.status}`);
   }
   return (await res.json()) as BlockedNumber;
 }

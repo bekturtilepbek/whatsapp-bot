@@ -32,6 +32,9 @@ def validate_document_upload(upload: UploadFile) -> None:
         raise DocumentValidationError("filename is required")
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in upload.filename):
         raise DocumentValidationError("filename must not contain control characters")
+    # Пустой файл бот отправил бы клиенту как 0-байтную пустышку (2026-09-28).
+    if upload.size == 0:
+        raise DocumentValidationError(f"file is empty: {upload.filename}")
     if upload.size is not None and upload.size > MAX_DOCUMENT_SIZE_BYTES:
         raise DocumentValidationError(f"file too large: {upload.filename}")
 

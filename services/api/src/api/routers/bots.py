@@ -26,6 +26,7 @@ from db.tool_bindings import enable as enable_tool
 from db.tool_bindings import list_enabled as list_enabled_tools
 from db.users import get_user
 from fastapi import APIRouter, HTTPException, Query, Response
+from tools.config_validation import validate_tool_config
 from tools.registry import all_tool_names
 
 from ..db import SessionDep
@@ -91,9 +92,7 @@ async def create_bot_route(body: BotCreate, session: SessionDep, _admin: Platfor
     уже сданный и работающий "из коробки" для любого существующего bot_id:
     gateway поднимает сессию Baileys лениво по первому GET /qr/:botId, а
     не при создании строки в bots."""
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name must not be empty")
+    name = _validated_bot_name(body.name)
     if body.responsible_user_id is not None:
         await _validate_responsible_user(session, body.responsible_user_id)
     bot = await create_bot(session, name=name, responsible_user_id=body.responsible_user_id)
@@ -140,9 +139,7 @@ async def patch_bot(
     data = patch.model_dump(exclude_unset=True)
     name = data.get("name")
     if name is not None:
-        name = name.strip()
-        if not name:
-            raise HTTPException(status_code=422, detail="name must not be empty")
+        name = _validated_bot_name(name)
     # dict.get(key, UNSET) возвращает UNSET, только если ключ ОТСУТСТВУЕТ —
     # если клиент явно прислал null (снять ответственного), get вернёт
     # именно None, а не UNSET, так и отличаем "не трогать" от "снять".
@@ -258,6 +255,22 @@ async def release_chat(
     return {"status": "released"}
 
 
+BOT_NAME_MAX_LENGTH = 100
+
+
+def _validated_bot_name(raw: str) -> str:
+    """Имя обязательно и не длиннее BOT_NAME_MAX_LENGTH — раньше принималось
+    имя из 5000 символов (ломало вёрстку списка/шапки, 2026-09-28)."""
+    name = raw.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="name must not be empty")
+    if len(name) > BOT_NAME_MAX_LENGTH:
+        raise HTTPException(
+            status_code=422, detail=f"Название — не длиннее {BOT_NAME_MAX_LENGTH} символов"
+        )
+    return name
+
+
 BLOCKED_PHONE_MIN_DIGITS = 7
 BLOCKED_PHONE_MAX_DIGITS = 15
 
@@ -324,6 +337,9 @@ async def add_tool(
 ) -> ToolBindingOut:
     if body.tool_name not in all_tool_names():
         raise HTTPException(status_code=400, detail=f"unknown tool: {body.tool_name}")
+    config_error = validate_tool_config(body.tool_name, body.config)
+    if config_error is not None:
+        raise HTTPException(status_code=422, detail=config_error)
     await enable_tool(session, bot_id, body.tool_name, body.config)
     await session.commit()
     return ToolBindingOut(tool_name=body.tool_name, config=body.config)

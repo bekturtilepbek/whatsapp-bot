@@ -42,6 +42,16 @@ def test_blank_filename_raises() -> None:
         raise AssertionError("expected DocumentValidationError")
 
 
+def test_empty_file_raises() -> None:
+    # Регрессия 2026-09-28: 0-байтный файл принимался — бот отправил бы клиенту пустышку.
+    try:
+        validate_document_upload(_upload("empty.txt", size=0))
+    except DocumentValidationError:
+        pass
+    else:
+        raise AssertionError("expected DocumentValidationError")
+
+
 def test_too_large_raises() -> None:
     try:
         validate_document_upload(_upload("big.pdf", size=MAX_DOCUMENT_SIZE_BYTES + 1))

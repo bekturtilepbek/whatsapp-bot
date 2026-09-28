@@ -179,6 +179,42 @@ async def test_patch_name_blank_returns_422(
     assert response.status_code == 422
 
 
+async def test_bot_name_longer_than_limit_returns_422(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    # Регрессия 2026-09-28: имя из 5000 символов принималось и ломало вёрстку.
+    bot_id = await _make_bot(session_factory)
+    assert (await client.patch(f"/bots/{bot_id}", json={"name": "x" * 101})).status_code == 422
+    assert (await client.post("/bots", json={"name": "x" * 101})).status_code == 422
+    assert (await client.patch(f"/bots/{bot_id}", json={"name": "x" * 100})).status_code == 200
+
+
+@pytest.mark.parametrize("config", [{}, {"chat_id": ""}, {"chat_id": "abc"}, {"chat_id": "12 34"}])
+async def test_telegram_lead_tool_rejects_unusable_chat_id(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession], config: dict
+) -> None:
+    """Регрессия 2026-09-28: мусорный chat_id сохранялся, и заявки молча
+    терялись при отправке (песочница эту тулзу глушит — промптер не заметит)."""
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/tools", json={"tool_name": "send_telegram_lead", "config": config}
+    )
+    assert response.status_code == 422
+    assert (await client.get(f"/bots/{bot_id}/tools")).json() == []
+
+
+@pytest.mark.parametrize("chat_id", ["-1001234567890", "123456789", "@my_leads_group", -100123])
+async def test_telegram_lead_tool_accepts_real_chat_ids(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession], chat_id: object
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/tools",
+        json={"tool_name": "send_telegram_lead", "config": {"chat_id": chat_id}},
+    )
+    assert response.status_code == 201
+
+
 async def test_patch_system_prompt_only(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

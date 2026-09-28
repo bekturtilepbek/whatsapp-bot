@@ -32,14 +32,21 @@ from typing import Any
 
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.bots import get_bot
-from db.products import DEFAULT_CATALOG_LIMIT, list_products
+from db.documents import list_documents
+from db.products import list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
-from llm.catalog_context import ProductInfo, catalog_context
+from llm.catalog_context import ProductInfo
 from llm.client import HistoryMessage, complete, complete_with_image, complete_with_tools
+from llm.documents_context import DocumentInfo
 from llm.pdf_extract import PdfHasNoTextLayerError, extract_pdf_text
 from llm.pricing import compute_cost
+from llm.text_system_prompt import (
+    CONTEXT_LIST_LIMIT,
+    SEND_DOCUMENT_TOOL_NAME,
+    build_text_system_prompt,
+)
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
 from tools.base import ToolExecutionResult
@@ -112,8 +119,17 @@ async def send_sandbox_message(
     if bot is None:
         raise HTTPException(status_code=404, detail="bot not found")
 
-    products = await list_products(session, bot_id, limit=DEFAULT_CATALOG_LIMIT)
-    catalog = catalog_context(
+    products = await list_products(session, bot_id, limit=CONTEXT_LIST_LIMIT)
+    bindings = await list_enabled_tool_bindings(session, bot_id)
+    documents = (
+        await list_documents(session, bot_id, limit=CONTEXT_LIST_LIMIT)
+        if any(b.tool_name == SEND_DOCUMENT_TOOL_NAME for b in bindings)
+        else None
+    )
+    # Та же сборка, что в worker (_reply) — песочница должна показывать
+    # ровно то поведение, которое увидит реальный клиент.
+    system_prompt = build_text_system_prompt(
+        bot.system_prompt,
         [
             ProductInfo(
                 name=p.name,
@@ -121,17 +137,14 @@ async def send_sandbox_message(
                 description=p.description,
             )
             for p in products
-        ]
-    )
-    time_ctx = time_context(bot.timezone)
-    system_prompt = "\n\n".join(
-        section for section in (bot.system_prompt, catalog, time_ctx) if section
+        ],
+        [DocumentInfo(filename=d.filename) for d in documents] if documents is not None else None,
+        bot.timezone,
     )
 
     history = [HistoryMessage(role=item.role, content=item.content) for item in body.history]
     history.append(HistoryMessage(role="user", content=body.message))
 
-    bindings = await list_enabled_tool_bindings(session, bot_id)
     tool_specs = tool_specs_for_bindings(bindings)
     base_executor = build_tool_executor(
         bot, uuid.uuid4(), session_factory, redis, storage, bindings

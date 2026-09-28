@@ -38,7 +38,7 @@ from api.storage import get_storage
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
 from db.bot_access import grant_bot_access
 from db.engine import make_engine, make_session_factory
-from db.models import Bot, Product, ProductMedia, UsageEvent
+from db.models import Bot, Document, Product, ProductMedia, UsageEvent
 from db.tool_bindings import enable as enable_tool_binding
 from fakeredis.aioredis import FakeRedis
 from llm.client import LLMResult, ToolCall
@@ -388,6 +388,76 @@ async def test_sandbox_message_with_enabled_tool_returns_media_from_tool_card(
     assert body["media"] == [
         {"storage_key": storage_key, "mime_type": "image/jpeg", "filename": None}
     ]
+
+
+def _capturing_complete_with_tools(captured_prompts: list[str]):
+    async def fake(system_prompt: str, *args: object, **kwargs: object) -> LLMResult:
+        captured_prompts.append(system_prompt)
+        return LLMResult(text="ok", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    return fake
+
+
+async def test_sandbox_message_lists_bot_files_in_system_prompt_like_the_worker(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Регрессия 2026-09-28: реальный _reply() (worker) подмешивает список
+    файлов бота (documents_context), а песочница — нет. В песочнице бот не
+    знал, какие файлы есть, и на "Есть прайс лист?" отвечал текстом, хотя
+    реальный клиент получил бы файл — песочница врала промптеру."""
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        session.add(
+            Document(
+                bot_id=bot_id,
+                filename="price-list.txt",
+                storage_key=f"bots/{bot_id}/documents/price-list.txt",
+                mime_type="text/plain",
+            )
+        )
+        await enable_tool_binding(session, bot_id, "send_document", {})
+        await session.commit()
+
+    captured: list[str] = []
+    monkeypatch.setattr(sandbox_module, "complete", _fail_complete)
+    monkeypatch.setattr(
+        sandbox_module, "complete_with_tools", _capturing_complete_with_tools(captured)
+    )
+
+    response = await client.post(
+        f"/bots/{bot_id}/sandbox/messages", json={"message": "Есть прайс лист?"}
+    )
+    assert response.status_code == 200
+    assert "price-list.txt" in captured[0]
+    assert "send_document" in captured[0]
+
+
+async def test_sandbox_message_omits_files_when_send_document_is_not_bound(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Как в worker: инструкция "зови send_document" без самой тулзы вводит модель в заблуждение.
+    bot_id = await _make_bot(session_factory)
+    async with session_factory() as session:
+        session.add(
+            Document(
+                bot_id=bot_id,
+                filename="price-list.txt",
+                storage_key=f"bots/{bot_id}/documents/price-list.txt",
+                mime_type="text/plain",
+            )
+        )
+        await session.commit()
+
+    captured_prompts: list[str] = []
+    monkeypatch.setattr(sandbox_module, "complete", _fake_complete(captured_prompts, []))
+
+    response = await client.post(f"/bots/{bot_id}/sandbox/messages", json={"message": "Привет"})
+    assert response.status_code == 200
+    assert "price-list.txt" not in captured_prompts[0]
 
 
 async def test_sandbox_message_side_effecting_tool_is_muted_not_really_called(

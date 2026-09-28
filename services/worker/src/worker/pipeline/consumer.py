@@ -59,7 +59,7 @@ from db.products import list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
 from db.usage import record_usage
 from integrations.storage import Storage
-from llm.catalog_context import ProductInfo, catalog_context
+from llm.catalog_context import ProductInfo
 from llm.client import (
     HistoryMessage,
     complete,
@@ -67,9 +67,10 @@ from llm.client import (
     complete_with_tools,
     transcribe_audio,
 )
-from llm.documents_context import DocumentInfo, documents_context
+from llm.documents_context import DocumentInfo
 from llm.pdf_extract import extract_pdf_text
 from llm.pricing import compute_cost
+from llm.text_system_prompt import SEND_DOCUMENT_TOOL_NAME, build_text_system_prompt
 from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
 from redis.asyncio import Redis
@@ -580,15 +581,18 @@ async def _reply(
         # список файлов и показывать эту инструкцию боту, которому тулза не
         # привязана, бессмысленно и вводит модель в заблуждение (находка
         # финального ревью, Fix 6).
-        bound_tool_names = {binding.tool_name for binding in bindings}
         documents = (
             await list_documents(session, bot.id, limit=DOCUMENTS_LIMIT)
-            if "send_document" in bound_tool_names
-            else []
+            if any(binding.tool_name == SEND_DOCUMENT_TOOL_NAME for binding in bindings)
+            else None
         )
 
     history = [HistoryMessage(role=m.role, content=m.content) for m in history_rows]
-    catalog = catalog_context(
+    # Только основной текстовый путь — vision/PDF (image_prompt/pdf_prompt)
+    # каталог/файлы не получают, эталон V1 (analyzeImage/analyzePdf) тоже.
+    # Сборка общая с песочницей кабинета (libs/llm text_system_prompt.py).
+    system_prompt = build_text_system_prompt(
+        bot.system_prompt,
         [
             ProductInfo(
                 name=p.name,
@@ -596,22 +600,10 @@ async def _reply(
                 description=p.description,
             )
             for p in products
-        ]
+        ],
+        [DocumentInfo(filename=d.filename) for d in documents] if documents is not None else None,
+        bot.timezone,
     )
-    docs_ctx = (
-        documents_context([DocumentInfo(filename=d.filename) for d in documents])
-        if "send_document" in bound_tool_names
-        else ""
-    )
-    # Порядок — как в V1 (agentInstructions + catalogContext + timeContext):
-    # только основной текстовый путь, vision/PDF (image_prompt/pdf_prompt)
-    # каталог/файлы не получают — эталон V1 (analyzeImage/analyzePdf) тоже.
-    time_ctx = time_context(bot.timezone)
-    # Пустые секции (docs_ctx == "" без send_document) пропускаются целиком,
-    # а не вставляются как пустая строка — иначе в промпте остаются лишние
-    # пустые строки подряд.
-    sections = [bot.system_prompt, catalog, docs_ctx, time_ctx]
-    system_prompt = "\n\n".join(section for section in sections if section)
 
     tool_specs = tool_specs_for_bindings(bindings)
     executor = build_tool_executor(bot, contact_id, session_factory, redis, storage, bindings)

@@ -128,7 +128,8 @@ async def test_media_fallback_text_is_configurable_via_bot_settings(
         await _process_entry(_inbound_image_payload(bot_id), redis, session_factory, _NullStorage())
 
         out_entries = await redis.xrange("wa:out")
-        assert custom_text in out_entries[3][1]["payload"]  # 0=seen, 1=reaction, 2=typing, 3=fallback
+        # 0=seen, 1=reaction, 2=typing, 3=fallback
+        assert custom_text in out_entries[3][1]["payload"]
     finally:
         await redis.aclose()
 

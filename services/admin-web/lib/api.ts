@@ -94,7 +94,15 @@ function normalizeBaseUrl(baseUrl: string): string {
  * из cookie сессии admin-web (FEATURES.md 6.18); в браузере просто зовёт
  * fetch как есть — cookie для "/api-proxy" (свой origin) браузер приложит
  * сам. Динамический импорт next/headers — этот модуль не должен тянуться
- * в клиентский бандл (next/headers ломает сборку клиентских компонентов). */
+ * в клиентский бандл (next/headers ломает сборку клиентских компонентов).
+ *
+ * 401 от api на сервере значит "cookie есть, но api её не принял"
+ * (просрочен/невалиден JWT — middleware.ts проверяет только присутствие
+ * cookie, не её валидность). Редирект на /login напрямую тут не годится:
+ * cookie формально ещё есть, middleware отобьёт /login обратно на /bots
+ * (см. middleware.ts, "hasSession && isLoginPage") — бесконечный цикл.
+ * Вместо этого — редирект на Route Handler, который умеет стереть cookie
+ * (Server Component этого не может при рендере, Next 15). */
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   if (typeof window === "undefined") {
     const { cookies } = await import("next/headers");
@@ -102,7 +110,12 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
     if (token) {
       const headers = new Headers(init?.headers);
       headers.set("Authorization", `Bearer ${token}`);
-      return fetch(url, { ...init, headers });
+      const res = await fetch(url, { ...init, headers });
+      if (res.status === 401) {
+        const { redirect } = await import("next/navigation");
+        redirect("/api/session-expired");
+      }
+      return res;
     }
   }
   return fetch(url, init);

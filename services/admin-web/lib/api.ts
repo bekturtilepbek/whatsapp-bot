@@ -107,9 +107,25 @@ function normalizeBaseUrl(baseUrl: string): string {
  * (см. middleware.ts, "hasSession && isLoginPage") — бесконечный цикл.
  * Вместо этого — редирект на Route Handler, который умеет стереть cookie
  * (Server Component этого не может при рендере, Next 15). */
-/** 4xx с понятной причиной в `detail` (строка) — показываем её, а не
- * "POST … failed: 422"; иначе (нет тела, detail-массив Pydantic) — fallback. */
-async function errorFromResponse(res: Response, fallback: string): Promise<Error> {
+/** Понятные тексты по статусу — когда API не вернул строковый `detail`
+ * (5xx, detail-массив Pydantic, пустое тело). */
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "Сессия истекла — войдите заново",
+  403: "Нет доступа к этому действию",
+  404: "Не найдено — возможно, уже удалено",
+  409: "Такая запись уже есть",
+  413: "Файл слишком большой",
+  415: "Этот тип файла не поддерживается",
+  422: "Проверьте введённые данные",
+};
+const SERVER_ERROR_MESSAGE = "Сервер не ответил, попробуйте ещё раз";
+
+/** Ошибка API для показа пользователю (toast): строковый `detail` из ответа
+ * (API пишет их по-русски), иначе — текст по статусу. Раньше пользователь
+ * видел "POST /bots/1/tools failed: 422". Технический `context` уходит в
+ * консоль — для отладки, не в интерфейс. */
+async function errorFromResponse(res: Response, context: string): Promise<Error> {
+  console.warn(context);
   if (res.status >= 400 && res.status < 500) {
     try {
       const body = (await res.json()) as { detail?: unknown };
@@ -117,10 +133,10 @@ async function errorFromResponse(res: Response, fallback: string): Promise<Error
         return new Error(body.detail);
       }
     } catch {
-      // не JSON — ниже fallback
+      // не JSON — ниже текст по статусу
     }
   }
-  return new Error(fallback);
+  return new Error(STATUS_MESSAGES[res.status] ?? SERVER_ERROR_MESSAGE);
 }
 
 async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -145,7 +161,7 @@ export async function fetchBots(baseUrl: string): Promise<Bot[]> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots failed: ${res.status}`);
   }
   return (await res.json()) as Bot[];
 }
@@ -161,7 +177,7 @@ export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null>
     return null;
   }
   if (!res.ok) {
-    throw new Error(`GET /bots/${id} failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -195,7 +211,7 @@ export async function fetchPrompters(baseUrl: string): Promise<PrompterBrief[]> 
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/users/prompters`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /users/prompters failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /users/prompters failed: ${res.status}`);
   }
   return (await res.json()) as PrompterBrief[];
 }
@@ -216,7 +232,7 @@ export async function patchBotResponsibleUser(
     body: JSON.stringify({ responsible_user_id: responsibleUserId }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -225,7 +241,7 @@ export async function logoutBot(baseUrl: string, id: string): Promise<void> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/logout`, { method: "POST" });
   if (!res.ok) {
-    throw new Error(`POST /bots/${id}/logout failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${id}/logout failed: ${res.status}`);
   }
 }
 
@@ -240,7 +256,7 @@ export async function fetchBotStats(baseUrl: string, id: string): Promise<BotSta
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/stats`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots/${id}/stats failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${id}/stats failed: ${res.status}`);
   }
   return (await res.json()) as BotStats;
 }
@@ -259,7 +275,7 @@ export async function fetchActiveChats(baseUrl: string, id: string): Promise<Act
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/chats`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots/${id}/chats failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${id}/chats failed: ${res.status}`);
   }
   return (await res.json()) as ActiveChat[];
 }
@@ -270,7 +286,7 @@ export async function releaseChat(baseUrl: string, id: string, chatId: string): 
     method: "POST",
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${id}/chats/${chatId}/release failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${id}/chats/${chatId}/release failed: ${res.status}`);
   }
 }
 
@@ -310,7 +326,7 @@ export async function patchBotPrompt(
     body: JSON.stringify({ [field]: body }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id}/prompts failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${id}/prompts failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -341,7 +357,7 @@ export async function patchBotEnabled(baseUrl: string, id: string, enabled: bool
     body: JSON.stringify({ enabled }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id}/enabled failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${id}/enabled failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -354,7 +370,7 @@ export async function fetchPromptVersions(
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/prompts/${kind}/versions`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots/${id}/prompts/${kind}/versions failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${id}/prompts/${kind}/versions failed: ${res.status}`);
   }
   return (await res.json()) as PromptVersion[];
 }
@@ -374,7 +390,7 @@ export async function patchBotSettings(
     body: JSON.stringify({ settings }),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${id} failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${id} failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }
@@ -391,7 +407,7 @@ export async function fetchBotTools(baseUrl: string, id: string): Promise<ToolBi
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/tools`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots/${id}/tools failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${id}/tools failed: ${res.status}`);
   }
   return (await res.json()) as ToolBinding[];
 }
@@ -418,7 +434,7 @@ export async function deleteBotTool(baseUrl: string, id: string, toolName: strin
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}/tools/${toolName}`, { method: "DELETE" });
   if (!res.ok) {
-    throw new Error(`DELETE /bots/${id}/tools/${toolName} failed: ${res.status}`);
+    throw await errorFromResponse(res, `DELETE /bots/${id}/tools/${toolName} failed: ${res.status}`);
   }
 }
 
@@ -474,7 +490,7 @@ export async function fetchProducts(
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`GET /bots/${botId}/products failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${botId}/products failed: ${res.status}`);
   }
   return (await res.json()) as Product[];
 }
@@ -491,7 +507,7 @@ export async function fetchProduct(
     return null;
   }
   if (!res.ok) {
-    throw new Error(`GET /bots/${botId}/products/${productId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${botId}/products/${productId} failed: ${res.status}`);
   }
   return (await res.json()) as Product;
 }
@@ -533,7 +549,7 @@ export async function createProduct(
     body: buildProductFormData(input, media),
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/products failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/products failed: ${res.status}`);
   }
   return (await res.json()) as Product;
 }
@@ -551,7 +567,7 @@ export async function updateProduct(
     body: JSON.stringify(input),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /bots/${botId}/products/${productId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /bots/${botId}/products/${productId} failed: ${res.status}`);
   }
   return (await res.json()) as Product;
 }
@@ -564,7 +580,7 @@ export async function deleteProduct(
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${botId}/products/${productId}`, { method: "DELETE" });
   if (!res.ok) {
-    throw new Error(`DELETE /bots/${botId}/products/${productId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `DELETE /bots/${botId}/products/${productId} failed: ${res.status}`);
   }
 }
 
@@ -584,7 +600,7 @@ export async function addProductMedia(
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/products/${productId}/media failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/products/${productId}/media failed: ${res.status}`);
   }
   return (await res.json()) as ProductMedia[];
 }
@@ -600,9 +616,7 @@ export async function deleteProductMedia(
     method: "DELETE",
   });
   if (!res.ok) {
-    throw new Error(
-      `DELETE /bots/${botId}/products/${productId}/media/${mediaId} failed: ${res.status}`,
-    );
+    throw await errorFromResponse(res, `DELETE /bots/${botId}/products/${productId}/media/${mediaId} failed: ${res.status}`);
   }
 }
 
@@ -645,7 +659,7 @@ export async function fetchBlockedNumbers(
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`GET /bots/${botId}/blocked-numbers failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${botId}/blocked-numbers failed: ${res.status}`);
   }
   return (await res.json()) as BlockedNumber[];
 }
@@ -677,7 +691,7 @@ export async function deleteBlockedNumber(
     method: "DELETE",
   });
   if (!res.ok) {
-    throw new Error(`DELETE /bots/${botId}/blocked-numbers/${phone} failed: ${res.status}`);
+    throw await errorFromResponse(res, `DELETE /bots/${botId}/blocked-numbers/${phone} failed: ${res.status}`);
   }
 }
 
@@ -697,7 +711,7 @@ export async function fetchUsers(baseUrl: string): Promise<CabinetUser[]> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/users`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /users failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /users failed: ${res.status}`);
   }
   return (await res.json()) as CabinetUser[];
 }
@@ -724,7 +738,7 @@ export async function createUser(
     throw new Error("Проверьте email: нужен адрес вида name@example.com");
   }
   if (!res.ok) {
-    throw new Error(`POST /users failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /users failed: ${res.status}`);
   }
   return (await res.json()) as CabinetUser;
 }
@@ -737,7 +751,7 @@ export async function grantBotAccess(baseUrl: string, userId: string, botId: str
     body: JSON.stringify({ bot_id: botId }),
   });
   if (!res.ok) {
-    throw new Error(`POST /users/${userId}/bot-access failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /users/${userId}/bot-access failed: ${res.status}`);
   }
 }
 
@@ -745,7 +759,7 @@ export async function revokeBotAccess(baseUrl: string, userId: string, botId: st
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/users/${userId}/bot-access/${botId}`, { method: "DELETE" });
   if (!res.ok) {
-    throw new Error(`DELETE /users/${userId}/bot-access/${botId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `DELETE /users/${userId}/bot-access/${botId} failed: ${res.status}`);
   }
 }
 
@@ -765,7 +779,7 @@ export async function patchUser(
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
-    throw new Error(`PATCH /users/${userId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `PATCH /users/${userId} failed: ${res.status}`);
   }
   return (await res.json()) as CabinetUser;
 }
@@ -783,7 +797,7 @@ export async function fetchDocuments(baseUrl: string, botId: string): Promise<Bo
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${botId}/documents`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /bots/${botId}/documents failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /bots/${botId}/documents failed: ${res.status}`);
   }
   return (await res.json()) as BotDocument[];
 }
@@ -801,7 +815,7 @@ export async function uploadDocument(
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/documents failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/documents failed: ${res.status}`);
   }
   return (await res.json()) as BotDocument;
 }
@@ -816,7 +830,7 @@ export async function deleteDocument(
     method: "DELETE",
   });
   if (!res.ok) {
-    throw new Error(`DELETE /bots/${botId}/documents/${documentId} failed: ${res.status}`);
+    throw await errorFromResponse(res, `DELETE /bots/${botId}/documents/${documentId} failed: ${res.status}`);
   }
 }
 
@@ -857,7 +871,7 @@ export async function fetchAuditLog(
   const qs = query.toString();
   const res = await apiFetch(`${base}/audit-log${qs ? `?${qs}` : ""}`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /audit-log failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /audit-log failed: ${res.status}`);
   }
   return (await res.json()) as AuditLogEntry[];
 }
@@ -883,7 +897,7 @@ export async function fetchUsage(
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/usage?period=${period}`, { cache: "no-store" });
   if (!res.ok) {
-    throw new Error(`GET /usage failed: ${res.status}`);
+    throw await errorFromResponse(res, `GET /usage failed: ${res.status}`);
   }
   return (await res.json()) as UsageSummary[];
 }
@@ -924,7 +938,7 @@ export async function sendSandboxMessage(
     body: JSON.stringify({ history, message }),
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/sandbox/messages failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/sandbox/messages failed: ${res.status}`);
   }
   return (await res.json()) as SandboxMessageResult;
 }
@@ -950,7 +964,7 @@ export async function sendSandboxMediaMessage(
     body: form,
   });
   if (!res.ok) {
-    throw new Error(`POST /bots/${botId}/sandbox/media-messages failed: ${res.status}`);
+    throw await errorFromResponse(res, `POST /bots/${botId}/sandbox/media-messages failed: ${res.status}`);
   }
   return (await res.json()) as SandboxMessageResult;
 }

@@ -29,14 +29,14 @@ class DocumentValidationError(Exception):
 
 def validate_document_upload(upload: UploadFile) -> None:
     if not upload.filename or not upload.filename.strip():
-        raise DocumentValidationError("filename is required")
+        raise DocumentValidationError("Нужно имя файла")
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in upload.filename):
-        raise DocumentValidationError("filename must not contain control characters")
+        raise DocumentValidationError("Имя файла содержит недопустимые символы")
     # Пустой файл бот отправил бы клиенту как 0-байтную пустышку (2026-09-28).
     if upload.size == 0:
-        raise DocumentValidationError(f"file is empty: {upload.filename}")
+        raise DocumentValidationError(f"Файл пустой: {upload.filename}")
     if upload.size is not None and upload.size > MAX_DOCUMENT_SIZE_BYTES:
-        raise DocumentValidationError(f"file too large: {upload.filename}")
+        raise DocumentValidationError(f"Файл слишком большой: {upload.filename}")
 
 
 def build_document_storage_key(bot_id: uuid.UUID, document_id: uuid.UUID) -> str:

@@ -65,13 +65,13 @@ async def create_user_route(
     body: UserCreate, session: SessionDep, _owner: UserManager
 ) -> UserWithAccessOut:
     if await get_user_by_email(session, body.email) is not None:
-        raise HTTPException(status_code=409, detail="email already registered")
+        raise HTTPException(status_code=409, detail="Пользователь с таким email уже есть")
     # Проверяем существование ВСЕХ bot_id до создания пользователя — иначе
     # неизвестный bot_id на полпути даст FK IntegrityError (500) вместо 404,
     # а пользователь останется частично созданным. Зеркалит grant_bot_access_route.
     for bot_id in body.bot_ids:
         if await get_bot(session, bot_id) is None:
-            raise HTTPException(status_code=404, detail="bot not found")
+            raise HTTPException(status_code=404, detail="Бот не найден")
     user = await create_user(
         session, email=body.email, password_hash=hash_password(body.password), role=body.role
     )
@@ -86,9 +86,9 @@ async def grant_bot_access_route(
     user_id: uuid.UUID, body: _BotAccessIn, session: SessionDep, _owner: UserManager
 ) -> None:
     if await get_user(session, user_id) is None:
-        raise HTTPException(status_code=404, detail="user not found")
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
     if await get_bot(session, body.bot_id) is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
     await grant_bot_access(session, user_id, body.bot_id)
     await session.commit()
 
@@ -108,17 +108,17 @@ async def patch_user_route(
     if body.is_active is not None:
         updated = await set_user_active(session, user_id, body.is_active)
         if updated is None:
-            raise HTTPException(status_code=404, detail="user not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
     if body.password is not None:
         updated = await set_user_password(session, user_id, hash_password(body.password))
         if updated is None:
-            raise HTTPException(status_code=404, detail="user not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
     if body.role is not None:
         updated = await set_user_role(session, user_id, body.role)
         if updated is None:
-            raise HTTPException(status_code=404, detail="user not found")
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
     user = await get_user(session, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="user not found")
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
     await session.commit()
     return await _to_out(session, user)

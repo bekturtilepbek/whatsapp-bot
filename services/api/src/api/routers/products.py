@@ -83,9 +83,15 @@ def _parse_display_custom(raw: str | None) -> dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail="display_custom must be valid JSON") from exc
+        raise HTTPException(
+            status_code=422,
+            detail="Настройки вывода товара повреждены (не JSON)",
+        ) from exc
     if not isinstance(parsed, dict):
-        raise HTTPException(status_code=422, detail="display_custom must be a JSON object")
+        raise HTTPException(
+            status_code=422,
+            detail="Настройки вывода товара повреждены (ожидался объект)",
+        )
     return parsed
 
 
@@ -132,11 +138,11 @@ async def create_product_route(
 
     name_stripped = name.strip()
     if not name_stripped:
-        raise HTTPException(status_code=422, detail="name must not be empty")
+        raise HTTPException(status_code=422, detail="Название не может быть пустым")
 
     bot = await get_bot(session, bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
 
     display_custom_parsed = _parse_display_custom(display_custom)
 
@@ -170,13 +176,19 @@ async def create_product_route(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="failed to store product media") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось сохранить медиа, попробуйте ещё раз",
+        ) from exc
 
     try:
         await _compute_and_store_embedding(session, product)
     except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="failed to generate product embedding") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось обработать товар (сервис OpenAI не ответил), попробуйте ещё раз",
+        ) from exc
 
     await session.commit()
 
@@ -191,7 +203,7 @@ async def get_product_route(
 ) -> ProductOut:
     product = await get_product(session, bot_id, product_id, with_media=True)
     if product is None:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
     return ProductOut.model_validate(product)
 
 
@@ -205,11 +217,11 @@ async def patch_product_route(
 ) -> ProductOut:
     data = patch.model_dump(exclude_unset=True)
     if "name" in data and not (data["name"] or "").strip():
-        raise HTTPException(status_code=422, detail="name must not be empty")
+        raise HTTPException(status_code=422, detail="Название не может быть пустым")
 
     before = await get_product(session, bot_id, product_id)
     if before is None:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
     old_name, old_description = before.name, before.description
 
     new_name = data["name"].strip() if "name" in data else None
@@ -234,7 +246,8 @@ async def patch_product_route(
             # price в том же запросе (строгое V1-поведение).
             await session.rollback()
             raise HTTPException(
-                status_code=502, detail="failed to generate product embedding"
+                status_code=502,
+                detail="Не удалось обработать товар (сервис OpenAI не ответил), попробуйте ещё раз",
             ) from exc
 
     await session.commit()
@@ -250,7 +263,7 @@ async def delete_product_route(
 ) -> None:
     deleted = await delete_product(session, bot_id, product_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
     await session.commit()
 
 
@@ -269,7 +282,7 @@ async def add_product_media_route(
 ) -> list[ProductMediaOut]:
     product = await get_product(session, bot_id, product_id)
     if product is None:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
 
     existing_count = len(await list_product_media(session, product_id))
     remaining_slots = MAX_MEDIA_PER_PRODUCT - existing_count
@@ -300,7 +313,10 @@ async def add_product_media_route(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         await session.rollback()
-        raise HTTPException(status_code=502, detail="failed to store product media") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось сохранить медиа, попробуйте ещё раз",
+        ) from exc
 
     await session.commit()
     return [ProductMediaOut.model_validate(item) for item in created]
@@ -316,19 +332,20 @@ async def delete_product_media_route(
 ) -> None:
     product = await get_product(session, bot_id, product_id)
     if product is None:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
 
     remaining = await list_product_media(session, product_id)
     if len(remaining) <= 1:
         if not any(item.id == media_id for item in remaining):
-            raise HTTPException(status_code=404, detail="media item not found")
+            raise HTTPException(status_code=404, detail="Медиа не найдено")
         raise HTTPException(
-            status_code=422, detail="cannot delete the last media item of a product"
+            status_code=422,
+            detail="Нельзя удалить единственное медиа товара — сначала добавьте другое",
         )
 
     deleted = await delete_product_media_item(session, product_id, media_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="media item not found")
+        raise HTTPException(status_code=404, detail="Медиа не найдено")
     await session.commit()
 
 
@@ -343,14 +360,14 @@ async def get_product_media_route(
 ) -> Response:
     product = await get_product(session, bot_id, product_id)
     if product is None:
-        raise HTTPException(status_code=404, detail="product not found")
+        raise HTTPException(status_code=404, detail="Товар не найден")
     item = await get_product_media_item(session, product_id, media_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="media item not found")
+        raise HTTPException(status_code=404, detail="Медиа не найдено")
     try:
         data = await storage.get(item.storage_key)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="failed to read media") from exc
+        raise HTTPException(status_code=502, detail="Не удалось прочитать медиа") from exc
     # Медиа по media_id неизменяемо: перезаписи/апдейта в Storage нет, только
     # create/delete всего объекта — можно кэшировать бессрочно (финальное
     # ревью 6.8, 2026-09-10: список товаров иначе рефетчит те же байты на

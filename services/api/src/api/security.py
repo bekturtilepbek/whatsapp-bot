@@ -58,15 +58,15 @@ async def get_current_user(
     session: SessionDep, authorization: Annotated[str | None, Header()] = None
 ) -> User:
     if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="Нужно войти в кабинет")
     token = authorization.removeprefix("Bearer ")
     try:
         user_id = decode_access_token(token)
     except jwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail="invalid or expired token") from exc
+        raise HTTPException(status_code=401, detail="Сессия истекла — войдите заново") from exc
     user = await get_user(session, user_id)
     if user is None or not user.is_active:
-        raise HTTPException(status_code=401, detail="not authenticated")
+        raise HTTPException(status_code=401, detail="Нужно войти в кабинет")
     return user
 
 
@@ -87,7 +87,7 @@ async def require_bot_access(bot_id: uuid.UUID, user: CurrentUser, session: Sess
     if user.role in PLATFORM_WIDE_ROLES:
         return user
     if not await has_bot_access(session, user.id, bot_id):
-        raise HTTPException(status_code=403, detail="no access to this bot")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому боту")
     return user
 
 
@@ -99,7 +99,7 @@ async def require_full_bot_access(bot_id: uuid.UUID, user: BotAccessUser) -> Use
     без промптов/тулз/чёрного списка/настроек/QR (FEATURES.md 6.18
     ролевой пересмотр, 2026-09-22)."""
     if user.role == "client":
-        raise HTTPException(status_code=403, detail="client has limited bot access")
+        raise HTTPException(status_code=403, detail="У роли «Клиент» нет доступа к этому разделу")
     return user
 
 
@@ -108,7 +108,7 @@ FullBotAccess = Annotated[User, Depends(require_full_bot_access)]
 
 async def require_platform_wide(user: CurrentUser) -> User:
     if user.role not in PLATFORM_WIDE_ROLES:
-        raise HTTPException(status_code=403, detail="admin only")
+        raise HTTPException(status_code=403, detail="Доступно только администраторам")
     return user
 
 
@@ -117,7 +117,7 @@ PlatformWide = Annotated[User, Depends(require_platform_wide)]
 
 async def require_user_manager(user: CurrentUser) -> User:
     if user.role != "superadmin":
-        raise HTTPException(status_code=403, detail="superadmin only")
+        raise HTTPException(status_code=403, detail="Доступно только суперадмину")
     return user
 
 

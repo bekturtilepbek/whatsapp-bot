@@ -89,12 +89,28 @@ describe("saveBotTool", () => {
     ).rejects.toThrow("ID группы Telegram — число или @username");
   });
 
-  it("falls back to the status line when the body has no string detail", async () => {
+  it("falls back to a readable message by status when there is no string detail", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }),
     );
-    await expect(saveBotTool("http://api", "1", "x", {})).rejects.toThrow(/failed: 500/);
+    await expect(saveBotTool("http://api", "1", "x", {})).rejects.toThrow(
+      "Сервер не ответил, попробуйте ещё раз",
+    );
+  });
+
+  it("maps a Pydantic 422 (detail is a list) to a readable message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: async () => ({ detail: [{ loc: ["body", "x"], msg: "field required" }] }),
+      }),
+    );
+    await expect(saveBotTool("http://api", "1", "x", {})).rejects.toThrow(
+      "Проверьте введённые данные",
+    );
   });
 });
 

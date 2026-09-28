@@ -84,7 +84,7 @@ describe("apiFetch (server-side auth header)", () => {
 
     const { fetchBots } = await import("./api");
 
-    await expect(fetchBots("http://api-internal:8000")).rejects.toThrow("GET /bots failed: 403");
+    await expect(fetchBots("http://api-internal:8000")).rejects.toThrow("Нет доступа к этому действию");
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });

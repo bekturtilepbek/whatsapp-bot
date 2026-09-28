@@ -71,9 +71,9 @@ async def _validate_responsible_user(session: SessionDep, user_id: uuid.UUID) ->
     админы не "ведут" бота в этом смысле."""
     responsible = await get_user(session, user_id)
     if responsible is None:
-        raise HTTPException(status_code=404, detail="responsible user not found")
+        raise HTTPException(status_code=404, detail="Ответственный пользователь не найден")
     if responsible.role != "prompter":
-        raise HTTPException(status_code=422, detail="responsible user must have the prompter role")
+        raise HTTPException(status_code=422, detail="Ответственным может быть только промптер")
 
 
 @router.get("", response_model=list[BotOut])
@@ -114,7 +114,10 @@ async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) 
     try:
         upstream = await gateway.request(method, path)
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="gateway unreachable") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Сервис WhatsApp недоступен, попробуйте позже",
+        ) from exc
     return Response(
         content=upstream.content,
         media_type=upstream.headers.get("content-type", "application/octet-stream"),
@@ -126,7 +129,7 @@ async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) 
 async def read_bot(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) -> BotOut:
     bot = await get_bot_with_session(session, bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
     return _to_bot_out(bot)
 
 
@@ -155,7 +158,7 @@ async def patch_bot(
     )
     await session.commit()
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
     return _to_bot_out(bot)
 
 
@@ -168,7 +171,7 @@ async def patch_bot_enabled(
     bot = await update_bot(session, bot_id, enabled=patch.enabled)
     await session.commit()
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
     return _to_bot_out(bot)
 
 
@@ -187,7 +190,7 @@ async def patch_bot_prompts(
     )
     await session.commit()
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
     return _to_bot_out(bot)
 
 
@@ -263,7 +266,7 @@ def _validated_bot_name(raw: str) -> str:
     имя из 5000 символов (ломало вёрстку списка/шапки, 2026-09-28)."""
     name = raw.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="name must not be empty")
+        raise HTTPException(status_code=422, detail="Название не может быть пустым")
     if len(name) > BOT_NAME_MAX_LENGTH:
         raise HTTPException(
             status_code=422, detail=f"Название — не длиннее {BOT_NAME_MAX_LENGTH} символов"
@@ -336,7 +339,7 @@ async def add_tool(
     bot_id: uuid.UUID, body: ToolBindingIn, session: SessionDep, user: FullBotAccess
 ) -> ToolBindingOut:
     if body.tool_name not in all_tool_names():
-        raise HTTPException(status_code=400, detail=f"unknown tool: {body.tool_name}")
+        raise HTTPException(status_code=400, detail=f"Неизвестный инструмент: {body.tool_name}")
     config_error = validate_tool_config(body.tool_name, body.config)
     if config_error is not None:
         raise HTTPException(status_code=422, detail=config_error)

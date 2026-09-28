@@ -113,11 +113,11 @@ async def send_sandbox_message(
     _user: BotAccessUser,
 ) -> SandboxMessageOut:
     if not body.message.strip():
-        raise HTTPException(status_code=422, detail="message must not be empty")
+        raise HTTPException(status_code=422, detail="Сообщение не может быть пустым")
 
     bot = await get_bot(session, bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
 
     products = await list_products(session, bot_id, limit=CONTEXT_LIST_LIMIT)
     bindings = await list_enabled_tool_bindings(session, bot_id)
@@ -212,11 +212,11 @@ async def get_sandbox_media(
     т.к. Storage.get проверяет только выход за пределы ОБЩЕГО корня, не
     поддиректории конкретного бота — see security review, 2026-09-28)."""
     if ".." in PurePosixPath(key).parts or not key.startswith(f"bots/{bot_id}/"):
-        raise HTTPException(status_code=404, detail="media not found")
+        raise HTTPException(status_code=404, detail="Медиа не найдено")
     try:
         data = await storage.get(key)
     except Exception as exc:
-        raise HTTPException(status_code=404, detail="media not found") from exc
+        raise HTTPException(status_code=404, detail="Медиа не найдено") from exc
     if mime_type not in _INLINE_SAFE_MIME_TYPES:
         # Не доверяем mime_type для всего вне белого списка — иначе клиент
         # мог бы запросить произвольно загруженный документ (send_document
@@ -239,7 +239,7 @@ def _parse_history(raw: str | None) -> list[HistoryMessage]:
         items = _HistoryAdapter.validate_json(raw)
     except ValidationError as exc:
         raise HTTPException(
-            status_code=422, detail="history must be valid JSON matching SandboxHistoryItem[]"
+            status_code=422, detail="История диалога повреждена — начните тест заново"
         ) from exc
     return [HistoryMessage(role=item.role, content=item.content) for item in items]
 
@@ -261,20 +261,20 @@ async def send_sandbox_media_message(
     """
     bot = await get_bot(session, bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
 
     content_type = file.content_type or ""
     is_image = content_type.startswith("image/")
     is_pdf = content_type == "application/pdf"
     if not is_image and not is_pdf:
         raise HTTPException(
-            status_code=415, detail="only image/* and application/pdf are supported"
+            status_code=415, detail="Поддерживаются только фото и PDF"
         )
 
     data = await file.read()
     max_size = bot.settings.get("media_max_size_bytes") or DEFAULT_MEDIA_MAX_SIZE_BYTES
     if len(data) > max_size:
-        raise HTTPException(status_code=413, detail="file too large")
+        raise HTTPException(status_code=413, detail="Файл слишком большой")
 
     history_messages = _parse_history(history)
     time_ctx = time_context(bot.timezone)

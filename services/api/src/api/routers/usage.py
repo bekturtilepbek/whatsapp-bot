@@ -30,7 +30,7 @@ async def list_usage(
     if period not in PERIOD_TO_DAYS:
         allowed = sorted(PERIOD_TO_DAYS)
         raise HTTPException(
-            status_code=422, detail=f"invalid period: {period!r} (expected one of {allowed})"
+            status_code=422, detail=f"Неизвестный период: {period!r} (допустимо: {allowed})"
         )
     days = PERIOD_TO_DAYS[period]
     since = datetime.now(UTC) - timedelta(days=days) if days is not None else None

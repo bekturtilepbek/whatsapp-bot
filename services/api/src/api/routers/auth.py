@@ -18,7 +18,7 @@ async def login(body: LoginRequest, session: SessionDep) -> LoginResponse:
     if user is None or not user.is_active or not verify_password(body.password, user.password_hash):
         # Одно и то же сообщение на "нет email" и "неверный пароль" —
         # не раскрываем существование аккаунта.
-        raise HTTPException(status_code=401, detail="invalid email or password")
+        raise HTTPException(status_code=401, detail="Неверный email или пароль")
     token = create_access_token(user.id)
     return LoginResponse(token=token, user=UserOut.model_validate(user))
 

@@ -325,7 +325,7 @@ async def test_grant_bot_access_unknown_user_returns_404(
         f"/users/{uuid.uuid4()}/bot-access", json={"bot_id": str(bot_id)}
     )
     assert response.status_code == 404
-    assert response.json()["detail"] == "user not found"
+    assert response.json()["detail"] == "Пользователь не найден"
 
 
 async def test_grant_bot_access_unknown_bot_returns_404(client: httpx.AsyncClient) -> None:
@@ -338,7 +338,7 @@ async def test_grant_bot_access_unknown_bot_returns_404(client: httpx.AsyncClien
         f"/users/{user_id}/bot-access", json={"bot_id": str(uuid.uuid4())}
     )
     assert response.status_code == 404
-    assert response.json()["detail"] == "bot not found"
+    assert response.json()["detail"] == "Бот не найден"
 
 
 async def test_create_user_with_unknown_bot_id_returns_404(client: httpx.AsyncClient) -> None:
@@ -351,7 +351,7 @@ async def test_create_user_with_unknown_bot_id_returns_404(client: httpx.AsyncCl
         },
     )
     assert response.status_code == 404
-    assert response.json()["detail"] == "bot not found"
+    assert response.json()["detail"] == "Бот не найден"
 
     listing = await client.get("/users")
     assert not any(u["email"] == "bad-bot-id@example.com" for u in listing.json())
@@ -370,7 +370,7 @@ async def test_create_user_with_one_valid_one_unknown_bot_id_returns_404_no_part
         },
     )
     assert response.status_code == 404
-    assert response.json()["detail"] == "bot not found"
+    assert response.json()["detail"] == "Бот не найден"
 
     listing = await client.get("/users")
     assert not any(u["email"] == "partial@example.com" for u in listing.json())
@@ -393,4 +393,4 @@ async def test_create_user_duplicate_email_returns_409(client: httpx.AsyncClient
 
     second = await client.post("/users", json=payload)
     assert second.status_code == 409
-    assert second.json()["detail"] == "email already registered"
+    assert second.json()["detail"] == "Пользователь с таким email уже есть"

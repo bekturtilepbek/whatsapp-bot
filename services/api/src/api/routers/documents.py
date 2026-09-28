@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 
+import structlog
 from db.bots import get_bot
 from db.documents import (
     create_document,
@@ -30,6 +31,7 @@ from ..storage import StorageDep
 from ..video import VideoCompressionError, compress_video
 
 router = APIRouter(prefix="/bots", tags=["documents"])
+logger = structlog.get_logger(__name__)
 
 
 @router.get("/{bot_id}/documents", response_model=list[DocumentOut])
@@ -55,11 +57,11 @@ async def create_document_route(
 
     bot = await get_bot(session, bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail="bot not found")
+        raise HTTPException(status_code=404, detail="Бот не найден")
 
     assert file.filename is not None  # проверено validate_document_upload
     if await find_document_by_filename(session, bot_id, file.filename) is not None:
-        raise HTTPException(status_code=409, detail="a document with this filename already exists")
+        raise HTTPException(status_code=409, detail="Документ с таким именем уже есть")
 
     document_id = uuid.uuid4()
     key = build_document_storage_key(bot_id, document_id)
@@ -72,12 +74,20 @@ async def create_document_route(
         try:
             data = await compress_video(data)
         except VideoCompressionError as exc:
-            raise HTTPException(status_code=422, detail=f"video compression failed: {exc}") from exc
+            # Пользователю — понятный текст, техническая причина ffmpeg — в лог.
+            logger.warning("video compression failed", bot_id=str(bot_id), error=str(exc))
+            raise HTTPException(
+                status_code=422,
+                detail="Не удалось обработать видео — проверьте, что файл не повреждён",
+            ) from exc
         mime_type = "video/mp4"  # compress_video всегда перекодирует в mp4
     try:
         await storage.put(key, data, mime_type)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail="failed to store document") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="Не удалось сохранить файл, попробуйте ещё раз",
+        ) from exc
 
     document = await create_document(
         session,
@@ -97,5 +107,5 @@ async def delete_document_route(
 ) -> None:
     deleted = await delete_document(session, bot_id, document_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="document not found")
+        raise HTTPException(status_code=404, detail="Документ не найден")
     await session.commit()

@@ -65,7 +65,11 @@ export interface ProductDisplay {
   show_price?: boolean;
 }
 
-export const AVAILABLE_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
+// gpt-6-luna — новая модель OpenAI (релиз 2026-09-22), дефолт с 2026-09-28
+// по запросу пользователя; gpt-4o-mini/gpt-4o оставлены в списке — у части
+// ботов они уже выбраны явно в settings.model, список не должен осиротить
+// их выбор из выпадающего меню.
+export const AVAILABLE_MODELS = ["gpt-6-luna", "gpt-4o-mini", "gpt-4o"] as const;
 
 export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   batch_timeout_seconds: 1,

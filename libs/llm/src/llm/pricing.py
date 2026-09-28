@@ -13,6 +13,8 @@ from decimal import Decimal
 _PRICING_PER_MILLION_TOKENS: dict[str, tuple[Decimal, Decimal]] = {
     "gpt-4o-mini": (Decimal("0.15"), Decimal("0.60")),
     "gpt-4o": (Decimal("2.50"), Decimal("10.00")),
+    # Вышла 2026-09-22 (developers.openai.com/api/docs/models/gpt-6-luna).
+    "gpt-6-luna": (Decimal("0.10"), Decimal("0.50")),
 }
 _UNKNOWN_MODEL_PRICE = (Decimal("0"), Decimal("0"))
 

@@ -26,3 +26,9 @@ def test_input_and_output_priced_independently() -> None:
     only_output = compute_cost("gpt-4o", tokens_in=0, tokens_out=1_000_000)
     assert only_input == Decimal("2.5")
     assert only_output == Decimal("10")
+
+
+def test_computes_cost_for_gpt_6_luna() -> None:
+    # gpt-6-luna: $0.10/1M вход, $0.50/1M выход
+    cost = compute_cost("gpt-6-luna", tokens_in=1_000_000, tokens_out=1_000_000)
+    assert cost == Decimal("0.6")

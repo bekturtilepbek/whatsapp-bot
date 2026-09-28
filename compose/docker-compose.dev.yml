@@ -75,7 +75,7 @@ services:
       # уже подставил env_file, значением по умолчанию (пустая строка),
       # если сам `docker compose` вызван без --env-file — environment:
       # всегда побеждает env_file.
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
       STORAGE_DRIVER: fs
       STORAGE_FS_ROOT: /data/media
     volumes:

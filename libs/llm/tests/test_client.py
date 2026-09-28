@@ -14,6 +14,7 @@ import httpx2
 import openai
 import pytest
 from llm.client import (
+    DEFAULT_MODEL,
     AssistantToolCallsTurn,
     HistoryMessage,
     ToolCall,
@@ -497,7 +498,7 @@ async def test_complete_falls_back_to_platform_default_when_model_not_given() ->
     """Регрессия: боты без настроенной модели (все сейчас) не меняют поведение."""
     client = _client_with_response("ok", 1, 1)
     await complete("SYS", [], client=client)  # type: ignore[arg-type]
-    assert client.chat.completions.last_call_kwargs["model"] == "gpt-4o-mini"
+    assert client.chat.completions.last_call_kwargs["model"] == DEFAULT_MODEL
 
 
 async def test_complete_with_images_uses_explicit_model_override_when_given() -> None:

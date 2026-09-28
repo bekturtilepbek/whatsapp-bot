@@ -409,6 +409,29 @@ async def test_complete_with_tools_sends_function_specs_and_auto_choice() -> Non
     assert kwargs["tool_choice"] == "auto"
 
 
+async def test_complete_with_tools_sets_reasoning_effort_none_for_gpt6_models() -> None:
+    """Живой баг (2026-09-28), пойман сразу после смены дефолтной модели на
+    gpt-6-luna: любой бот с включённой тулзой падал на КАЖДОМ сообщении —
+    OpenAI отклоняет function tools вместе со своим reasoning_effort по
+    умолчанию для gpt-6-* через /v1/chat/completions (400, требует явно
+    reasoning_effort="none")."""
+    client = _client_with_response("ok", 1, 1)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    await complete_with_tools("SYS", [], [spec], model="gpt-6-luna", client=client)  # type: ignore[arg-type]
+    assert client.chat.completions.last_call_kwargs["reasoning_effort"] == "none"
+
+
+async def test_complete_with_tools_does_not_send_reasoning_effort_for_older_models() -> None:
+    """gpt-4o/gpt-4o-mini не знают параметр reasoning_effort вообще и сами
+    падают с 400 "Unrecognized request argument", если его передать
+    (проверено живьём против реального API) — нельзя слать его безусловно
+    для всех моделей."""
+    client = _client_with_response("ok", 1, 1)
+    spec = ToolSpec(name="search", description="d", parameters_schema={})
+    await complete_with_tools("SYS", [], [spec], model="gpt-4o-mini", client=client)  # type: ignore[arg-type]
+    assert "reasoning_effort" not in client.chat.completions.last_call_kwargs
+
+
 async def test_complete_with_tools_force_text_sets_tool_choice_none() -> None:
     client = _client_with_response("ok", 1, 1)
     spec = ToolSpec(name="search", description="d", parameters_schema={})

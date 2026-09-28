@@ -35,6 +35,20 @@ RETRY_MAX_ATTEMPTS = 3
 RETRY_BASE_DELAY_SECONDS = 1.0
 
 
+def _model_requires_reasoning_effort_override(model: str) -> bool:
+    """gpt-6-* (Sol/Luna, релиз 2026-09-22) — reasoning-модели: OpenAI по
+    умолчанию включает reasoning_effort, что несовместимо с function tools
+    через /v1/chat/completions (400 "Function tools with reasoning_effort
+    are not supported ... set reasoning_effort to 'none'" — живой баг,
+    2026-09-28, поймано сразу после смены платформенной модели: любой бот
+    с включённой тулзой падал на КАЖДОМ сообщении, тихо теряя ответ).
+    Старые модели (gpt-4o/gpt-4o-mini) не знают этот параметр вообще и сами
+    падают с "Unrecognized request argument", если его передать (проверено
+    живьём) — поэтому нельзя слать reasoning_effort безусловно для всех
+    моделей, только для этого поколения."""
+    return model.startswith("gpt-6")
+
+
 @dataclass(frozen=True)
 class HistoryMessage:
     role: str  # "user" | "assistant"
@@ -115,6 +129,8 @@ async def _call_and_extract(
     if tools is not None:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = tool_choice or "auto"
+        if _model_requires_reasoning_effort_override(model):
+            kwargs["reasoning_effort"] = "none"
 
     for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
         try:

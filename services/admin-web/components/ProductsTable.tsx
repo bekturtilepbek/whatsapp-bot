@@ -155,17 +155,30 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
             type="button"
             onClick={() => selectViewMode("cards")}
             aria-pressed={viewMode === "cards"}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "cards" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
+            aria-label="Карточки"
+            title="Карточки"
+            className={`rounded-md p-2 transition-colors ${viewMode === "cards" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
           >
-            Карточки
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect x="2.5" y="2.5" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="11.5" y="2.5" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="2.5" y="11.5" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="11.5" y="11.5" width="6" height="6" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+            </svg>
           </button>
           <button
             type="button"
             onClick={() => selectViewMode("table")}
             aria-pressed={viewMode === "table"}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "table" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
+            aria-label="Список"
+            title="Список"
+            className={`rounded-md p-2 transition-colors ${viewMode === "table" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
           >
-            Список
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect x="2.5" y="4" width="15" height="2.2" rx="1" fill="currentColor" />
+              <rect x="2.5" y="8.9" width="15" height="2.2" rx="1" fill="currentColor" />
+              <rect x="2.5" y="13.8" width="15" height="2.2" rx="1" fill="currentColor" />
+            </svg>
           </button>
         </div>
       </div>

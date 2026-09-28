@@ -321,7 +321,14 @@ export class SessionManager {
     sock.ev.on("creds.update", auth.saveCreds);
     sock.ev.on("connection.update", (update) => {
       session.lastActivity = Date.now();
-      void this.onConnectionUpdate(botId, session, update);
+      // markLinked/clearSession внутри onConnectionUpdate бьют в Postgres
+      // без своего try/catch — необработанный reject здесь становится
+      // unhandledRejection и роняет ВЕСЬ процесс gateway (обрывая сессии
+      // ВСЕХ ботов на узле, не только этого), тот же класс бага, что уже
+      // нашли и закрыли в pool.ts/redis.ts (security review, 2026-09-28).
+      this.onConnectionUpdate(botId, session, update).catch((err) => {
+        this.logger.error({ err, botId }, "onConnectionUpdate failed");
+      });
     });
     sock.ev.on("messages.upsert", (upsert) => {
       session.lastActivity = Date.now();
@@ -382,7 +389,23 @@ export class SessionManager {
       this.logger.warn({ botId, attempt, delay }, "session closed, reconnecting");
       await this.publishStatus(botId, "reconnecting");
       setTimeout(() => {
-        void this.connect(botId, attempt);
+        // connect() бьёт в Postgres (auth-state) и делает сетевой запрос
+        // (fetchLatestBaileysVersion) до какого-либо try/catch у вызывающего
+        // кода — необработанный reject тут тоже unhandledRejection, тот же
+        // класс бага, что и у onConnectionUpdate выше. Дополнительно: если
+        // connect() падает ДО своего sessions.set (см. комментарий выше —
+        // старая запись-плейсхолдер намеренно не удаляется до replace), эта
+        // устаревшая запись иначе осталась бы в this.sessions НАВСЕГДА —
+        // sessions.has(botId) продолжал бы быть true, и startSession/
+        // waitForQr больше никогда не подняли бы сессию заново без рестарта
+        // всего gateway. Чистим её сами при неудаче, чтобы бот оставался
+        // восстановимым обычным путём (следующий /qr).
+        this.connect(botId, attempt).catch((err) => {
+          this.logger.error({ err, botId, attempt }, "scheduled reconnect failed");
+          if (this.sessions.get(botId) === session) {
+            this.sessions.delete(botId);
+          }
+        });
       }, delay);
     }
   }

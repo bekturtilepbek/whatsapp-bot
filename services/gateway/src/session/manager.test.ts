@@ -354,3 +354,84 @@ describe("SessionManager.startSession - concurrent calls for the same bot", () =
     expect(makeWASocketMock.mock.calls.length - callsBefore).toBe(1);
   });
 });
+
+/** Достаёт хендлер, который connect() зарегистрировал через sock.ev.on(event, ...) на ПОСЛЕДНЕМ созданном фейковом сокете. */
+function lastRegisteredHandler(eventName: string): (...args: unknown[]) => void {
+  const socket = makeWASocketMock.mock.results.at(-1)!.value as { ev: { on: ReturnType<typeof vi.fn> } };
+  const call = socket.ev.on.mock.calls.find(([name]: [string]) => name === eventName);
+  if (!call) throw new Error(`no listener registered for ${eventName}`);
+  return call[1] as (...args: unknown[]) => void;
+}
+
+// Живой класс бага (security review, 2026-09-28): connection.update и
+// реконнект-таймер вызывали onConnectionUpdate()/connect() через "void" —
+// необработанный reject там становится unhandledRejection и роняет ВЕСЬ
+// процесс gateway (тот же класс, что уже нашли и закрыли в pool.ts/redis.ts).
+describe("SessionManager - unhandled rejection safety on connection.update / reconnect", () => {
+  it("logs (does not throw) when onConnectionUpdate's own DB call fails", async () => {
+    const logger = makeFakeLogger();
+    const pool = {
+      query: vi.fn(async (sql: string) => {
+        // markLinked (вызывается на connection:"open") пишет phone — эта
+        // проверка отличает его от остальных запросов той же функции.
+        if (sql.includes("phone")) throw new Error("connection refused");
+        if (sql.startsWith("SELECT")) return { rows: [{ auth_state_text: null }] };
+        return { rows: [] };
+      }),
+    } as unknown as Pool;
+    const sessions = new SessionManager(pool, makeFakeRedis(), logger, makeFakeStorage());
+    await sessions.startSession("bot-open-fail");
+
+    const onConnectionUpdate = lastRegisteredHandler("connection.update");
+    // Не await'им — ровно так же, как реальный sock.ev.emit: слушатель не
+    // может быть async из коробки, ошибка внутри уходит в отдельный промис.
+    onConnectionUpdate({ connection: "open" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot-open-fail" }),
+      "onConnectionUpdate failed",
+    );
+  });
+
+  it("logs and clears the stale session entry when a scheduled reconnect's connect() fails", async () => {
+    vi.useFakeTimers();
+    try {
+      const logger = makeFakeLogger();
+      let failNextSelect = false;
+      const pool = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.startsWith("SELECT") && failNextSelect) throw new Error("connection refused");
+          if (sql.startsWith("SELECT")) return { rows: [{ auth_state_text: null }] };
+          return { rows: [] };
+        }),
+      } as unknown as Pool;
+      const sessions = new SessionManager(pool, makeFakeRedis(), logger, makeFakeStorage());
+      await sessions.startSession("bot-reconnect-fail");
+
+      const onConnectionUpdate = lastRegisteredHandler("connection.update");
+      // Следующий connect() (внутри отложенного реконнекта) должен упасть на
+      // чтении auth-state — имитирует сбой Postgres именно в момент реконнекта.
+      failNextSelect = true;
+      onConnectionUpdate({ connection: "close", lastDisconnect: { error: undefined } });
+      await vi.advanceTimersByTimeAsync(0); // даёт onConnectionUpdate дойти до setTimeout
+      await vi.advanceTimersByTimeAsync(1000); // RECONNECT_BASE_DELAY_MS
+      await vi.advanceTimersByTimeAsync(0); // даёт упавшему connect() долететь до .catch()
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ botId: "bot-reconnect-fail" }),
+        "scheduled reconnect failed",
+      );
+
+      // Без очистки эта запись осталась бы в this.sessions НАВСЕГДА —
+      // startSession видел бы sessions.has() === true и никогда не поднял
+      // бы сессию заново без рестарта всего gateway.
+      const callsBefore = makeWASocketMock.mock.calls.length;
+      failNextSelect = false;
+      await sessions.startSession("bot-reconnect-fail");
+      expect(makeWASocketMock.mock.calls.length - callsBefore).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

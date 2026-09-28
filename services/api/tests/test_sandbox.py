@@ -475,7 +475,55 @@ async def test_sandbox_media_returns_bytes_for_known_key(
     )
     assert response.status_code == 200
     assert response.content == b"%PDF-1.4 fake"
-    assert response.headers["content-type"] == "application/pdf"
+    # application/pdf не в белом списке инлайн-типов (security review,
+    # 2026-09-28) — отдаётся как вложение с безопасным generic content-type,
+    # а не с mime_type, который прислал клиент. SandboxChat.tsx и так рендерит
+    # PDF как ссылку-скачивание, а не инлайн — поведение не меняется для
+    # легитимного случая.
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"] == "attachment"
+
+
+async def test_sandbox_media_returns_inline_content_type_for_whitelisted_image(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    storage_key = f"bots/{bot_id}/documents/photo.jpg"
+    await fake_storage.put(storage_key, b"jpeg-bytes", "image/jpeg")
+
+    response = await client.get(
+        f"/bots/{bot_id}/sandbox/media",
+        params={"key": storage_key, "mime_type": "image/jpeg"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert "content-disposition" not in response.headers
+
+
+async def test_sandbox_media_never_reflects_an_unsafe_mime_type(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
+) -> None:
+    # Регрессия: send_document принимает файл любого типа (FEATURES.md 4.8),
+    # так что клиент мог загрузить .html с <script> и попросить sandbox/media
+    # отдать его как text/html — раньше эндпоинт слепо доверял mime_type из
+    # query-строки, что рендерилось как HTML/JS на origin кабинета (stored
+    # XSS, security review 2026-09-28).
+    bot_id = await _make_bot(session_factory)
+    storage_key = f"bots/{bot_id}/documents/evil.html"
+    await fake_storage.put(storage_key, b"<script>alert(1)</script>", "text/html")
+
+    response = await client.get(
+        f"/bots/{bot_id}/sandbox/media",
+        params={"key": storage_key, "mime_type": "text/html"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"] == "attachment"
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 async def test_sandbox_media_rejects_key_outside_bot_prefix(
@@ -489,6 +537,34 @@ async def test_sandbox_media_rejects_key_outside_bot_prefix(
             "key": f"bots/{other_bot_id}/documents/price.pdf",
             "mime_type": "application/pdf",
         },
+    )
+    assert response.status_code == 404
+
+
+async def test_sandbox_media_rejects_traversal_that_matches_prefix_as_a_string(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    fake_storage: _FakeStorage,
+) -> None:
+    # Регрессия: "bots/{bot_id}/../{other_bot_id}/..." passes a naive
+    # str.startswith(f"bots/{bot_id}/") check literally, and Storage.get only
+    # rejects paths that escape the WHOLE storage root, not a specific bot's
+    # own subtree — so it used to leak another bot's file (security review,
+    # 2026-09-28).
+    bot_id = await _make_bot(session_factory)
+    other_bot_id = await _make_bot(session_factory)
+    # _FakeStorage is a plain dict keyed by the literal string, unlike the
+    # real FilesystemStorage (which resolves ".." against the shared root).
+    # Storing the secret under the exact traversal-key string proves this
+    # test is exercising the ROUTER's own ".."-rejection: without it,
+    # storage.get(traversal_key) would find this entry and return 200.
+    traversal_key = f"bots/{bot_id}/../{other_bot_id}/documents/secret.pdf"
+    assert traversal_key.startswith(f"bots/{bot_id}/")  # sanity: still passes the naive check
+    await fake_storage.put(traversal_key, b"other bot's secret", "application/pdf")
+
+    response = await client.get(
+        f"/bots/{bot_id}/sandbox/media",
+        params={"key": traversal_key, "mime_type": "application/pdf"},
     )
     assert response.status_code == 404
 

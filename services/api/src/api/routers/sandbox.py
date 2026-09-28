@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import functools
 import uuid
+from pathlib import PurePosixPath
 from typing import Any
 
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
@@ -59,6 +60,15 @@ from ..storage import StorageDep
 
 DEFAULT_MEDIA_MAX_SIZE_BYTES = 16 * 1024 * 1024
 _HistoryAdapter = TypeAdapter(list[SandboxHistoryItem])
+
+# Единственные типы, которые SandboxChat.tsx рендерит ИНЛАЙН (<img>/<video>) —
+# всё остальное (документы, PDF) уже уходит как ссылка-скачивание, поэтому
+# сужение сюда не меняет поведение для легитимных случаев. Обязательно, а не
+# косметика: mime_type ниже приходит от КЛИЕНТА нетронутым, а send_document
+# по конструкции принимает файл любого типа (FEATURES.md 4.8) — без белого
+# списка можно было бы попросить отдать .html-документ как text/html и
+# получить XSS на origin кабинета (see security review, 2026-09-28).
+_INLINE_SAFE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"}
 
 router = APIRouter(prefix="/bots", tags=["sandbox"])
 
@@ -180,17 +190,33 @@ async def get_sandbox_media(
     """Байты медиа, которое тулза вернула в этом ходе песочницы (карточка
     товара, файл) — эфемерные, нигде в БД для песочницы не хранятся, поэтому
     mime_type передаётся явно (не вычитывается из строки в БД, как у
-    products.media/documents). Префикс ключа — единственная проверка,
-    что запрашивается объект именно ЭТОГО бота, не чужой (owner и так видит
-    все боты, но эндпоинт не должен превращаться в открытое чтение
-    произвольных ключей Storage по названию)."""
-    if not key.startswith(f"bots/{bot_id}/"):
+    products.media/documents). Префикс ключа — проверка, что запрашивается
+    объект именно ЭТОГО бота, не чужой (owner и так видит все боты, но
+    эндпоинт не должен превращаться в открытое чтение произвольных ключей
+    Storage по названию) — ключ дополнительно нормализуется: голая проверка
+    startswith() пропускала "bots/{bot_id}/../{другой_bot_id}/..." (совпадает
+    по СТРОКЕ с нужным префиксом, а после ".." реально читает чужого бота,
+    т.к. Storage.get проверяет только выход за пределы ОБЩЕГО корня, не
+    поддиректории конкретного бота — see security review, 2026-09-28)."""
+    if ".." in PurePosixPath(key).parts or not key.startswith(f"bots/{bot_id}/"):
         raise HTTPException(status_code=404, detail="media not found")
     try:
         data = await storage.get(key)
     except Exception as exc:
         raise HTTPException(status_code=404, detail="media not found") from exc
-    return Response(content=data, media_type=mime_type)
+    if mime_type not in _INLINE_SAFE_MIME_TYPES:
+        # Не доверяем mime_type для всего вне белого списка — иначе клиент
+        # мог бы запросить произвольно загруженный документ (send_document
+        # принимает любой тип) как text/html и получить XSS на origin
+        # кабинета через этот же эндпоинт (see security review, 2026-09-28).
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": "attachment", "X-Content-Type-Options": "nosniff"},
+        )
+    return Response(
+        content=data, media_type=mime_type, headers={"X-Content-Type-Options": "nosniff"}
+    )
 
 
 def _parse_history(raw: str | None) -> list[HistoryMessage]:

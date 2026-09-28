@@ -94,6 +94,9 @@ export class SessionManager {
   private readonly sessions = new Map<string, RunningSession>();
   // Хвост цепочки записей статуса per bot — см. publishStatus() ниже.
   private readonly statusWriteChains = new Map<string, Promise<void>>();
+  // connect() в процессе, до того как сессия попадёт в this.sessions — см.
+  // startSession() ниже.
+  private readonly connecting = new Map<string, Promise<void>>();
 
   constructor(
     private readonly pool: Pool,
@@ -108,10 +111,36 @@ export class SessionManager {
     }
   }
 
-  /** Идемпотентно: если сессия уже поднята/поднимается — не трогаем её. */
+  /**
+   * Идемпотентно: если сессия уже поднята/поднимается — не трогаем её.
+   *
+   * Живой баг (security review, 2026-09-28): `connect()` делает два await
+   * (чтение auth-state из Postgres, запрос версии Baileys) ДО того, как
+   * сессия попадает в `this.sessions` — раньше проверка `sessions.has()`
+   * выше была единственной защитой, и два близких по времени вызова (два
+   * `/qr/:botId` подряд, дабл-клик, поллинг дашборда) оба проходили её до
+   * того, как первый успевал дойти до `sessions.set`. Второй `connect()`
+   * тогда перезаписывал запись в Map, а первый сокет оставался осиротевшим:
+   * его watchdog-таймер никогда не чистился (утечка), его слушатели
+   * продолжали публиковать КАЖДОЕ входящее сообщение в wa:in ДВАЖДЫ, и
+   * WhatsApp рано или поздно закрывал один из двух сокетов через
+   * connectionReplaced — что не является loggedOut и уходит в обычный
+   * реконнект, порождая бесконечный цикл замены. Резервируем слот
+   * СИНХРОННО (до первого await), чтобы конкурентный вызов увидел уже
+   * идущий connect() и дождался именно его, а не запустил второй.
+   */
   async startSession(botId: string): Promise<void> {
     if (this.sessions.has(botId)) return;
-    await this.connect(botId, 0);
+    const inFlight = this.connecting.get(botId);
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+    const attempt = this.connect(botId, 0).finally(() => {
+      this.connecting.delete(botId);
+    });
+    this.connecting.set(botId, attempt);
+    await attempt;
   }
 
   /** Отдаёт ближайший QR для бота, поднимая сессию при первой привязке. */

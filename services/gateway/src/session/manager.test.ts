@@ -35,7 +35,7 @@ vi.mock("@whiskeysockets/baileys", async (importOriginal) => {
 });
 
 // vi.mock выше хостится vitest'ом перед всеми импортами модуля.
-const { downloadMediaMessage } = await import("@whiskeysockets/baileys");
+const { default: makeWASocketMock, downloadMediaMessage } = await import("@whiskeysockets/baileys");
 import { SessionManager } from "./manager.js";
 
 function makeFakePool(): Pool {
@@ -323,5 +323,34 @@ describe("SessionManager - media download skipped for group/broadcast/from_me", 
 
     expect(downloadMediaMessage).not.toHaveBeenCalled();
     expect(storage.put).not.toHaveBeenCalled();
+  });
+});
+
+// Живой баг (security review, 2026-09-28): connect() делает два await (auth-
+// state из Postgres, версия Baileys) ДО того, как сессия попадает в
+// this.sessions — sessions.has() в startSession() была единственной защитой
+// от двойного запуска, и два близких вызова (два /qr/:botId подряд, поллинг
+// дашборда) оба проходили её до того, как первый успевал дойти до
+// sessions.set, создавая два сокета с одними и теми же credentials.
+describe("SessionManager.startSession - concurrent calls for the same bot", () => {
+  it("only builds one Baileys socket when startSession is called twice before the first resolves", async () => {
+    const callsBefore = makeWASocketMock.mock.calls.length;
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+
+    await Promise.all([sessions.startSession("bot-1"), sessions.startSession("bot-1")]);
+
+    expect(makeWASocketMock.mock.calls.length - callsBefore).toBe(1);
+  });
+
+  it("waitForQr (the real /qr/:botId path) calling startSession concurrently with another caller still builds one socket", async () => {
+    const callsBefore = makeWASocketMock.mock.calls.length;
+    const sessions = new SessionManager(makeFakePool(), makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+
+    // waitForQr rejects on timeout if no "qr" event ever fires (this fake
+    // socket never emits one) — only the socket-count guarantee matters
+    // here, so a short timeout keeps the test fast regardless.
+    await Promise.allSettled([sessions.startSession("bot-2"), sessions.waitForQr("bot-2", 20)]);
+
+    expect(makeWASocketMock.mock.calls.length - callsBefore).toBe(1);
   });
 });

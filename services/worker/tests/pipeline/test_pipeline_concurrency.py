@@ -268,6 +268,97 @@ async def test_shutdown_force_cancels_a_handler_stuck_past_the_drain_window(
         await redis.aclose()
 
 
+async def test_message_sent_while_bot_is_still_replying_still_gets_a_reply(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой баг (security review, 2026-09-28): wait_for_quiet() снимает claim
+    лидера батч-окна ДО lock.acquire() — сообщение, написанное клиентом ровно
+    во время ответа бота на предыдущее, становится новым "лидером" (claim уже
+    свободен), проходит свой debounce и раньше просто молча отступало на
+    занятом локе НАВСЕГДА, ни разу не получив ответ. Здесь второе сообщение
+    приходит, пока первый ответ (искусственно медленный) ещё держит лок —
+    должно дождаться освобождения и получить свой собственный ход."""
+    from worker.pipeline import lock as lock_module
+
+    monkeypatch.setattr(lock_module, "LOCK_ACQUIRE_POLL_INTERVAL_SECONDS", 0.02)
+
+    call_count = 0
+
+    async def fake_complete(system_prompt, history, **_):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await asyncio.sleep(0.3)  # имитирует долгий ответ бота на первое сообщение
+            return LLMResult(
+                text="Ответ на первое.", tokens_in=1, tokens_out=1, model="gpt-4o-mini"
+            )
+        return LLMResult(text="Ответ на второе.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    bot_id = await _make_bot(session_factory)
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    chat_id = "996700000005@s.whatsapp.net"
+    storage = _FakeStorage({})
+    redis = FakeRedis(decode_responses=True)
+
+    def text_payload(wa_msg_id: str, text: str) -> dict[str, object]:
+        return {
+            "type": "inbound.text",
+            "bot_id": str(bot_id),
+            "wa_msg_id": wa_msg_id,
+            "chat_id": chat_id,
+            "sender_wa_id": chat_id.split("@")[0],
+            "from_me": False,
+            "text": text,
+            "ts": now_ms,
+        }
+
+    try:
+        await ensure_group(redis, IN_STREAM, GROUP)
+        consumer_task = asyncio.create_task(
+            run_pipeline_consumer(redis, session_factory, "test-consumer", storage)
+        )
+        await publish(redis, IN_STREAM, text_payload("wamsg-first", "Привет"))
+        # Достаточно, чтобы batch_timeout_seconds=0.05 прошёл и первое
+        # сообщение уже держало лок внутри своего (искусственно медленного,
+        # 0.3с) complete() — но публикуем ЗАДОЛГО до его завершения.
+        await asyncio.sleep(0.15)
+        await publish(redis, IN_STREAM, text_payload("wamsg-second", "Ты ещё тут?"))
+
+        await asyncio.sleep(1.0)  # первый ответ (0.3с) + debounce + ожидание лока вторым
+
+        async with session_factory() as session:
+            from db.models import Message
+            from sqlalchemy import select
+
+            assistant_replies = (
+                (
+                    await session.execute(
+                        select(Message)
+                        .where(Message.bot_id == bot_id, Message.role == "assistant")
+                        .order_by(Message.seq)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            # Ключевая проверка: ОБА сообщения получили ответ — второе не
+            # потеряно молча из-за занятого лока.
+            assert [m.content for m in assistant_replies] == [
+                "Ответ на первое.",
+                "Ответ на второе.",
+            ]
+    finally:
+        consumer_task.cancel()
+        try:
+            await consumer_task
+        except asyncio.CancelledError:
+            pass
+        await redis.aclose()
+
+
 async def test_one_failing_entry_does_not_block_or_lose_the_next_entry_in_the_same_batch(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

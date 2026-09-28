@@ -303,8 +303,19 @@ async def _process_entry(
 
     await batching.wait_for_quiet(redis, bot_id_str, event.chat_id)
 
-    if not await lock.acquire(redis, bot_id_str, event.chat_id):
-        logger.info("dialog already locked, backing off", bot_id=bot_id_str, chat_id=event.chat_id)
+    # Живой баг (security review, 2026-09-28): wait_for_quiet() снимает claim
+    # лидера ДО этой точки — сообщение, написанное клиентом ровно во время
+    # ответа бота на предыдущее, становится новым "лидером" и раньше просто
+    # молча отступало здесь навсегда, ни разу не получив ответ. Ждём
+    # освобождения лока вместо немедленной сдачи (acquire_with_wait) — это
+    # сообщение уже в истории (insert_incoming выше), дождавшись лока,
+    # получит полноценный отдельный ход вместо тишины.
+    if not await lock.acquire_with_wait(redis, bot_id_str, event.chat_id):
+        logger.warning(
+            "dialog lock unavailable after waiting, giving up",
+            bot_id=bot_id_str,
+            chat_id=event.chat_id,
+        )
         return
 
     try:

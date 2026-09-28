@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from fakeredis.aioredis import FakeRedis
 from worker.pipeline import lock as lock_module
-from worker.pipeline.lock import _lock_key, acquire, release, renew
+from worker.pipeline.lock import _lock_key, acquire, acquire_with_wait, release, renew
 
 
 async def test_second_acquire_fails_while_held() -> None:
@@ -134,6 +134,55 @@ async def test_keep_alive_survives_a_transient_renew_failure(
             await asyncio.sleep(1.5)  # переживает первый сбойный renew и продлевается дальше
             assert await acquire(redis, "bot-1", "chat-1") is False
         assert calls >= 2  # цикл не остановился после первого сбоя
+    finally:
+        await redis.aclose()
+
+
+
+# Живой баг (security review, 2026-09-28): раньше acquire() один раз
+# возвращал False и вызывающий код в consumer.py молча отступал — клиент,
+# написавший во время ответа бота на предыдущее сообщение, никогда не
+# получал ответа вообще. acquire_with_wait() должен ждать освобождения,
+# а не сдаваться немедленно.
+async def test_acquire_with_wait_succeeds_immediately_when_lock_is_free() -> None:
+    redis = FakeRedis()
+    try:
+        assert await acquire_with_wait(redis, "bot-1", "chat-1", max_wait_seconds=5) is True
+    finally:
+        await redis.aclose()
+
+
+async def test_acquire_with_wait_waits_for_the_holder_to_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lock_module, "LOCK_ACQUIRE_POLL_INTERVAL_SECONDS", 0.05)
+    redis = FakeRedis()
+    try:
+        assert await acquire(redis, "bot-1", "chat-1") is True  # занято другим "ответом"
+
+        async def release_after_delay() -> None:
+            await asyncio.sleep(0.15)
+            await release(redis, "bot-1", "chat-1")
+
+        release_task = asyncio.create_task(release_after_delay())
+        try:
+            acquired = await acquire_with_wait(redis, "bot-1", "chat-1", max_wait_seconds=5)
+            assert acquired is True  # дождался, а не отступил сразу
+        finally:
+            await release_task
+    finally:
+        await redis.aclose()
+
+
+async def test_acquire_with_wait_gives_up_after_max_wait_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lock_module, "LOCK_ACQUIRE_POLL_INTERVAL_SECONDS", 0.05)
+    redis = FakeRedis()
+    try:
+        assert await acquire(redis, "bot-1", "chat-1") is True  # никто не отпускает
+        acquired = await acquire_with_wait(redis, "bot-1", "chat-1", max_wait_seconds=0.2)
+        assert acquired is False  # не завис навсегда — сдался по потолку
     finally:
         await redis.aclose()
 

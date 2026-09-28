@@ -11,6 +11,7 @@ import asyncio
 import os
 import signal
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 from aiohttp import web
@@ -58,6 +59,20 @@ async def run_health_server(engine: AsyncEngine, redis: Redis) -> web.AppRunner:
     return runner
 
 
+def _log_loop_exception(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    """FEATURES.md 8.4: страховка от ещё не найденных источников. Каждая
+    запись wa:in обрабатывается своей задачей (consumer.py); если её
+    исключение ни разу не заберут, asyncio пишет "Task exception was never
+    retrieved" стандартным logging только при сборке мусора — в структурных
+    логах worker его не видно. Процесс не роняем: один сбойный диалог не
+    должен останавливать остальные."""
+    logger.error(
+        "unhandled asyncio exception",
+        detail=context.get("message"),
+        exc_info=context.get("exception"),
+    )
+
+
 async def main() -> None:
     redis = make_redis()
     engine = make_engine()
@@ -71,6 +86,7 @@ async def main() -> None:
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
+    loop.set_exception_handler(_log_loop_exception)
     try:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)

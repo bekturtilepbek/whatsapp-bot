@@ -9,6 +9,7 @@ import { closePool, getPool } from "./db/pool.js";
 import { OutboundConsumer } from "./outbound/consumer.js";
 import { SessionManager } from "./session/manager.js";
 import { createStorage } from "./storage/index.js";
+import { installProcessSafetyNet } from "./utils/processSafety.js";
 
 const app = Fastify({ logger: { name: "gateway" } });
 const pool = getPool(app.log);
@@ -79,6 +80,8 @@ async function shutdown(): Promise<void> {
   await closePool();
   process.exit(0);
 }
+
+installProcessSafetyNet(process, app.log, (code) => process.exit(code));
 
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());

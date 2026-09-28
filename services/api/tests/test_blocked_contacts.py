@@ -108,6 +108,22 @@ async def test_post_adds_number_stripping_non_digits(
     assert [item["phone"] for item in listing.json()] == ["996700000000"]
 
 
+@pytest.mark.parametrize("phone", ["abc", "", "   ", "<script>", "1", "123456", "9" * 16])
+async def test_post_rejects_what_is_not_a_phone_number(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession], phone: str
+) -> None:
+    """Регрессия 2026-09-28: "abc" после очистки от не-цифр превращался в ""
+    и сохранялся — пустая строка в списке, которую нельзя удалить (DELETE
+    /blocked-numbers/ с пустым сегментом — 405). Номер WhatsApp — это wa_id
+    с кодом страны: 7–15 цифр (E.164)."""
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(f"/bots/{bot_id}/blocked-numbers", json={"phone": phone})
+    assert response.status_code == 422
+
+    listing = await client.get(f"/bots/{bot_id}/blocked-numbers")
+    assert listing.json() == []
+
+
 async def test_post_is_idempotent(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

@@ -16,6 +16,9 @@ import { SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
 import { useInvalidShake } from "@/lib/useInvalidShake";
 
+const MIN_PHONE_DIGITS = 7;
+const MAX_PHONE_DIGITS = 15;
+
 interface BlockedNumbersTableProps {
   botId: string;
   apiBaseUrl: string;
@@ -55,6 +58,14 @@ export function BlockedNumbersTable({
     event.preventDefault();
     if (!phone.trim()) {
       showError("Введите номер телефона");
+      shake(["phone"]);
+      return;
+    }
+    // Та же проверка, что в API (bots.py, BLOCKED_PHONE_*_DIGITS): без неё
+    // "abc" превращался на сервере в "" — неудаляемую пустую строку списка.
+    const digits = phone.replace(/\D/g, "").length;
+    if (digits < MIN_PHONE_DIGITS || digits > MAX_PHONE_DIGITS) {
+      showError(`Номер должен содержать от ${MIN_PHONE_DIGITS} до ${MAX_PHONE_DIGITS} цифр вместе с кодом страны`);
       shake(["phone"]);
       return;
     }

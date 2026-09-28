@@ -43,6 +43,23 @@ it("shows an error and does not call the api when the phone field is empty", asy
   expect(shakeWrapper).toContainElement(screen.getByLabelText("Номер телефона"));
 });
 
+// Раньше "abc" уходил в API, становился "" и оставался в списке пустой
+// строкой, которую нельзя удалить.
+it.each(["abc", "123", "9999999999999999"])(
+  "rejects %s before calling the api — not a phone number",
+  async (value) => {
+    render(
+      <BlockedNumbersTable botId="1" apiBaseUrl="http://api" numbers={numbers} pageSize={10} />,
+    );
+    fireEvent.change(screen.getByLabelText("Номер телефона"), { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: /добавить/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/от 7 до 15 цифр/i);
+    expect(api.addBlockedNumber).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Номер телефона")).toHaveAttribute("aria-invalid", "true");
+  },
+);
+
 it("adds a number and prepends it to the list", async () => {
   vi.mocked(api.addBlockedNumber).mockResolvedValue({ phone: "996700000003" });
   render(

@@ -258,6 +258,10 @@ async def release_chat(
     return {"status": "released"}
 
 
+BLOCKED_PHONE_MIN_DIGITS = 7
+BLOCKED_PHONE_MAX_DIGITS = 15
+
+
 def _strip_non_digits(phone: str) -> str:
     """Тот же формат хранения, что и Contact.wa_id — без "+"/пробелов/скобок
     (эталон V1: re.sub(r'\\D', '', phone) в central-admin).
@@ -282,6 +286,17 @@ async def add_blocked(
     bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep, user: FullBotAccess
 ) -> BlockedNumberOut:
     phone = _strip_non_digits(body.phone)
+    # "abc" раньше превращался в "" и сохранялся: пустая строка в списке,
+    # которую нельзя удалить (DELETE .../blocked-numbers/ — 405). Матчинг идёт
+    # по wa_id, а это номер с кодом страны: 7–15 цифр (E.164).
+    if not BLOCKED_PHONE_MIN_DIGITS <= len(phone) <= BLOCKED_PHONE_MAX_DIGITS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Номер должен содержать от {BLOCKED_PHONE_MIN_DIGITS} до "
+                f"{BLOCKED_PHONE_MAX_DIGITS} цифр вместе с кодом страны"
+            ),
+        )
     await add_blocked_number(session, bot_id, phone)
     await session.commit()
     return BlockedNumberOut(phone=phone)

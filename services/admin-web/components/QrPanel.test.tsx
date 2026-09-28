@@ -91,6 +91,14 @@ it("switches to the connected view once polling finds linked_at set", async () =
   expect(screen.queryByRole("img", { name: /qr/i })).not.toBeInTheDocument();
 });
 
+it("shows an 'Открыть чат' link to wa.me for a connected bot", () => {
+  render(<QrPanel initialBot={linkedBot} apiBaseUrl="http://api" stats={stats} pollIntervalMs={10000} />);
+
+  const link = screen.getByRole("link", { name: /открыть чат/i });
+  expect(link).toHaveAttribute("href", "https://wa.me/996700000000");
+  expect(link).toHaveAttribute("target", "_blank");
+});
+
 it("logs out and returns to the QR view", async () => {
   vi.mocked(api.fetchBot).mockResolvedValue(unlinkedBot);
   vi.mocked(api.logoutBot).mockResolvedValue(undefined);

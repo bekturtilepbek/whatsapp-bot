@@ -70,15 +70,12 @@ export function PromptEditor({
     <div className="space-y-5">
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">{label}</h2>
-        <label className="mb-0 block text-sm font-medium text-ink">
-          Текст промпта
-          <Textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={6}
-            className="mt-1.5"
-          />
-        </label>
+        <Textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={6}
+          aria-label={label}
+        />
         <p className="mt-1.5 text-xs text-ink-soft">{body.length} символов</p>
         <div className="mt-3 flex items-center gap-4">
           <Button onClick={() => void save(body)} disabled={saving}>

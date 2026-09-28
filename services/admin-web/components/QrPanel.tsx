@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchBot, logoutBot, patchBotEnabled, qrImageUrl, type Bot, type BotStats } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Banner } from "@/components/ui/Banner";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClasses } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { IconBadge } from "@/components/ui/IconBadge";
 import { StatTile } from "@/components/ui/StatTile";
@@ -187,11 +187,23 @@ export function QrPanel({
               <p className="text-base font-bold text-ink">WhatsApp подключён</p>
               <p className="mt-1 font-mono text-sm text-ink-soft">{bot.phone}</p>
             </div>
-            {canManageConnection && (
-              <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
-                {loggingOut ? "Отключаем…" : "Отключить"}
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              {bot.phone && (
+                <a
+                  href={`https://wa.me/${bot.phone}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={buttonClasses("secondary")}
+                >
+                  Открыть чат
+                </a>
+              )}
+              {canManageConnection && (
+                <Button variant="danger" onClick={() => void handleLogout()} disabled={loggingOut}>
+                  {loggingOut ? "Отключаем…" : "Отключить"}
+                </Button>
+              )}
+            </div>
           </Card>
           {pollError && (
             <p role="alert" className="mt-3 text-sm text-danger">

@@ -156,14 +156,6 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
 
   return (
     <div>
-      <p className="sbx-note">
-        Тулзы бота (товары/файлы) работают по-настоящему; заявки в Telegram и другие тулзы с
-        реальным эффектом — глушатся тестовым ответом, реально никуда не уходят. Можно прикрепить
-        фото или PDF — ответит vision/PDF-промптом бота, как реальному клиенту. Тратит реальные
-        токены OpenAI, видно в «Расходы». История не сохраняется — обновление страницы начинает
-        тест заново.
-      </p>
-
       <div className="sbx-phone">
         <div className="sbx-header">
           <div className="sbx-avatar" aria-hidden="true">
@@ -307,12 +299,20 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
         </form>
       </div>
 
+      <p className="sbx-note">
+        Тулзы бота (товары/файлы) работают по-настоящему; заявки в Telegram и другие тулзы с
+        реальным эффектом — глушатся тестовым ответом, реально никуда не уходят. Можно прикрепить
+        фото или PDF — ответит vision/PDF-промптом бота, как реальному клиенту. Тратит реальные
+        токены OpenAI, видно в «Расходы». История не сохраняется — обновление страницы начинает
+        тест заново.
+      </p>
+
       <style>{`
         .sbx-note {
           color: #667781;
           font-size: 0.85em;
           max-width: 420px;
-          margin: 0 auto 1rem;
+          margin: 1rem auto 0;
         }
 
         .sbx-phone {

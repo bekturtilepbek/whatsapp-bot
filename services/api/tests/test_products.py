@@ -334,6 +334,45 @@ async def test_patch_price_only_does_not_recompute_embedding(
     assert calls == 1  # цена — не name/description, пересчёта не было
 
 
+# Регрессия 2026-09-28: отрицательная цена сохранялась (и уходила клиенту в
+# карточке), а цена больше Numeric(12, 2) падала 500 уже на commit — после
+# платного вызова эмбеддинга.
+@pytest.mark.parametrize("price", ["-5", "10000000000", "1e20"])
+async def test_create_rejects_price_out_of_range_before_embedding(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    price: str,
+) -> None:
+    async def embedding_must_not_be_called(text: str, **kwargs: object) -> list[float]:
+        raise AssertionError("невалидная цена должна отсекаться до эмбеддинга")
+
+    monkeypatch.setattr(products_module, "generate_embedding", embedding_must_not_be_called)
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(
+        f"/bots/{bot_id}/products", data={"name": "Товар", "price": price}, files=[_media_file()]
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("price", [-5, 10000000000])
+async def test_patch_rejects_price_out_of_range(
+    client: httpx.AsyncClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    price: int,
+) -> None:
+    monkeypatch.setattr(products_module, "generate_embedding", _fake_generate_embedding)
+    bot_id = await _make_bot(session_factory)
+    created = await client.post(
+        f"/bots/{bot_id}/products", data={"name": "Товар"}, files=[_media_file()]
+    )
+    product_id = created.json()["id"]
+
+    response = await client.patch(f"/bots/{bot_id}/products/{product_id}", json={"price": price})
+    assert response.status_code == 422
+
+
 async def test_patch_description_recomputes_embedding(
     client: httpx.AsyncClient,
     session_factory: async_sessionmaker[AsyncSession],

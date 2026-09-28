@@ -73,6 +73,21 @@ it("rejects an empty name without calling the api, marking the field invalid", a
   expect(shakeWrapper).toContainElement(screen.getByLabelText(/название/i));
 });
 
+// У формы noValidate, поэтому min={0} ничего не блокировал: -5 уходило в
+// API и возвращалось непонятным "failed: 422".
+it.each(["-5", "10000000000"])(
+  "rejects price %s before calling the api, marking the field invalid",
+  async (price) => {
+    render(<ProductForm botId="1" apiBaseUrl="http://api" product={existingProduct} />);
+    fireEvent.change(screen.getByLabelText(/цена/i), { target: { value: price } });
+    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/цена/i);
+    expect(api.updateProduct).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/цена/i)).toHaveAttribute("aria-invalid", "true");
+  },
+);
+
 it("clears the invalid marker on the name field once the user starts typing", async () => {
   render(<ProductForm botId="1" apiBaseUrl="http://api" />);
   fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));

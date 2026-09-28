@@ -7,7 +7,12 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+# products.price — Numeric(12, 2): максимум 9 999 999 999.99. Больше — БД
+# падала "numeric field overflow" (500) уже на commit, после платного
+# эмбеддинга; отрицательная цена уходила клиенту в карточке (2026-09-28).
+PRICE_UPPER_BOUND = Decimal(10) ** 10
 
 
 class ProductMediaOut(BaseModel):
@@ -40,7 +45,7 @@ class ProductPatch(BaseModel):
     паттерн, что и BotPatch.image_prompt/pdf_prompt."""
 
     name: str | None = None
-    price: Decimal | None = None
+    price: Decimal | None = Field(None, ge=0, lt=PRICE_UPPER_BOUND)
     sku: str | None = None
     description: str | None = None
     display_custom: dict[str, Any] | None = None

@@ -55,7 +55,7 @@ from ..product_media import (
     process_media_upload,
     validate_media_uploads,
 )
-from ..schemas.products import ProductMediaOut, ProductOut, ProductPatch
+from ..schemas.products import PRICE_UPPER_BOUND, ProductMediaOut, ProductOut, ProductPatch
 from ..security import BotAccessUser
 from ..storage import StorageDep
 
@@ -119,7 +119,7 @@ async def create_product_route(
     storage: StorageDep,
     user: BotAccessUser,
     name: str = Form(...),
-    price: Decimal | None = Form(None),  # noqa: B008
+    price: Decimal | None = Form(None, ge=0, lt=float(PRICE_UPPER_BOUND)),  # noqa: B008
     sku: str | None = Form(None),
     description: str | None = Form(None),
     display_custom: str | None = Form(None),

@@ -26,6 +26,7 @@ import { useInvalidShake } from "@/lib/useInvalidShake";
 // принимались одной формой (эталон V1 — одна смешанная галерея, FEATURES.md
 // 4.4 ревизия), но не что попало.
 const MEDIA_ACCEPT = "image/jpeg,image/png,image/webp,video/mp4";
+const PRICE_UPPER_BOUND = 10_000_000_000;
 
 interface ProductFormProps {
   botId: string;
@@ -101,6 +102,14 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
     if (state.name.trim() === "") {
       showError("Название обязательно");
       shake(["name"]);
+      return;
+    }
+    // noValidate выключает нативный min={0} — проверяем сами, в тех же
+    // границах, что API (schemas/products.py PRICE_UPPER_BOUND, Numeric(12, 2)).
+    const price = state.price.trim() === "" ? null : Number(state.price);
+    if (price !== null && (!Number.isFinite(price) || price < 0 || price >= PRICE_UPPER_BOUND)) {
+      showError("Цена должна быть от 0 до 9 999 999 999.99");
+      shake(["price"]);
       return;
     }
     if (!product && newMedia.length === 0) {
@@ -184,15 +193,26 @@ export function ProductForm({ botId, apiBaseUrl, product }: ProductFormProps) {
           </div>
         </label>
         <div>
-          <label className="mb-0 block text-sm font-medium text-ink">
-            Цена
-            <NumberField
-              min={0}
-              step={0.01}
-              value={state.price}
-              onChange={(e) => setState({ ...state, price: e.target.value })}
-              className="mt-1.5"
-            />
+          <label
+            className={`mb-0 block text-sm font-medium ${isInvalid("price") ? "text-danger" : "text-ink"}`}
+          >
+            <div
+              key={isInvalid("price") ? `price-shake-${shakeKey}` : "price"}
+              className={isInvalid("price") ? "animate-shake" : undefined}
+            >
+              Цена
+              <NumberField
+                min={0}
+                step={0.01}
+                value={state.price}
+                invalid={isInvalid("price")}
+                onChange={(e) => {
+                  setState({ ...state, price: e.target.value });
+                  clear("price");
+                }}
+                className="mt-1.5"
+              />
+            </div>
           </label>
           {showPriceHint && <p className="mt-1.5 text-xs text-ink-soft">{clearHint}</p>}
         </div>

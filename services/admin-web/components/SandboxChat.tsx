@@ -9,6 +9,7 @@ import {
   type SandboxMediaItem,
 } from "@/lib/api";
 import { formatBishkekTime } from "@/lib/formatDate";
+import { toSandboxHistory } from "@/lib/sandboxHistory";
 import { useToast } from "@/components/ToastProvider";
 
 interface SandboxChatProps {
@@ -97,7 +98,7 @@ export function SandboxChat({ apiBaseUrl, botId, botName }: SandboxChatProps) {
     const file = attachedFile;
     if (sending || (!text && !file)) return;
 
-    const history: SandboxHistoryItem[] = messages.map(({ role, content }) => ({ role, content }));
+    const history: SandboxHistoryItem[] = toSandboxHistory(messages);
     setMessages((current) => [
       ...current,
       {

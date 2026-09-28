@@ -66,6 +66,9 @@ async def set_user_password(
     if user is None:
         return None
     user.password_hash = password_hash
+    # Отзываем все ранее выданные сессии (JWT с прежним "tv") — иначе после
+    # смены утёкшего пароля злоумышленник оставался бы в кабинете до 30 дней.
+    user.token_version += 1
     await session.flush()
     return user
 

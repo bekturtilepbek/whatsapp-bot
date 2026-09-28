@@ -19,7 +19,7 @@ async def login(body: LoginRequest, session: SessionDep) -> LoginResponse:
         # Одно и то же сообщение на "нет email" и "неверный пароль" —
         # не раскрываем существование аккаунта.
         raise HTTPException(status_code=401, detail="Неверный email или пароль")
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, user.token_version)
     return LoginResponse(token=token, user=UserOut.model_validate(user))
 
 

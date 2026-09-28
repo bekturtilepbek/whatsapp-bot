@@ -9,9 +9,11 @@ import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
+import jwt
 import pytest
 
 pytest.importorskip("testcontainers.postgres")
@@ -20,7 +22,7 @@ from api.main import _bootstrap_platform_owner, app, lifespan
 from api.security import hash_password, verify_password
 from db.engine import make_engine, make_session_factory
 from db.models import User
-from db.users import create_user, get_user_by_email
+from db.users import create_user, get_user_by_email, set_user_password
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
@@ -184,6 +186,49 @@ async def test_me_returns_current_user(
     response = await client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["email"] == "d@example.com"
+
+
+async def test_password_change_revokes_existing_sessions(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """2026-09-28: JWT жил 30 дней и переживал смену пароля — если пароль
+    утёк и его сменили, злоумышленник оставался в кабинете до конца срока."""
+    await _make_user(session_factory, email="rotate@example.com", password="old-pass")
+    credentials = {"email": "rotate@example.com", "password": "old-pass"}
+    old_token = (await client.post("/auth/login", json=credentials)).json()["token"]
+    headers = {"Authorization": f"Bearer {old_token}"}
+    assert (await client.get("/auth/me", headers=headers)).status_code == 200
+
+    async with session_factory() as session:
+        user = await get_user_by_email(session, "rotate@example.com")
+        assert user is not None
+        await set_user_password(session, user.id, hash_password("new-pass"))
+        await session.commit()
+
+    assert (await client.get("/auth/me", headers=headers)).status_code == 401
+    new_login = await client.post(
+        "/auth/login", json={"email": "rotate@example.com", "password": "new-pass"}
+    )
+    new_headers = {"Authorization": f"Bearer {new_login.json()['token']}"}
+    assert (await client.get("/auth/me", headers=new_headers)).status_code == 200
+
+
+async def test_token_issued_before_versioning_still_works(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    # Токены, выданные до появления версии сессий (без claim "tv"), считаются
+    # версией 0 — выкатка никого не разлогинивает.
+    await _make_user(session_factory, email="legacy@example.com", password="s3cret")
+    async with session_factory() as session:
+        user = await get_user_by_email(session, "legacy@example.com")
+        assert user is not None
+    legacy = jwt.encode(
+        {"sub": str(user.id), "exp": datetime.now(UTC) + timedelta(days=1)},
+        "test-secret",
+        algorithm="HS256",
+    )
+    response = await client.get("/auth/me", headers={"Authorization": f"Bearer {legacy}"})
+    assert response.status_code == 200
 
 
 async def test_me_without_token_returns_401(client: httpx.AsyncClient) -> None:

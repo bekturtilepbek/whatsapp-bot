@@ -39,19 +39,28 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def create_access_token(user_id: uuid.UUID) -> str:
+def create_access_token(user_id: uuid.UUID, token_version: int = 0) -> str:
     payload = {
         "sub": str(user_id),
+        # Версия сессий пользователя (users.token_version) — см. get_current_user.
+        "tv": token_version,
         "exp": datetime.now(UTC) + timedelta(days=JWT_TTL_DAYS),
     }
     return jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
+def decode_token_claims(token: str) -> tuple[uuid.UUID, int]:
+    """(user_id, token_version). Токены до появления версии (без "tv") —
+    версия 0, как и server_default колонки: выкатка никого не разлогинивает.
+    Бросает jwt.InvalidTokenError на любую проблему подписи/срока."""
+    payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
+    return uuid.UUID(payload["sub"]), int(payload.get("tv", 0))
+
+
 def decode_access_token(token: str) -> uuid.UUID:
     """Бросает jwt.InvalidTokenError (и подклассы — ExpiredSignatureError,
     InvalidSignatureError, DecodeError, ...) на любую проблему."""
-    payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
-    return uuid.UUID(payload["sub"])
+    return decode_token_claims(token)[0]
 
 
 async def get_current_user(
@@ -61,12 +70,15 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Нужно войти в кабинет")
     token = authorization.removeprefix("Bearer ")
     try:
-        user_id = decode_access_token(token)
-    except jwt.InvalidTokenError as exc:
+        user_id, token_version = decode_token_claims(token)
+    except (jwt.InvalidTokenError, ValueError) as exc:
         raise HTTPException(status_code=401, detail="Сессия истекла — войдите заново") from exc
     user = await get_user(session, user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="Нужно войти в кабинет")
+    if token_version != user.token_version:
+        # Пароль сменили после выдачи этого токена — сессия отозвана.
+        raise HTTPException(status_code=401, detail="Сессия истекла — войдите заново")
     return user
 
 

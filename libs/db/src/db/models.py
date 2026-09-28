@@ -426,6 +426,12 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, server_default=text("'client'"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # Версия сессий: кладётся в JWT (claim "tv") и сверяется на каждом запросе.
+    # Смена пароля её увеличивает — все ранее выданные токены перестают
+    # действовать (раньше жили свои 30 дней и после смены пароля).
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -316,6 +316,34 @@ async def test_skips_when_handoff_active(
         await redis.aclose()
 
 
+async def test_skips_when_contact_is_now_blocked(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Живой баг (security review, 2026-09-28): задача ставится в момент
+    батчинга исходного сообщения — владелец мог занести номер в чёрный
+    список уже ПОСЛЕ этого (частый случай для личного номера, см. комментарий
+    у is_blocked в worker/pipeline/consumer.py). Без перепроверки просроченная
+    задача всё равно слала напоминание уже заблокированному контакту.
+    """
+    from db.blocked_contacts import add_blocked_number
+    from tasks.followup import _send_reminder_async
+
+    bot_id, contact_id = await _make_bot_and_contact(session_factory)
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ бота")
+        await add_blocked_number(session, bot_id, "996700000000")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+        assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
 async def test_skips_when_bot_disabled(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

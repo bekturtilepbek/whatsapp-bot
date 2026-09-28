@@ -14,7 +14,9 @@ import structlog
 from core.bus import OUT_STREAM, make_redis, publish
 from core.events import OutboundText, OutboundTyping
 from core.redis_keys import followup_sent_key, handoff_key
+from db.blocked_contacts import is_blocked
 from db.bots import get_bot
+from db.contacts import get_contact
 from db.engine import make_engine, make_session_factory
 from db.messages import insert_outgoing
 from db.models import Message
@@ -52,6 +54,23 @@ async def _send_reminder_async(
             return
         if await redis.exists(handoff_key(bot_id, chat_id)):
             logger.info("follow-up skipped: handoff active", bot_id=bot_id, chat_id=chat_id)
+            return
+
+        # Задача ставится в момент батчинга исходного сообщения — владелец
+        # мог занести номер в чёрный список уже ПОСЛЕ этого (частый случай,
+        # см. комментарий у is_blocked в worker/pipeline/consumer.py: номер
+        # бота часто личный, в ЧС нередко попадают родные/друзья клиента).
+        # Без этой перепроверки просроченная задача всё равно шлёт
+        # напоминание уже заблокированному контакту (security review,
+        # 2026-09-28).
+        contact = await get_contact(session, uuid.UUID(contact_id))
+        if contact is None:
+            logger.info("follow-up skipped: contact no longer exists", bot_id=bot_id)
+            return
+        if contact.wa_id and await is_blocked(session, bot.id, contact.wa_id):
+            logger.info(
+                "follow-up skipped: contact is now blocked", bot_id=bot_id, chat_id=chat_id
+            )
             return
 
         newer = await session.execute(

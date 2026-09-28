@@ -6,7 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
-import { SortableTh, type SortDirection } from "@/components/ui/SortableTh";
+import { compareNullableNumbers, SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
 
 interface ActiveChatsTableProps {
@@ -43,10 +43,14 @@ export function ActiveChatsTable({ botId, apiBaseUrl, initialChats }: ActiveChat
     const q = query.trim().toLowerCase();
     const filtered = q === "" ? chats : chats.filter((c) => chatLabel(c).toLowerCase().includes(q));
     const sorted = [...filtered].sort((a, b) => {
-      const cmp =
-        sortKey === "contact"
-          ? chatLabel(a).localeCompare(chatLabel(b), "ru")
-          : (a.auto_release_in_seconds ?? Infinity) - (b.auto_release_in_seconds ?? Infinity);
+      if (sortKey === "auto_release") {
+        return compareNullableNumbers(
+          a.auto_release_in_seconds,
+          b.auto_release_in_seconds,
+          sortDirection,
+        );
+      }
+      const cmp = chatLabel(a).localeCompare(chatLabel(b), "ru");
       return sortDirection === "asc" ? cmp : -cmp;
     });
     return sorted;

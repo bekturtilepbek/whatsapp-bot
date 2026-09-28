@@ -2,6 +2,20 @@
 
 export type SortDirection = "asc" | "desc";
 
+/** Сравнение чисел, где null (нет значения) всегда в конце — в обоих
+ * направлениях. Раньше таблицы подставляли ±Infinity: пустые уезжали не в
+ * тот конец, а две пустые строки давали Infinity - Infinity = NaN. */
+export function compareNullableNumbers(
+  a: number | null,
+  b: number | null,
+  direction: SortDirection,
+): number {
+  if (a === null || b === null) {
+    return a === b ? 0 : a === null ? 1 : -1;
+  }
+  return direction === "asc" ? a - b : b - a;
+}
+
 interface SortableThProps {
   label: string;
   active: boolean;

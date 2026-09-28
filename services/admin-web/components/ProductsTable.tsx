@@ -11,7 +11,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { MediaThumbnail } from "@/components/ui/MediaThumbnail";
-import { SortableTh, type SortDirection } from "@/components/ui/SortableTh";
+import { Select } from "@/components/ui/Select";
+import { compareNullableNumbers, SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
 
 interface ProductsTableProps {
@@ -33,10 +34,18 @@ type SortKey = "name" | "price";
 // "Показать ещё" рядом (см. её комментарий про сдвиг страницы).
 const VIEW_MODE_STORAGE_KEY = "products-view-mode";
 
-function parsePrice(price: string | null): number {
-  if (price === null) return Number.NEGATIVE_INFINITY; // без цены — в конец при сортировке по возрастанию
+const SORT_OPTIONS: { value: `${SortKey}-${SortDirection}`; label: string }[] = [
+  { value: "name-asc", label: "Название: А → Я" },
+  { value: "name-desc", label: "Название: Я → А" },
+  { value: "price-asc", label: "Сначала дешёвые" },
+  { value: "price-desc", label: "Сначала дорогие" },
+];
+
+/** null — цена не указана или не число: такие товары всегда в конце. */
+function parsePrice(price: string | null): number | null {
+  if (price === null) return null;
   const parsed = Number(price);
-  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: ProductsTableProps) {
@@ -76,10 +85,10 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
     const q = query.trim().toLowerCase();
     const filtered = q === "" ? rows : rows.filter((p) => p.name.toLowerCase().includes(q));
     const sorted = [...filtered].sort((a, b) => {
-      const cmp =
-        sortKey === "name"
-          ? a.name.localeCompare(b.name, "ru")
-          : parsePrice(a.price) - parsePrice(b.price);
+      if (sortKey === "price") {
+        return compareNullableNumbers(parsePrice(a.price), parsePrice(b.price), sortDirection);
+      }
+      const cmp = a.name.localeCompare(b.name, "ru");
       return sortDirection === "asc" ? cmp : -cmp;
     });
     return sorted;
@@ -142,14 +151,37 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <Input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Поиск по названию…"
-          aria-label="Поиск товаров"
-          className="max-w-sm"
-        />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по названию…"
+            aria-label="Поиск товаров"
+            className="max-w-sm"
+          />
+          {/* В списке сортируют заголовки колонок; у карточек заголовков нет,
+              а это вид по умолчанию — без этого select сортировка в нём
+              была недоступна вовсе. */}
+          {viewMode === "cards" && (
+            <Select
+              value={`${sortKey}-${sortDirection}`}
+              onChange={(e) => {
+                const [key, direction] = e.target.value.split("-") as [SortKey, SortDirection];
+                setSortKey(key);
+                setSortDirection(direction);
+              }}
+              aria-label="Сортировка"
+              className="w-auto"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
         <div className="flex gap-1.5 rounded-lg border border-border bg-surface p-1">
           <button
             type="button"

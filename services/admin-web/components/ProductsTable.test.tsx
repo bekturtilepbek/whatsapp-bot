@@ -222,3 +222,44 @@ it("sorts by price when the Цена header is clicked (table view)", () => {
   cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
   expect(cells[0]).toContain("Дорогой");
 });
+
+it("keeps products without a price last in both price directions", () => {
+  const mixed: Product[] = [
+    { ...products[0], id: "a", name: "Без цены 1", price: null },
+    { ...products[0], id: "b", name: "Дорогой", price: "9000.00" },
+    { ...products[0], id: "c", name: "Без цены 2", price: null },
+    { ...products[0], id: "d", name: "Дешёвый", price: "1000.00" },
+  ];
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={mixed} pageSize={10} />);
+  fireEvent.click(screen.getByRole("button", { name: "Список" }));
+  const names = () =>
+    screen.getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[1].textContent);
+
+  fireEvent.click(screen.getByRole("button", { name: /цена/i }));
+  expect(names().slice(0, 2)).toEqual(["Дешёвый", "Дорогой"]);
+  expect(names().slice(2).sort()).toEqual(["Без цены 1", "Без цены 2"]);
+
+  fireEvent.click(screen.getByRole("button", { name: /цена/i }));
+  expect(names().slice(0, 2)).toEqual(["Дорогой", "Дешёвый"]);
+  expect(names().slice(2).sort()).toEqual(["Без цены 1", "Без цены 2"]);
+});
+
+it("sorts the default card view too, via the sort select", () => {
+  const withPrices: Product[] = [
+    { ...products[0], id: "p1", name: "Дорогой", price: "9000.00" },
+    { ...products[0], id: "p2", name: "Дешёвый", price: "1000.00" },
+  ];
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={withPrices} pageSize={10} />);
+  // Вид запоминается в localStorage, а jsdom держит его между тестами файла.
+  fireEvent.click(screen.getByRole("button", { name: "Карточки" }));
+
+  fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "price-desc" } });
+  const cardNames = screen.getAllByText(/^(Дорогой|Дешёвый)$/).map((el) => el.textContent);
+  expect(cardNames).toEqual(["Дорогой", "Дешёвый"]);
+
+  fireEvent.change(screen.getByLabelText("Сортировка"), { target: { value: "price-asc" } });
+  expect(screen.getAllByText(/^(Дорогой|Дешёвый)$/).map((el) => el.textContent)).toEqual([
+    "Дешёвый",
+    "Дорогой",
+  ]);
+});

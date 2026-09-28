@@ -5,7 +5,7 @@ import { ResponsibleUserForm } from "@/components/ResponsibleUserForm";
 import { TelegramLeadToolForm } from "@/components/TelegramLeadToolForm";
 import { Card } from "@/components/ui/Card";
 import { DEFAULT_BOT_SETTINGS, fetchBot, fetchBotTools, fetchPrompters } from "@/lib/api";
-import { fetchCurrentUser } from "@/lib/currentUser";
+import { fetchCurrentUser, PLATFORM_WIDE_ROLES } from "@/lib/currentUser";
 import { API_INTERNAL_URL, API_PROXY_PATH } from "@/lib/env";
 
 export default async function BotSettingsPage({
@@ -21,10 +21,16 @@ export default async function BotSettingsPage({
   if (user?.role === "client") {
     redirect(`/bots/${id}`);
   }
+  // GET /users/prompters — PlatformWide-only (superadmin/admin), в отличие
+  // от остального этой страницы (FullBotAccess, доступно и prompter). Без
+  // этой проверки prompter падал в необработанный "403" при заходе на
+  // Настройки — сама секция "Ответственный" ниже тоже скрыта для них же
+  // (security review, 2026-09-28).
+  const isPlatformWide = user !== null && PLATFORM_WIDE_ROLES.includes(user.role);
   const [bot, tools, prompters] = await Promise.all([
     fetchBot(API_INTERNAL_URL, id),
     fetchBotTools(API_INTERNAL_URL, id),
-    fetchPrompters(API_INTERNAL_URL),
+    isPlatformWide ? fetchPrompters(API_INTERNAL_URL) : Promise.resolve([]),
   ]);
   if (!bot) {
     notFound();
@@ -52,15 +58,17 @@ export default async function BotSettingsPage({
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Название</h2>
         <RenameBotForm botId={id} apiBaseUrl={API_PROXY_PATH} initialName={bot.name} />
       </Card>
-      <Card className="p-5">
-        <h2 className="mb-4 text-[15px] font-semibold text-ink">Ответственный</h2>
-        <ResponsibleUserForm
-          botId={id}
-          apiBaseUrl={API_PROXY_PATH}
-          initialResponsibleUserId={bot.responsible_user_id ?? null}
-          prompters={prompters}
-        />
-      </Card>
+      {isPlatformWide && (
+        <Card className="p-5">
+          <h2 className="mb-4 text-[15px] font-semibold text-ink">Ответственный</h2>
+          <ResponsibleUserForm
+            botId={id}
+            apiBaseUrl={API_PROXY_PATH}
+            initialResponsibleUserId={bot.responsible_user_id ?? null}
+            prompters={prompters}
+          />
+        </Card>
+      )}
       <BotSettingsForm botId={id} apiBaseUrl={API_PROXY_PATH} initialSettings={initialSettings} />
       <TelegramLeadToolForm
         botId={id}

@@ -137,7 +137,11 @@ export async function fetchBots(baseUrl: string): Promise<Bot[]> {
 export async function fetchBot(baseUrl: string, id: string): Promise<Bot | null> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${id}`, { cache: "no-store" });
-  if (res.status === 404) {
+  // 403 — бот есть, но без гранта у этого пользователя (чужой URL): для
+  // кабинета это то же "нет такого бота", иначе layout бота падает в
+  // Application error. Заодно не раскрываем, что бот с таким id существует.
+  // 422 — id в URL вообще не UUID (битая/вручную набранная ссылка).
+  if (res.status === 404 || res.status === 403 || res.status === 422) {
     return null;
   }
   if (!res.ok) {
@@ -466,7 +470,8 @@ export async function fetchProduct(
 ): Promise<Product | null> {
   const base = normalizeBaseUrl(baseUrl);
   const res = await apiFetch(`${base}/bots/${botId}/products/${productId}`, { cache: "no-store" });
-  if (res.status === 404) {
+  // 422 — productId в URL не UUID: для страницы это то же "нет такого товара".
+  if (res.status === 404 || res.status === 422) {
     return null;
   }
   if (!res.ok) {

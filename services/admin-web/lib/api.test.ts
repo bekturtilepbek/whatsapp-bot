@@ -64,6 +64,21 @@ describe("fetchBot", () => {
     expect(result).toBeNull();
   });
 
+  // Бот без гранта (client/prompter открыл чужой URL) — API отвечает 403.
+  // Раньше fetchBot бросал, и layout бота падал в "Application error"
+  // вместо обычной 404.
+  it("returns null on 403 (no access), same as 404", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    const result = await fetchBot("http://api", "1");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on 422 (malformed id in the URL)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    const result = await fetchBot("http://api", "not-a-uuid");
+    expect(result).toBeNull();
+  });
+
   it("returns the parsed bot on success", async () => {
     const bot = {
       id: "1",
@@ -333,6 +348,13 @@ describe("fetchProduct", () => {
   it("returns null on 404", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     const result = await fetchProduct("http://api", "1", "p1");
+    expect(result).toBeNull();
+  });
+
+  // Битый id в URL (не UUID) — API отвечает 422; раньше страница падала.
+  it("returns null on 422 (malformed id in the URL)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422 }));
+    const result = await fetchProduct("http://api", "1", "not-a-uuid");
     expect(result).toBeNull();
   });
 

@@ -25,9 +25,25 @@ def to_asyncpg_url(url: str) -> str:
     return url
 
 
+# "Любой внешний вызов — с таймаутом" (CLAUDE.md) — без него зависшее TCP-
+# соединение (сетевой блип без RST, зависший запрос под блокировкой) висит
+# на await НАВСЕГДА. Для worker это напрямую держит лок диалога открытым
+# бессрочно (см. pipeline/lock.py::keep_alive — renew продлевает TTL, пока
+# код внутри реально работает, и не отличает "долгий LLM/tool loop" от
+# "застрявший await" — security review, 2026-09-28). asyncpg's command_timeout
+# — таймаут на КАЖДЫЙ запрос по соединению, не агрегат на сессию: реальные
+# запросы этого проекта (история, инкремент/вставка сообщений) — миллисекунды,
+# 30с — большой запас, никогда не задевает легитимную нагрузку.
+_COMMAND_TIMEOUT_SECONDS = 30
+
+
 def make_engine(database_url: str | None = None) -> AsyncEngine:
     url = to_asyncpg_url(database_url or os.environ["DATABASE_URL"])
-    return create_async_engine(url, pool_pre_ping=True)
+    return create_async_engine(
+        url,
+        pool_pre_ping=True,
+        connect_args={"command_timeout": _COMMAND_TIMEOUT_SECONDS},
+    )
 
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

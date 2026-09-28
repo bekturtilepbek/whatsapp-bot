@@ -701,6 +701,12 @@ export async function createUser(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
+  if (res.status === 409) {
+    throw new Error("Пользователь с таким email уже есть");
+  }
+  if (res.status === 422) {
+    throw new Error("Проверьте email: нужен адрес вида name@example.com");
+  }
   if (!res.ok) {
     throw new Error(`POST /users failed: ${res.status}`);
   }

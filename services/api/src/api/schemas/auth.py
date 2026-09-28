@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated
 from uuid import UUID
 
@@ -23,6 +24,23 @@ def _validate_password_byte_length(password: str) -> str:
 
 
 PasswordStr = Annotated[str, AfterValidator(_validate_password_byte_length)]
+
+# Не полная RFC-проверка (email-validator не в зависимостях) — отсекаем
+# явный мусор: пусто, без "@", пустые части, пробелы внутри.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if not _EMAIL_RE.match(normalized):
+        raise ValueError("email must look like name@example.com")
+    return normalized
+
+
+# Только для создания пользователя: логин принимает любую строку (иначе
+# старая учётка с нестандартным email не смогла бы войти) — нормализация
+# регистра для логина делается в db.users.get_user_by_email.
+EmailAddress = Annotated[str, AfterValidator(_validate_email)]
 
 
 class LoginRequest(BaseModel):

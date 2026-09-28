@@ -115,6 +115,25 @@ async def test_login_success_returns_token_and_user(
     assert isinstance(body["token"], str) and body["token"]
 
 
+async def test_login_ignores_email_case_and_surrounding_spaces(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Регрессия 2026-09-28: email сравнивался строго. Заведённый как
+    "Aigul@Mail.RU" пользователь, вводя "aigul@mail.ru", получал "Неверный
+    email или пароль"."""
+    await _make_user(session_factory, email="  Aigul@Mail.RU ", password="s3cret")
+    response = await client.post(
+        "/auth/login", json={"email": "aigul@mail.ru", "password": "s3cret"}
+    )
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "aigul@mail.ru"
+
+    response = await client.post(
+        "/auth/login", json={"email": " AIGUL@mail.ru", "password": "s3cret"}
+    )
+    assert response.status_code == 200
+
+
 async def test_login_wrong_password_returns_401(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

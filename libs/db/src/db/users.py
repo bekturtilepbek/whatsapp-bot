@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import User
@@ -14,8 +14,19 @@ async def get_user(session: AsyncSession, user_id: uuid.UUID) -> User | None:
     return await session.get(User, user_id)
 
 
+def normalize_email(email: str) -> str:
+    """Email хранится и ищется в одном виде — без краевых пробелов, в нижнем
+    регистре. Раньше сравнение было строгим: заведённый как "Aigul@Mail.RU"
+    не мог войти, введя "aigul@mail.ru", а "Case@x" и "case@x" становились
+    двумя разными пользователями (2026-09-28)."""
+    return email.strip().lower()
+
+
 async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
-    result = await session.execute(select(User).where(User.email == email))
+    # lower(trim(...)) и на стороне БД — строки, созданные до нормализации,
+    # тоже находятся.
+    stmt = select(User).where(func.lower(func.trim(User.email)) == normalize_email(email))
+    result = await session.execute(stmt)
     return result.scalars().first()
 
 
@@ -26,7 +37,7 @@ async def create_user(
     password_hash: str,
     role: str = "client",
 ) -> User:
-    user = User(email=email, password_hash=password_hash, role=role)
+    user = User(email=normalize_email(email), password_hash=password_hash, role=role)
     session.add(user)
     await session.flush()
     return user

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from .auth import PasswordStr, UserOut
+from .auth import EmailAddress, PasswordStr, UserOut
 
 # superadmin НЕ входит — назначается только bootstrap-скриптом
 # (main.py::_bootstrap_platform_owner), не через API/UI.
@@ -29,7 +29,7 @@ class UserBriefOut(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: str
+    email: EmailAddress
     password: PasswordStr
     role: AssignableRole = "client"
     bot_ids: list[UUID] = []

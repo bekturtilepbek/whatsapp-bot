@@ -5,6 +5,7 @@ import {
   createProduct,
   deleteProduct,
   deleteProductMedia,
+  createUser,
   fetchBot,
   fetchBots,
   fetchPrompters,
@@ -54,6 +55,19 @@ describe("fetchBots", () => {
     await fetchBots("http://api/");
 
     expect(fetchMock).toHaveBeenCalledWith("http://api/bots", { cache: "no-store" });
+  });
+});
+
+describe("createUser", () => {
+  const input = { email: "a@b.c", password: "x", role: "client" as const, bot_ids: [] };
+
+  // Раньше форма показывала "POST /users failed: 409" — непонятно, что делать.
+  it.each([
+    [409, /уже есть/i],
+    [422, /email/i],
+  ])("throws a readable message on %i", async (status, message) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status }));
+    await expect(createUser("http://api", input)).rejects.toThrow(message);
   });
 });
 

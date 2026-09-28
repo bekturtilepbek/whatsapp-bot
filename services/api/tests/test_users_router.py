@@ -100,6 +100,31 @@ async def test_create_user_then_list(client: httpx.AsyncClient) -> None:
     assert any(u["email"] == "new@example.com" for u in listing.json())
 
 
+async def test_create_user_normalizes_email_and_rejects_case_duplicate(
+    client: httpx.AsyncClient,
+) -> None:
+    # Регрессия 2026-09-28: "Case@Example.com" и "case@example.com" были
+    # двумя разными пользователями, а вход требовал точного регистра.
+    response = await client.post(
+        "/users", json={"email": " Case@Example.COM ", "password": "s3cret", "bot_ids": []}
+    )
+    assert response.status_code == 201
+    assert response.json()["email"] == "case@example.com"
+
+    duplicate = await client.post(
+        "/users", json={"email": "CASE@example.com", "password": "s3cret", "bot_ids": []}
+    )
+    assert duplicate.status_code == 409
+
+
+@pytest.mark.parametrize("email", ["", "   ", "abc", "a@", "@b.c", "a b@c.d"])
+async def test_create_user_rejects_malformed_email(client: httpx.AsyncClient, email: str) -> None:
+    response = await client.post(
+        "/users", json={"email": email, "password": "s3cret", "bot_ids": []}
+    )
+    assert response.status_code == 422
+
+
 async def test_create_user_with_initial_bot_access(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

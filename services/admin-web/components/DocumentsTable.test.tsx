@@ -121,3 +121,24 @@ it("shows an empty state when there are no documents", () => {
   expect(screen.getByText("Документов пока нет")).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
 });
+
+it("filters by filename via the search input", () => {
+  render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
+
+  fireEvent.change(screen.getByLabelText("Поиск документов"), { target: { value: "price" } });
+
+  expect(screen.getByText("price.pdf")).toBeInTheDocument();
+  expect(screen.queryByText("catalog.docx")).not.toBeInTheDocument();
+});
+
+it("sorts by filename when its header is clicked", () => {
+  render(<DocumentsTable botId="1" apiBaseUrl="http://api" documents={documents} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /имя файла/i }));
+  let cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("catalog.docx"); // "c" < "p"
+
+  fireEvent.click(screen.getByRole("button", { name: /имя файла/i }));
+  cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("price.pdf");
+});

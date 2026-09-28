@@ -158,3 +158,22 @@ it("shows an empty state when there are no blocked numbers", () => {
   expect(screen.getByText("Чёрный список пуст")).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
 });
+
+it("filters by phone via the search input", () => {
+  render(<BlockedNumbersTable botId="1" apiBaseUrl="http://api" numbers={numbers} pageSize={10} />);
+
+  fireEvent.change(screen.getByLabelText("Поиск по чёрному списку"), {
+    target: { value: "0002" },
+  });
+
+  expect(screen.getByText("996700000002")).toBeInTheDocument();
+  expect(screen.queryByText("996700000001")).not.toBeInTheDocument();
+});
+
+it("reverses sort order when the Номер header is clicked", () => {
+  render(<BlockedNumbersTable botId="1" apiBaseUrl="http://api" numbers={numbers} pageSize={10} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /номер/i }));
+  const cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("996700000002");
+});

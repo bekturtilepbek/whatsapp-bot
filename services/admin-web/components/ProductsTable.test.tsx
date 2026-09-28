@@ -67,7 +67,10 @@ it("deletes the product and removes its row after confirming in the dialog", asy
   vi.mocked(api.deleteProduct).mockResolvedValue(undefined);
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
 
-  fireEvent.click(screen.getAllByRole("button", { name: /удалить/i })[0]);
+  // Сортировка по умолчанию (по названию) может поставить карточки в любом
+  // порядке — находим кнопку удаления именно у "Кроссовки", а не по индексу.
+  const card = screen.getByText("Кроссовки").closest("div")!;
+  fireEvent.click(within(card).getByRole("button", { name: /удалить/i }));
   const dialog = screen.getByRole("alertdialog");
   expect(within(dialog).getByText(/удалить товар/i)).toBeInTheDocument();
   fireEvent.click(within(dialog).getByRole("button", { name: /удалить/i }));
@@ -167,4 +170,55 @@ it("shows an empty state when there are no products", () => {
   render(<ProductsTable botId="1" apiBaseUrl="http://api" products={[]} pageSize={10} />);
   expect(screen.getByText("Товаров пока нет")).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+it("defaults to the cards view", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
+  expect(screen.getByRole("button", { name: "Карточки" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+it("switches to the table view and back", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Список" }));
+  expect(screen.getByRole("table")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Карточки" }));
+  expect(screen.queryByRole("table")).not.toBeInTheDocument();
+});
+
+it("filters by name via the search input", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
+
+  fireEvent.change(screen.getByLabelText("Поиск товаров"), { target: { value: "кросс" } });
+
+  expect(screen.getByText("Кроссовки")).toBeInTheDocument();
+  expect(screen.queryByText("Без цены")).not.toBeInTheDocument();
+});
+
+it("shows 'ничего не найдено' when the search matches nothing", () => {
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={products} pageSize={10} />);
+
+  fireEvent.change(screen.getByLabelText("Поиск товаров"), { target: { value: "нет такого" } });
+
+  expect(screen.getByText("Ничего не найдено")).toBeInTheDocument();
+});
+
+it("sorts by price when the Цена header is clicked (table view)", () => {
+  const withPrices: Product[] = [
+    { ...products[0], id: "p1", name: "Дорогой", price: "9000.00" },
+    { ...products[0], id: "p2", name: "Дешёвый", price: "1000.00" },
+  ];
+  render(<ProductsTable botId="1" apiBaseUrl="http://api" products={withPrices} pageSize={10} />);
+  fireEvent.click(screen.getByRole("button", { name: "Список" }));
+
+  fireEvent.click(screen.getByRole("button", { name: /цена/i }));
+  let cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("Дешёвый");
+
+  // Второй клик по тому же заголовку — разворот направления.
+  fireEvent.click(screen.getByRole("button", { name: /цена/i }));
+  cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("Дорогой");
 });

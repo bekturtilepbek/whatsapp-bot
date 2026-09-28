@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { deleteProduct, fetchProducts, productMediaUrl, type Product } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
 import { MediaThumbnail } from "@/components/ui/MediaThumbnail";
+import { SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
 
 interface ProductsTableProps {
@@ -21,6 +24,21 @@ interface ProductsTableProps {
   pageSize: number;
 }
 
+type ViewMode = "cards" | "table";
+type SortKey = "name" | "price";
+
+// Поиск/сортировка — клиентские, над уже загруженными rows (не новый запрос
+// к API): PRODUCTS_PAGE_SIZE=100 первой страницей с запасом покрывает
+// каталог типичного SMB-бота — тот же компромисс, что и офсет-пагинация
+// "Показать ещё" рядом (см. её комментарий про сдвиг страницы).
+const VIEW_MODE_STORAGE_KEY = "products-view-mode";
+
+function parsePrice(price: string | null): number {
+  if (price === null) return Number.NEGATIVE_INFINITY; // без цены — в конец при сортировке по возрастанию
+  const parsed = Number(price);
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
 export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: ProductsTableProps) {
   const router = useRouter();
   const { showError, showSuccess } = useToast();
@@ -28,6 +46,53 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(products.length === pageSize);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  // Дефолт "cards" — по явному запросу пользователя (ближе к тому, что видит
+  // клиент в WhatsApp); localStorage — только для того, чтобы не переспрашивать
+  // при каждом заходе на вкладку, не источник истины ни для чего важного.
+  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+      if (stored === "cards" || stored === "table") setViewMode(stored);
+    } catch {
+      // приватный режим/заблокированное хранилище — остаёмся на дефолте
+    }
+  }, []);
+
+  function selectViewMode(mode: ViewMode): void {
+    setViewMode(mode);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // не критично — просто не запомнится между заходами
+    }
+  }
+
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = q === "" ? rows : rows.filter((p) => p.name.toLowerCase().includes(q));
+    const sorted = [...filtered].sort((a, b) => {
+      const cmp =
+        sortKey === "name"
+          ? a.name.localeCompare(b.name, "ru")
+          : parsePrice(a.price) - parsePrice(b.price);
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [rows, query, sortKey, sortDirection]);
+
+  function toggleSort(key: SortKey): void {
+    if (key === sortKey) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDirection("asc");
+    }
+  }
 
   const handleDelete = async (productId: string) => {
     try {
@@ -76,50 +141,131 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
 
   return (
     <>
-      <Table>
-        <table>
-          <thead>
-            <tr>
-              <th />
-              <th>Название</th>
-              <th>Цена</th>
-              <th />
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((product) => (
-              <tr key={product.id}>
-                <td>
-                  {product.media[0] && (
-                    <MediaThumbnail
-                      src={productMediaUrl(apiBaseUrl, botId, product.id, product.media[0].id)}
-                      mimeType={product.media[0].mime_type}
-                      alt={product.name}
-                      className="h-12 w-12 rounded-lg object-cover"
-                    />
-                  )}
-                </td>
-                <td>{product.name}</td>
-                <td className="font-mono">{product.price ?? "—"}</td>
-                <td>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск по названию…"
+          aria-label="Поиск товаров"
+          className="max-w-sm"
+        />
+        <div className="flex gap-1.5 rounded-lg border border-border bg-surface p-1">
+          <button
+            type="button"
+            onClick={() => selectViewMode("cards")}
+            aria-pressed={viewMode === "cards"}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "cards" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
+          >
+            Карточки
+          </button>
+          <button
+            type="button"
+            onClick={() => selectViewMode("table")}
+            aria-pressed={viewMode === "table"}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "table" ? "bg-accent text-white" : "text-ink-soft hover:text-ink"}`}
+          >
+            Список
+          </button>
+        </div>
+      </div>
+
+      {visibleRows.length === 0 ? (
+        <EmptyState title="Ничего не найдено" description="Попробуйте другой запрос." />
+      ) : viewMode === "cards" ? (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          {visibleRows.map((product) => (
+            <Card key={product.id} className="flex flex-col overflow-hidden p-0">
+              <div className="aspect-square bg-surface-alt">
+                {product.media[0] && (
+                  <MediaThumbnail
+                    src={productMediaUrl(apiBaseUrl, botId, product.id, product.media[0].id)}
+                    mimeType={product.media[0].mime_type}
+                    alt={product.name}
+                    className="h-full w-full object-cover"
+                  />
+                )}
+              </div>
+              <div className="flex flex-1 flex-col gap-2 p-3">
+                <p className="text-sm font-medium text-ink" title={product.name}>
+                  {product.name}
+                </p>
+                <p className="font-mono text-sm text-ink-soft">{product.price ?? "—"}</p>
+                <div className="mt-auto flex items-center justify-between gap-2 pt-2">
                   <Link
                     href={`/bots/${botId}/products/${product.id}/edit`}
-                    className="font-medium text-accent hover:underline"
+                    className="text-sm font-medium text-accent hover:underline"
                   >
                     Редактировать
                   </Link>
-                </td>
-                <td>
-                  <Button variant="danger" onClick={() => setPendingDeleteId(product.id)}>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteId(product.id)}
+                    className="text-sm font-medium text-danger hover:underline"
+                  >
                     Удалить
-                  </Button>
-                </td>
+                  </button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Table>
+          <table>
+            <thead>
+              <tr>
+                <th />
+                <SortableTh
+                  label="Название"
+                  active={sortKey === "name"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("name")}
+                />
+                <SortableTh
+                  label="Цена"
+                  active={sortKey === "price"}
+                  direction={sortDirection}
+                  onClick={() => toggleSort("price")}
+                />
+                <th />
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </Table>
+            </thead>
+            <tbody>
+              {visibleRows.map((product) => (
+                <tr key={product.id}>
+                  <td>
+                    {product.media[0] && (
+                      <MediaThumbnail
+                        src={productMediaUrl(apiBaseUrl, botId, product.id, product.media[0].id)}
+                        mimeType={product.media[0].mime_type}
+                        alt={product.name}
+                        className="h-12 w-12 rounded-lg object-cover"
+                      />
+                    )}
+                  </td>
+                  <td>{product.name}</td>
+                  <td className="font-mono">{product.price ?? "—"}</td>
+                  <td>
+                    <Link
+                      href={`/bots/${botId}/products/${product.id}/edit`}
+                      className="font-medium text-accent hover:underline"
+                    >
+                      Редактировать
+                    </Link>
+                  </td>
+                  <td>
+                    <Button variant="danger" onClick={() => setPendingDeleteId(product.id)}>
+                      Удалить
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Table>
+      )}
       {hasMore && (
         <Button
           variant="secondary"

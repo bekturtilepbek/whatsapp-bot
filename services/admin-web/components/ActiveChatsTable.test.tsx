@@ -74,3 +74,29 @@ it("shows an error toast and keeps the row when releasing fails", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(/release failed/i);
   expect(screen.getByText("Айгуль")).toBeInTheDocument();
 });
+
+it("filters by contact via the search input", () => {
+  render(
+    <ActiveChatsTable botId="1" apiBaseUrl="http://api" initialChats={[namedChat, unnamedChat]} />,
+  );
+
+  fireEvent.change(screen.getByLabelText("Поиск активных чатов"), {
+    target: { value: "Айгуль" },
+  });
+
+  expect(screen.getByText("Айгуль")).toBeInTheDocument();
+  expect(screen.queryByText("996700000002")).not.toBeInTheDocument();
+});
+
+it("sorts by auto-release time when its header is clicked", () => {
+  render(
+    <ActiveChatsTable botId="1" apiBaseUrl="http://api" initialChats={[namedChat, unnamedChat]} />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /авто-возврат/i }));
+  // unnamedChat.auto_release_in_seconds === null -> трактуется как "без
+  // ограничения" (Infinity), значит уходит в конец при сортировке по
+  // возрастанию — Айгуль (500с) должна быть первой строкой.
+  const cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
+  expect(cells[0]).toContain("Айгуль");
+});

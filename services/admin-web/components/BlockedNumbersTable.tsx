@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   addBlockedNumber,
   deleteBlockedNumber,
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
+import { SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
 import { useInvalidShake } from "@/lib/useInvalidShake";
 
@@ -37,7 +38,18 @@ export function BlockedNumbersTable({
   const [adding, setAdding] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(numbers.length === pageSize);
+  const [query, setQuery] = useState("");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const { shake, clear, isInvalid, shakeKey } = useInvalidShake();
+
+  // Единственная колонка — сортировка только по номеру, но клик по
+  // заголовку остаётся тем же паттерном, что и в остальных таблицах.
+  const visibleRows = useMemo(() => {
+    const q = query.trim();
+    const filtered = q === "" ? rows : rows.filter((row) => row.phone.includes(q));
+    const sorted = [...filtered].sort((a, b) => a.phone.localeCompare(b.phone));
+    return sortDirection === "asc" ? sorted : sorted.reverse();
+  }, [rows, query, sortDirection]);
 
   const handleAdd = async (event: FormEvent) => {
     event.preventDefault();
@@ -130,28 +142,45 @@ export function BlockedNumbersTable({
         />
       ) : (
         <>
-          <Table>
-            <table>
-              <thead>
-                <tr>
-                  <th>Номер</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.phone}>
-                    <td className="font-mono">{row.phone}</td>
-                    <td>
-                      <Button variant="danger" onClick={() => void handleDelete(row.phone)}>
-                        Удалить
-                      </Button>
-                    </td>
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск по номеру…"
+            aria-label="Поиск по чёрному списку"
+            className="max-w-sm"
+          />
+          {visibleRows.length === 0 ? (
+            <EmptyState title="Ничего не найдено" description="Попробуйте другой запрос." />
+          ) : (
+            <Table>
+              <table>
+                <thead>
+                  <tr>
+                    <SortableTh
+                      label="Номер"
+                      active
+                      direction={sortDirection}
+                      onClick={() => setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+                    />
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </Table>
+                </thead>
+                <tbody>
+                  {visibleRows.map((row) => (
+                    <tr key={row.phone}>
+                      <td className="font-mono">{row.phone}</td>
+                      <td>
+                        <Button variant="danger" onClick={() => void handleDelete(row.phone)}>
+                          Удалить
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Table>
+          )}
           {hasMore && (
             <Button
               variant="secondary"

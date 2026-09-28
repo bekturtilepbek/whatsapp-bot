@@ -92,6 +92,8 @@ interface RunningSession {
 
 export class SessionManager {
   private readonly sessions = new Map<string, RunningSession>();
+  // Хвост цепочки записей статуса per bot — см. publishStatus() ниже.
+  private readonly statusWriteChains = new Map<string, Promise<void>>();
 
   constructor(
     private readonly pool: Pool,
@@ -400,6 +402,22 @@ export class SessionManager {
    * И пишет статус напрямую в Postgres (ADR-006) — единственный способ
    * дашборду (FEATURES.md 6.17) узнать текущее состояние сессии, раз
    * событие само по себе нигде не оседает.
+   *
+   * Живой баг (2026-09-28): connect() зовёт publishStatus("connecting")
+   * ПОСЛЕ регистрации слушателя connection.update — если реальный хендшейк
+   * Baileys (обычно ~1-2с) завершается, пока ЕЩЁ не отрезолвился запрос
+   * "connecting" (например, из-за очереди в пуле Postgres сразу после
+   * рестарта gateway), два независимых pool.query() гоняются без всякой
+   * синхронизации между собой: чей ответ от Postgres придёт позже — тот и
+   * победит в UPSERT, независимо от порядка ВЫЗОВА publishStatus. На живом
+   * стенде это откатило статус реально открытого, рабочего соединения
+   * обратно на "connecting" — бот отвечал в WhatsApp, а бейдж в кабинете
+   * показывал "не подключён" бессрочно (сам open→connection.update больше
+   * не повторится, пока не будет следующего реконнекта). Фикс — цепочка
+   * промисов per bot: запись всегда применяется к Postgres в том порядке,
+   * в котором publishStatus была ВЫЗВАНА, а не в порядке, в котором успел
+   * ответить пул. Redis-публикацию (ниже) не трогаем — она best-effort,
+   * само событие worker дропает (см. consumer.py), только для дашборда.
    */
   private async publishStatus(botId: string, status: SessionStatus["status"]): Promise<void> {
     const event: SessionStatus = { type: "session.status", bot_id: botId, status, ts: Date.now() };
@@ -408,10 +426,15 @@ export class SessionManager {
     } catch (err) {
       this.logger.error({ err, botId, status }, "failed to publish session.status");
     }
-    try {
-      await setSessionStatus(this.pool, botId, status);
-    } catch (err) {
-      this.logger.error({ err, botId, status }, "failed to persist session status");
-    }
+    const previous = this.statusWriteChains.get(botId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      try {
+        await setSessionStatus(this.pool, botId, status);
+      } catch (err) {
+        this.logger.error({ err, botId, status }, "failed to persist session status");
+      }
+    });
+    this.statusWriteChains.set(botId, next);
+    await next;
   }
 }

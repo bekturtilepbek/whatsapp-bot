@@ -232,6 +232,35 @@ describe("SessionManager - persists session status to Postgres", () => {
       "failed to persist session status",
     );
   });
+
+  // Живой баг (2026-09-28): connect() зовёт publishStatus("connecting") без
+  // ожидания завершения перед тем, как хендшейк Baileys может уже дойти до
+  // "open" и вызвать свой собственный publishStatus("open") — два pool.query()
+  // гонялись без синхронизации, и чей ответ от Postgres придёт позже, тот и
+  // побеждал в UPSERT НЕЗАВИСИМО от порядка вызова. На реальном стенде это
+  // откатило статус рабочего, отвечающего в WhatsApp бота обратно на
+  // "connecting" бессрочно (бейдж в кабинете показывал "не подключён").
+  // Здесь эмулируем именно эту гонку: "connecting" вызван ПЕРВЫМ, но его
+  // запрос к Postgres искусственно медленнее, чем у "open", вызванного ПОСЛЕ.
+  it("applies status writes to Postgres in call order, not in DB-response order (race regression)", async () => {
+    const order: string[] = [];
+    const pool = {
+      query: vi.fn(async (_sql: string, params: [string, string]) => {
+        const delayMs = params[1] === "connecting" ? 20 : 0;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        order.push(params[1]);
+        return { rows: [] };
+      }),
+    } as unknown as Pool;
+    const sessions = new SessionManager(pool, makeFakeRedis(), makeFakeLogger(), makeFakeStorage());
+
+    await Promise.all([
+      (sessions as any).publishStatus("bot-1", "connecting"),
+      (sessions as any).publishStatus("bot-1", "open"),
+    ]);
+
+    expect(order).toEqual(["connecting", "open"]);
+  });
 });
 
 // Fix 2 (финальный review): gateway не должен скачивать/заливать медиа,

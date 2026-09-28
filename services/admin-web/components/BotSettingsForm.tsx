@@ -19,6 +19,25 @@ const MAX_MEDIA_MAX_SIZE_BYTES = 64 * BYTES_PER_MB;
 
 type NumericKey = "batch_timeout_seconds" | "auto_release_minutes" | "reminder_delay_minutes";
 type TextKey = "reminder_message" | "media_fallback_text" | "media_reaction_emoji";
+type NumberDraftKey = NumericKey | "media_max_size_mb";
+
+// Совпадает с MIN_SETTINGS_MINUTES в worker (consumer.py) — там тот же порог
+// как второй рубеж, потому что API сам settings не валидирует.
+const MIN_MINUTES = 1;
+
+function formatMb(bytes: number): string {
+  return String(Number((bytes / BYTES_PER_MB).toFixed(2)));
+}
+
+/** Пустое поле — не 0 (Number("") === 0 молча сохранял ноль), а невалидное значение. */
+function parseNumber(raw: string): number {
+  return raw.trim() === "" ? Number.NaN : Number(raw);
+}
+
+function minutesValidator(label: string) {
+  return (v: number) =>
+    !Number.isFinite(v) || v < MIN_MINUTES ? `${label} — не меньше ${MIN_MINUTES} минуты` : null;
+}
 
 interface BotSettingsFormProps {
   botId: string;
@@ -39,6 +58,32 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
   const { showError, showSuccess } = useToast();
   const [baseline, setBaseline] = useState<Required<BotSettings>>(initialSettings);
   const [settings, setSettings] = useState<Required<BotSettings>>(initialSettings);
+  // Числовые поля во время набора держат сырую строку: иначе пустое поле
+  // мгновенно становится 0, а МБ перерисовываются из байтов с хвостом
+  // (16.1 -> 16.1000003814...). В settings число попадает только на blur.
+  const [numberDrafts, setNumberDrafts] = useState<Partial<Record<NumberDraftKey, string>>>({});
+
+  function numberFieldProps(key: NumberDraftKey, shown: string, onCommit: () => void) {
+    return {
+      value: numberDrafts[key] ?? shown,
+      onChange: (e: { target: { value: string } }) =>
+        setNumberDrafts((prev) => ({ ...prev, [key]: e.target.value })),
+      onBlur: onCommit,
+    };
+  }
+
+  /** Забирает черновик поля (и очищает его); undefined — поле не трогали. */
+  function takeDraft(key: NumberDraftKey): string | undefined {
+    const raw = numberDrafts[key];
+    if (raw !== undefined) {
+      setNumberDrafts((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+    return raw;
+  }
 
   /** Переключатели/select — сохраняются немедленно на change, без blur. */
   async function saveNow(patch: BotSettings): Promise<void> {
@@ -64,14 +109,16 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
   /** Числовое поле — валидация + сохранение по blur, только если значение
    * реально изменилось с последнего подтверждённого. */
   async function commitNumber(key: NumericKey, validate: (value: number) => string | null): Promise<void> {
-    const value = settings[key];
+    const raw = takeDraft(key);
+    if (raw === undefined) return;
+    const value = parseNumber(raw);
     if (value === baseline[key]) return;
     const error = validate(value);
     if (error) {
       showError(error);
-      setSettings((prev) => ({ ...prev, [key]: baseline[key] }));
       return;
     }
+    setSettings((prev) => ({ ...prev, [key]: value }));
     await saveNow({ [key]: value });
   }
 
@@ -92,14 +139,15 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
    * функция, а не commitNumber: нужна конвертация туда-обратно и сравнение
    * с baseline тоже в байтах. */
   async function commitMediaMaxSize(): Promise<void> {
-    const mb = settings.media_max_size_bytes / BYTES_PER_MB;
-    const bytes = Math.round(mb * BYTES_PER_MB);
+    const raw = takeDraft("media_max_size_mb");
+    if (raw === undefined) return;
+    const bytes = Math.round(parseNumber(raw) * BYTES_PER_MB);
     if (bytes === baseline.media_max_size_bytes) return;
     if (!Number.isFinite(bytes) || bytes <= 0 || bytes > MAX_MEDIA_MAX_SIZE_BYTES) {
-      showError(`Макс. размер медиа должен быть от 0 до ${MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB} МБ`);
-      setSettings((prev) => ({ ...prev, media_max_size_bytes: baseline.media_max_size_bytes }));
+      showError(`Макс. размер медиа должен быть больше 0 и не больше ${MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB} МБ`);
       return;
     }
+    setSettings((prev) => ({ ...prev, media_max_size_bytes: bytes }));
     await saveNow({ media_max_size_bytes: bytes });
   }
 
@@ -136,15 +184,11 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
         <NumberField
           min={0}
           step={0.1}
-          value={settings.batch_timeout_seconds}
-          onChange={(e) =>
-            setSettings((prev) => ({ ...prev, batch_timeout_seconds: Number(e.target.value) }))
-          }
-          onBlur={() =>
+          {...numberFieldProps("batch_timeout_seconds", String(settings.batch_timeout_seconds), () =>
             void commitNumber("batch_timeout_seconds", (v) =>
               !Number.isFinite(v) || v < 0 ? "Таймаут батчинга должен быть числом не меньше 0" : null,
-            )
-          }
+            ),
+          )}
           aria-label="Таймаут батчинга, сек"
           className="max-w-xs"
         />
@@ -153,17 +197,11 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
       <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Хэндофф</h2>
         <NumberField
-          min={0}
+          min={MIN_MINUTES}
           step={1}
-          value={settings.auto_release_minutes}
-          onChange={(e) =>
-            setSettings((prev) => ({ ...prev, auto_release_minutes: Number(e.target.value) }))
-          }
-          onBlur={() =>
-            void commitNumber("auto_release_minutes", (v) =>
-              !Number.isFinite(v) || v < 0 ? "Авто-возврат должен быть числом не меньше 0" : null,
-            )
-          }
+          {...numberFieldProps("auto_release_minutes", String(settings.auto_release_minutes), () =>
+            void commitNumber("auto_release_minutes", minutesValidator("Авто-возврат")),
+          )}
           aria-label="Авто-возврат после ответа менеджера, мин"
           className="max-w-xs"
         />
@@ -181,17 +219,11 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
         <label className="mb-4 block text-sm font-medium text-ink">
           Задержка, мин
           <NumberField
-            min={0}
+            min={MIN_MINUTES}
             step={1}
-            value={settings.reminder_delay_minutes}
-            onChange={(e) =>
-              setSettings((prev) => ({ ...prev, reminder_delay_minutes: Number(e.target.value) }))
-            }
-            onBlur={() =>
-              void commitNumber("reminder_delay_minutes", (v) =>
-                !Number.isFinite(v) || v < 0 ? "Задержка напоминания должна быть числом не меньше 0" : null,
-              )
-            }
+            {...numberFieldProps("reminder_delay_minutes", String(settings.reminder_delay_minutes), () =>
+              void commitNumber("reminder_delay_minutes", minutesValidator("Задержка напоминания")),
+            )}
             className="mt-1.5 max-w-xs"
           />
         </label>
@@ -233,14 +265,9 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             min={0}
             max={MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB}
             step={0.1}
-            value={settings.media_max_size_bytes / BYTES_PER_MB}
-            onChange={(e) =>
-              setSettings((prev) => ({
-                ...prev,
-                media_max_size_bytes: Math.round(Number(e.target.value) * BYTES_PER_MB),
-              }))
-            }
-            onBlur={() => void commitMediaMaxSize()}
+            {...numberFieldProps("media_max_size_mb", formatMb(settings.media_max_size_bytes), () =>
+              void commitMediaMaxSize(),
+            )}
             className="mt-1.5 max-w-xs"
           />
         </label>

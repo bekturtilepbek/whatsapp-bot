@@ -125,6 +125,10 @@ MAX_BATCH_VOICE_MESSAGES = 10
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 25.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
+# Нижний порог для auto_release_minutes и reminder_delay_minutes: API не
+# валидирует bots.settings, а кабинет до 2026-09-28 сохранял очищенное поле
+# как 0 (см. _handoff_ttl_seconds/_schedule_follow_up).
+MIN_SETTINGS_MINUTES = 1
 # Эталон V1 (analyzePdf): обрезка текста документа перед отправкой в LLM.
 PDF_TEXT_MAX_CHARS = 15000
 # Мультитенантная платформа на одной БД — бот с огромным каталогом не
@@ -156,7 +160,10 @@ def _handoff_ttl_seconds(bot: Bot) -> int:
         minutes = float(value)
     except (TypeError, ValueError):
         minutes = DEFAULT_AUTO_RELEASE_MINUTES
-    return int(minutes * 60)
+    # Нижний порог: settings не валидируются API (произвольный dict), а 0
+    # превращался в SET ... EX 0 — Redis отвергает команду, handoff не
+    # ставился, и бот отвечал клиенту поверх менеджера.
+    return max(MIN_SETTINGS_MINUTES * 60, int(minutes * 60))
 
 
 def _media_reaction_enabled(bot: Bot) -> bool:
@@ -533,6 +540,9 @@ async def _schedule_follow_up(
         delay_minutes = float(delay_value)
     except (TypeError, ValueError):
         delay_minutes = DEFAULT_REMINDER_DELAY_MINUTES
+    # Тот же нижний порог, что у авто-возврата: 0 давал eta "сейчас" —
+    # напоминание уходило через секунды после каждого ответа бота.
+    delay_minutes = max(float(MIN_SETTINGS_MINUTES), delay_minutes)
 
     eta = datetime.now(UTC) + timedelta(minutes=delay_minutes)
     try:

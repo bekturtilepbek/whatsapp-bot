@@ -104,6 +104,24 @@ it("converts the MB input back to bytes on save", async () => {
   });
 });
 
+it("keeps the typed MB value as typed, without a float tail from the bytes round-trip", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  const field = screen.getByLabelText(/макс\. размер/i);
+  fireEvent.change(field, { target: { value: "16.1" } });
+  // Раньше поле перерисовывалось из байтов: 16.1 МБ -> 16882074 Б -> 16.1000003814...
+  expect(field).toHaveValue(16.1);
+  fireEvent.blur(field);
+
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
+      media_max_size_bytes: Math.round(16.1 * 1024 * 1024),
+    });
+  });
+  expect(field).toHaveValue(16.1);
+});
+
 it("saves media reaction fields independently (FEATURES.md 9.10)", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
@@ -188,6 +206,45 @@ describe("validation blocks the save call, shows an error, and reverts the field
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
     expect(field).toHaveValue(1);
+  });
+
+  // Пустое поле раньше превращалось в 0 (Number("") === 0) и молча
+  // сохранялось: авто-возврат 0 ломал handoff в worker (SET EX 0), задержка
+  // напоминания 0 слала напоминание сразу после ответа бота.
+  it.each([
+    [/таймаут батчинга/i, 1],
+    [/авто-возврат/i, 12],
+    [/задержка/i, 60],
+  ])("rejects an emptied number field %s instead of saving 0", async (label, original) => {
+    render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+    const field = screen.getByLabelText(label);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.patchBotSettings).not.toHaveBeenCalled();
+    expect(field).toHaveValue(original);
+  });
+
+  it.each([[/авто-возврат/i], [/задержка/i]])("rejects 0 minutes for %s", async (label) => {
+    render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+    const field = screen.getByLabelText(label);
+    fireEvent.change(field, { target: { value: "0" } });
+    fireEvent.blur(field);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.patchBotSettings).not.toHaveBeenCalled();
+  });
+
+  it("rejects an emptied media size field", async () => {
+    render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+    const field = screen.getByLabelText(/макс\. размер/i);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.blur(field);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.patchBotSettings).not.toHaveBeenCalled();
+    expect(field).toHaveValue(16);
   });
 
   it("rejects a media size of 0", async () => {

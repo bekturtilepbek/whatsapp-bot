@@ -152,4 +152,60 @@ describe("usePostgresAuthState", () => {
       expect.stringContaining("creds persist failed"),
     );
   });
+
+  // Живой баг (security review, 2026-09-28): saveCreds (немедленно) и
+  // flushKeysNow (debounce) писали одну и ту же строку auth_state двумя
+  // независимыми pool.query() без синхронизации — если запись, вызванная
+  // РАНЬШЕ, отвечала от Postgres ПОЗЖЕ, она откатывала более свежие
+  // creds/keys обратно на устаревший снимок (тот же класс гонки, что уже
+  // нашли и закрыли в SessionManager.publishStatus). Здесь доказываем, что
+  // вторая запись (saveCreds) даже НЕ ПЫТАЕТСЯ выполнить свой pool.query,
+  // пока первая (flushKeysNow) не завершится — порядок применения к
+  // Postgres теперь строго совпадает с порядком вызова.
+  it("does not issue a second auth-state write until the first has settled (race regression)", async () => {
+    const rows = new Map<string, string>();
+    const insertResolvers: Array<() => void> = [];
+    const pool = {
+      query: vi.fn((sql: string, params: unknown[] = []) => {
+        if (sql.startsWith("SELECT")) {
+          const botId = params[0] as string;
+          return Promise.resolve({ rows: [{ auth_state_text: rows.get(botId) ?? null }] });
+        }
+        return new Promise((resolve) => {
+          insertResolvers.push(() => {
+            const [botId, authStateJson] = params as [string, string];
+            rows.set(botId, authStateJson);
+            resolve({ rows: [] });
+          });
+        });
+      }),
+    } as unknown as Pool;
+    const auth = await usePostgresAuthState(pool, "bot-1", makeMockLogger());
+
+    // Write A: a key flush, triggered directly (dispose() skips the
+    // debounce timer) — this is the OLDER write, issued first.
+    await auth.state.keys.set({ session: { a: new Uint8Array([1]) } });
+    const writeA = auth.dispose();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(insertResolvers).toHaveLength(1);
+
+    // Write B: a creds mutation made strictly AFTER write A was issued —
+    // must never be overwritten by A landing late. Its own pool.query must
+    // not fire yet, since it's chained behind write A.
+    (auth.state.creds as { registered: boolean }).registered = true;
+    const writeB = auth.saveCreds();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(insertResolvers).toHaveLength(1);
+
+    insertResolvers[0]();
+    await writeA;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(insertResolvers).toHaveLength(2);
+
+    insertResolvers[1]();
+    await writeB;
+
+    const finalState = JSON.parse(rows.get("bot-1")!);
+    expect(finalState.creds.registered).toBe(true);
+  });
 });

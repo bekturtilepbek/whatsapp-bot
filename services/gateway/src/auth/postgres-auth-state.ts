@@ -75,6 +75,32 @@ export async function usePostgresAuthState(
   let keysFlushTimer: ReturnType<typeof setTimeout> | null = null;
   let keysDirty = false;
 
+  // saveCreds (creds.update, немедленно) и flushKeysNow (debounce 1с) пишут
+  // ОДНУ и ту же строку bot_sessions.auth_state независимо друг от друга —
+  // два pool.query() без всякой синхронизации между собой, и порядок
+  // завершения в Postgres может не совпасть с порядком вызова (тот же класс
+  // гонки, что уже нашли и закрыли в SessionManager.publishStatus, security
+  // review 2026-09-28). Например: flushKeysNow вызван первым, но его запрос
+  // почему-то отвечает ПОЗЖЕ saveCreds — тогда более старый снимок stored
+  // (без свежих creds/pre-keys) перезаписывает более новый, и после рестарта
+  // это всплывает как decrypt-ошибки или разорванная сессия. Цепочка ниже
+  // гарантирует строгий порядок ПРИМЕНЕНИЯ к Postgres; serialize() внутри
+  // persist() читает stored в момент СВОЕГО хода очереди (не в момент
+  // вызова enqueuePersist), так что каждая запись в любом случае видит
+  // самое свежее состояние, а не устаревший снимок.
+  let persistChain: Promise<void> = Promise.resolve();
+  const enqueuePersist = (): Promise<void> => {
+    const attempt = persistChain.then(() => persist(pool, botId, stored));
+    // Сама цепочка никогда не должна остаться отклонённой — иначе один
+    // сбойный write молча блокирует ВСЕ последующие (каждый .then() на уже
+    // rejected-промисе просто пробрасывает ошибку дальше, не вызывая
+    // callback). Реальный результат ЭТОЙ попытки (attempt) возвращаем
+    // вызывающему коду без изменений — у saveCreds/flushKeysNow разная
+    // обработка ошибки (логирование vs повторный keysDirty=true).
+    persistChain = attempt.catch(() => undefined);
+    return attempt;
+  };
+
   const flushKeysNow = async (): Promise<void> => {
     if (keysFlushTimer) {
       clearTimeout(keysFlushTimer);
@@ -83,7 +109,7 @@ export async function usePostgresAuthState(
     if (!keysDirty) return;
     keysDirty = false;
     try {
-      await persist(pool, botId, stored);
+      await enqueuePersist();
     } catch (err) {
       // Флаш вызывается из setTimeout, вне какой-либо цепочки await у
       // вызывающего кода — необработанное исключение здесь становится
@@ -111,7 +137,7 @@ export async function usePostgresAuthState(
     // ловит результат — необработанное исключение здесь тоже уронит весь
     // процесс (тот же класс бага, что и flushKeysNow выше).
     try {
-      await persist(pool, botId, stored);
+      await enqueuePersist();
     } catch (err) {
       logger.error({ err, botId }, "auth-state creds persist failed");
     }

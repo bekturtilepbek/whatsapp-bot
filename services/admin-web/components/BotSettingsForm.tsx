@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { AVAILABLE_MODELS, patchBotSettings, type BotSettings } from "@/lib/api";
+import { AVAILABLE_MODELS, patchBotSettings, type BotSettings, type ProductDisplay } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { NumberField } from "@/components/ui/NumberField";
@@ -18,86 +17,8 @@ const BYTES_PER_MB = 1024 * 1024;
 // заново открыть тот же риск (найдено code review настроек бота, 2026-09-09).
 const MAX_MEDIA_MAX_SIZE_BYTES = 64 * BYTES_PER_MB;
 
-/** Сравнивает текущее состояние формы с последним известным сохранённым —
- * возвращает только реально изменившиеся ключи. Бэкенд уже поддерживает
- * частичный PATCH (шаллоу JSONB-merge, update_bot) — раньше форма всё
- * равно слала весь объект целиком, что навсегда фиксировало в bots.settings
- * дефолтные значения полей, которые администратор не трогал, и на двух
- * параллельных вкладках второе сохранение затирало правки первой (найдено
- * code review настроек бота, 2026-09-09). */
-function diffSettings(
-  baseline: Required<BotSettings>,
-  current: Required<BotSettings>,
-): BotSettings {
-  const changed: BotSettings = {};
-  if (current.batch_timeout_seconds !== baseline.batch_timeout_seconds) {
-    changed.batch_timeout_seconds = current.batch_timeout_seconds;
-  }
-  if (current.auto_release_minutes !== baseline.auto_release_minutes) {
-    changed.auto_release_minutes = current.auto_release_minutes;
-  }
-  if (current.reminder_enabled !== baseline.reminder_enabled) {
-    changed.reminder_enabled = current.reminder_enabled;
-  }
-  if (current.reminder_delay_minutes !== baseline.reminder_delay_minutes) {
-    changed.reminder_delay_minutes = current.reminder_delay_minutes;
-  }
-  if (current.reminder_message !== baseline.reminder_message) {
-    changed.reminder_message = current.reminder_message;
-  }
-  if (current.media_fallback_text !== baseline.media_fallback_text) {
-    changed.media_fallback_text = current.media_fallback_text;
-  }
-  if (current.media_max_size_bytes !== baseline.media_max_size_bytes) {
-    changed.media_max_size_bytes = current.media_max_size_bytes;
-  }
-  if (current.media_reaction_enabled !== baseline.media_reaction_enabled) {
-    changed.media_reaction_enabled = current.media_reaction_enabled;
-  }
-  if (current.media_reaction_emoji !== baseline.media_reaction_emoji) {
-    changed.media_reaction_emoji = current.media_reaction_emoji;
-  }
-  if (current.model !== baseline.model) {
-    changed.model = current.model;
-  }
-  if (
-    current.product_display.show_name !== baseline.product_display.show_name ||
-    current.product_display.show_description !== baseline.product_display.show_description ||
-    current.product_display.show_price !== baseline.product_display.show_price
-  ) {
-    changed.product_display = current.product_display;
-  }
-  return changed;
-}
-
-/** Возвращает текст ошибки, если форму нельзя сохранять как есть, иначе null.
- * HTML `min`/`max` на input — только подсказка, не защита (не мешает
- * заполнить поле руками мимо спиннера) — реальная проверка здесь. */
-function validateSettings(settings: Required<BotSettings>): string | null {
-  if (!Number.isFinite(settings.batch_timeout_seconds) || settings.batch_timeout_seconds < 0) {
-    return "Таймаут батчинга должен быть числом не меньше 0";
-  }
-  if (!Number.isFinite(settings.auto_release_minutes) || settings.auto_release_minutes < 0) {
-    return "Авто-возврат должен быть числом не меньше 0";
-  }
-  if (!Number.isFinite(settings.reminder_delay_minutes) || settings.reminder_delay_minutes < 0) {
-    return "Задержка напоминания должна быть числом не меньше 0";
-  }
-  if (
-    !Number.isFinite(settings.media_max_size_bytes) ||
-    settings.media_max_size_bytes <= 0 ||
-    settings.media_max_size_bytes > MAX_MEDIA_MAX_SIZE_BYTES
-  ) {
-    return `Макс. размер медиа должен быть от 0 до ${MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB} МБ`;
-  }
-  if (settings.media_fallback_text.trim() === "") {
-    return "Заглушка на неподдерживаемое медиа не может быть пустой";
-  }
-  if (settings.media_reaction_emoji.trim() === "") {
-    return "Эмодзи реакции на медиа не может быть пустым";
-  }
-  return null;
-}
+type NumericKey = "batch_timeout_seconds" | "auto_release_minutes" | "reminder_delay_minutes";
+type TextKey = "reminder_message" | "media_fallback_text" | "media_reaction_emoji";
 
 interface BotSettingsFormProps {
   botId: string;
@@ -105,39 +26,90 @@ interface BotSettingsFormProps {
   initialSettings: Required<BotSettings>;
 }
 
+/** Настройки бота (2026-09-28 переделка: убрана единая кнопка "Сохранить"
+ * внизу формы — по прямому запросу пользователя, не понравилось, что
+ * общая кнопка вне зоны видимости после прокрутки. Каждое поле сохраняется
+ * сразу — переключатели по onChange (как тумблер "бот активен" на
+ * Обзоре, components/QrPanel.tsx), текстовые/числовые поля по blur
+ * (не на каждое нажатие клавиши — иначе запрос на каждый символ). На
+ * сбое поле откатывается к последнему подтверждённому значению (baseline).
+ * Итоговый вид этой вкладки пользователь попросил считать промежуточным —
+ * вернёмся обсудить (ползунки вместо number-input и т.п.) отдельно. */
 export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSettingsFormProps) {
   const { showError, showSuccess } = useToast();
   const [baseline, setBaseline] = useState<Required<BotSettings>>(initialSettings);
   const [settings, setSettings] = useState<Required<BotSettings>>(initialSettings);
-  const [saving, setSaving] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const validationError = validateSettings(settings);
-    if (validationError) {
-      showError(validationError);
-      return;
-    }
-    setSaving(true);
+  /** Переключатели/select — сохраняются немедленно на change, без blur. */
+  async function saveNow(patch: BotSettings): Promise<void> {
     try {
-      await patchBotSettings(apiBaseUrl, botId, diffSettings(baseline, settings));
-      setBaseline(settings);
+      await patchBotSettings(apiBaseUrl, botId, patch);
+      setBaseline((prev) => ({ ...prev, ...patch }));
       showSuccess("Сохранено");
     } catch (err) {
       showError(err instanceof Error ? err.message : "Не удалось сохранить");
-    } finally {
-      setSaving(false);
+      // Ключи patch могли быть только что применены к settings вызывающим
+      // кодом (setSettings уже отработал) — откатываем именно их к baseline.
+      setSettings((prev) => ({ ...prev, ...(Object.fromEntries(
+        Object.keys(patch).map((key) => [key, baseline[key as keyof BotSettings]]),
+      ) as BotSettings) }));
     }
-  };
+  }
+
+  function setAndSaveNow(patch: BotSettings): void {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    void saveNow(patch);
+  }
+
+  /** Числовое поле — валидация + сохранение по blur, только если значение
+   * реально изменилось с последнего подтверждённого. */
+  async function commitNumber(key: NumericKey, validate: (value: number) => string | null): Promise<void> {
+    const value = settings[key];
+    if (value === baseline[key]) return;
+    const error = validate(value);
+    if (error) {
+      showError(error);
+      setSettings((prev) => ({ ...prev, [key]: baseline[key] }));
+      return;
+    }
+    await saveNow({ [key]: value });
+  }
+
+  /** Текстовое поле — то же самое, для строковых ключей. */
+  async function commitText(key: TextKey, validate?: (value: string) => string | null): Promise<void> {
+    const value = settings[key];
+    if (value === baseline[key]) return;
+    const error = validate?.(value.trim());
+    if (error) {
+      showError(error);
+      setSettings((prev) => ({ ...prev, [key]: baseline[key] }));
+      return;
+    }
+    await saveNow({ [key]: value });
+  }
+
+  /** Макс. размер медиа хранится в байтах, редактируется в МБ — отдельная
+   * функция, а не commitNumber: нужна конвертация туда-обратно и сравнение
+   * с baseline тоже в байтах. */
+  async function commitMediaMaxSize(): Promise<void> {
+    const mb = settings.media_max_size_bytes / BYTES_PER_MB;
+    const bytes = Math.round(mb * BYTES_PER_MB);
+    if (bytes === baseline.media_max_size_bytes) return;
+    if (!Number.isFinite(bytes) || bytes <= 0 || bytes > MAX_MEDIA_MAX_SIZE_BYTES) {
+      showError(`Макс. размер медиа должен быть от 0 до ${MAX_MEDIA_MAX_SIZE_BYTES / BYTES_PER_MB} МБ`);
+      setSettings((prev) => ({ ...prev, media_max_size_bytes: baseline.media_max_size_bytes }));
+      return;
+    }
+    await saveNow({ media_max_size_bytes: bytes });
+  }
+
+  function setProductDisplay(patch: ProductDisplay): void {
+    const next = { ...settings.product_display, ...patch };
+    setAndSaveNow({ product_display: next });
+  }
 
   return (
-    // noValidate — иначе браузерная HTML5-валидация (min/max) тихо блокирует
-    // submit ДО того, как выполнится validateSettings ниже: часть невалидных
-    // значений (за пределами min/max) вообще не дошла бы до нашего сообщения
-    // об ошибке, а показала бы (или не показала бы — зависит от браузера)
-    // нативный тултип, при этом другие поля без min/max (текстовые) шли бы
-    // через кастомную ошибку — несогласованно.
-    <form noValidate onSubmit={(e) => void handleSubmit(e)} className="space-y-5">
+    <div className="space-y-5">
       {/* Карточки ниже с одним полем — без видимой <label>-подписи под
           заголовком: заголовок карточки уже называет единственное поле,
           вторая подпись была бы дублирующей (см. "Напоминания"/"Медиа" ниже —
@@ -147,7 +119,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
         <h2 className="mb-4 text-[15px] font-semibold text-ink">Модель</h2>
         <Select
           value={settings.model}
-          onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+          onChange={(e) => setAndSaveNow({ model: e.target.value })}
           aria-label="Модель LLM"
           className="max-w-xs"
         >
@@ -166,7 +138,12 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           step={0.1}
           value={settings.batch_timeout_seconds}
           onChange={(e) =>
-            setSettings({ ...settings, batch_timeout_seconds: Number(e.target.value) })
+            setSettings((prev) => ({ ...prev, batch_timeout_seconds: Number(e.target.value) }))
+          }
+          onBlur={() =>
+            void commitNumber("batch_timeout_seconds", (v) =>
+              !Number.isFinite(v) || v < 0 ? "Таймаут батчинга должен быть числом не меньше 0" : null,
+            )
           }
           aria-label="Таймаут батчинга, сек"
           className="max-w-xs"
@@ -180,7 +157,12 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           step={1}
           value={settings.auto_release_minutes}
           onChange={(e) =>
-            setSettings({ ...settings, auto_release_minutes: Number(e.target.value) })
+            setSettings((prev) => ({ ...prev, auto_release_minutes: Number(e.target.value) }))
+          }
+          onBlur={() =>
+            void commitNumber("auto_release_minutes", (v) =>
+              !Number.isFinite(v) || v < 0 ? "Авто-возврат должен быть числом не меньше 0" : null,
+            )
           }
           aria-label="Авто-возврат после ответа менеджера, мин"
           className="max-w-xs"
@@ -192,7 +174,7 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
         <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
           <Switch
             checked={settings.reminder_enabled}
-            onChange={(e) => setSettings({ ...settings, reminder_enabled: e.target.checked })}
+            onChange={(e) => setAndSaveNow({ reminder_enabled: e.target.checked })}
           />
           Включены
         </label>
@@ -203,7 +185,12 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             step={1}
             value={settings.reminder_delay_minutes}
             onChange={(e) =>
-              setSettings({ ...settings, reminder_delay_minutes: Number(e.target.value) })
+              setSettings((prev) => ({ ...prev, reminder_delay_minutes: Number(e.target.value) }))
+            }
+            onBlur={() =>
+              void commitNumber("reminder_delay_minutes", (v) =>
+                !Number.isFinite(v) || v < 0 ? "Задержка напоминания должна быть числом не меньше 0" : null,
+              )
             }
             className="mt-1.5 max-w-xs"
           />
@@ -213,7 +200,10 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           <Textarea
             rows={3}
             value={settings.reminder_message}
-            onChange={(e) => setSettings({ ...settings, reminder_message: e.target.value })}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, reminder_message: e.target.value }))
+            }
+            onBlur={() => void commitText("reminder_message")}
             className="mt-1.5"
           />
         </label>
@@ -226,7 +216,14 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           <Textarea
             rows={3}
             value={settings.media_fallback_text}
-            onChange={(e) => setSettings({ ...settings, media_fallback_text: e.target.value })}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, media_fallback_text: e.target.value }))
+            }
+            onBlur={() =>
+              void commitText("media_fallback_text", (v) =>
+                v === "" ? "Заглушка на неподдерживаемое медиа не может быть пустой" : null,
+              )
+            }
             className="mt-1.5"
           />
         </label>
@@ -238,20 +235,19 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             step={0.1}
             value={settings.media_max_size_bytes / BYTES_PER_MB}
             onChange={(e) =>
-              setSettings({
-                ...settings,
+              setSettings((prev) => ({
+                ...prev,
                 media_max_size_bytes: Math.round(Number(e.target.value) * BYTES_PER_MB),
-              })
+              }))
             }
+            onBlur={() => void commitMediaMaxSize()}
             className="mt-1.5 max-w-xs"
           />
         </label>
         <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
           <Switch
             checked={settings.media_reaction_enabled}
-            onChange={(e) =>
-              setSettings({ ...settings, media_reaction_enabled: e.target.checked })
-            }
+            onChange={(e) => setAndSaveNow({ media_reaction_enabled: e.target.checked })}
           />
           Реагировать эмодзи на входящее фото/файл/видео
         </label>
@@ -260,7 +256,14 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           <Input
             type="text"
             value={settings.media_reaction_emoji}
-            onChange={(e) => setSettings({ ...settings, media_reaction_emoji: e.target.value })}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, media_reaction_emoji: e.target.value }))
+            }
+            onBlur={() =>
+              void commitText("media_reaction_emoji", (v) =>
+                v === "" ? "Эмодзи реакции на медиа не может быть пустым" : null,
+              )
+            }
             className="mt-1.5 max-w-xs"
           />
         </label>
@@ -276,48 +279,26 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
           <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
             <Switch
               checked={settings.product_display.show_name}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  product_display: { ...settings.product_display, show_name: e.target.checked },
-                })
-              }
+              onChange={(e) => setProductDisplay({ show_name: e.target.checked })}
             />
             Показывать название
           </label>
           <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
             <Switch
               checked={settings.product_display.show_description}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  product_display: {
-                    ...settings.product_display,
-                    show_description: e.target.checked,
-                  },
-                })
-              }
+              onChange={(e) => setProductDisplay({ show_description: e.target.checked })}
             />
             Показывать описание
           </label>
           <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
             <Switch
               checked={settings.product_display.show_price}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  product_display: { ...settings.product_display, show_price: e.target.checked },
-                })
-              }
+              onChange={(e) => setProductDisplay({ show_price: e.target.checked })}
             />
             Показывать цену
           </label>
         </div>
       </Card>
-
-      <Button type="submit" disabled={saving}>
-        {saving ? "Сохраняем…" : "Сохранить"}
-      </Button>
-    </form>
+    </div>
   );
 }

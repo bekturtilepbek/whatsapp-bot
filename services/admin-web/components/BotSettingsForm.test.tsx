@@ -45,31 +45,57 @@ it("renders current settings", () => {
   expect(screen.getByLabelText(/показывать название/i)).toBeChecked();
   expect(screen.getByLabelText(/показывать описание/i)).toBeChecked();
   expect(screen.getByLabelText(/показывать цену/i)).toBeChecked();
+  // Нет общей кнопки "Сохранить" — переделка 2026-09-28, каждое поле
+  // сохраняется само (по запросу пользователя).
+  expect(screen.queryByRole("button", { name: /сохранить/i })).not.toBeInTheDocument();
 });
 
-it("saves only the fields that were actually changed", async () => {
+it("saves a switch immediately on change, without waiting for blur elsewhere", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  fireEvent.change(screen.getByLabelText(/таймаут батчинга/i), { target: { value: "2.5" } });
   fireEvent.click(screen.getByLabelText(/включены/i));
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { reminder_enabled: true });
+  });
+  expect(await screen.findByRole("status")).toHaveTextContent(/сохранено/i);
+});
+
+it("saves a number field on blur, not on every keystroke", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  const field = screen.getByLabelText(/таймаут батчинга/i);
+  fireEvent.change(field, { target: { value: "2.5" } });
+  expect(api.patchBotSettings).not.toHaveBeenCalled(); // ещё не blur
+
+  fireEvent.blur(field);
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
       batch_timeout_seconds: 2.5,
-      reminder_enabled: true,
     });
   });
-  expect(await screen.findByRole("status")).toHaveTextContent(/сохранено/i);
+});
+
+it("does not call the API on blur when the value did not actually change", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  const field = screen.getByLabelText(/таймаут батчинга/i);
+  fireEvent.focus(field);
+  fireEvent.blur(field);
+
+  expect(api.patchBotSettings).not.toHaveBeenCalled();
 });
 
 it("converts the MB input back to bytes on save", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  fireEvent.change(screen.getByLabelText(/макс\. размер/i), { target: { value: "8" } });
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+  const field = screen.getByLabelText(/макс\. размер/i);
+  fireEvent.change(field, { target: { value: "8" } });
+  fireEvent.blur(field);
 
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
@@ -78,41 +104,32 @@ it("converts the MB input back to bytes on save", async () => {
   });
 });
 
-it("sends nothing further to save once already saved (baseline advances)", async () => {
-  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
-  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-
-  fireEvent.change(screen.getByLabelText(/таймаут батчинга/i), { target: { value: "2" } });
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
-  await waitFor(() => expect(api.patchBotSettings).toHaveBeenCalledTimes(1));
-
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
-  await waitFor(() => expect(api.patchBotSettings).toHaveBeenCalledTimes(2));
-  expect(api.patchBotSettings).toHaveBeenLastCalledWith("http://api", "1", {});
-});
-
-it("saves changed media reaction settings (FEATURES.md 9.10)", async () => {
+it("saves media reaction fields independently (FEATURES.md 9.10)", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
   fireEvent.click(screen.getByLabelText(/реагировать эмодзи/i));
-  fireEvent.change(screen.getByLabelText(/эмодзи реакции/i), { target: { value: "🎉" } });
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
-
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
       media_reaction_enabled: false,
+    });
+  });
+
+  const emojiField = screen.getByLabelText(/эмодзи реакции/i);
+  fireEvent.change(emojiField, { target: { value: "🎉" } });
+  fireEvent.blur(emojiField);
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
       media_reaction_emoji: "🎉",
     });
   });
 });
 
-it("saves a changed model (Волна 4)", async () => {
+it("saves a changed model immediately (Волна 4)", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
   fireEvent.change(screen.getByLabelText(/модель llm/i), { target: { value: "gpt-4o" } });
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { model: "gpt-4o" });
@@ -124,7 +141,6 @@ it("saves the whole product_display object when any of its switches changed (FEA
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
   fireEvent.click(screen.getByLabelText(/показывать цену/i));
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
 
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
@@ -133,31 +149,52 @@ it("saves the whole product_display object when any of its switches changed (FEA
   });
 });
 
-it("shows an error when saving fails", async () => {
+it("shows an error and reverts the switch when saving fails", async () => {
   vi.mocked(api.patchBotSettings).mockRejectedValue(new Error("save failed"));
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+  const toggle = screen.getByLabelText(/включены/i);
+  fireEvent.click(toggle);
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
   });
+  // Откат к последнему подтверждённому состоянию — сбой не должен молча
+  // оставить UI в несинхронизированном с бэкендом состоянии.
+  expect(toggle).not.toBeChecked();
 });
 
-describe("validation blocks the save call and shows an error instead", () => {
+it("shows an error and reverts a number field to baseline when saving fails", async () => {
+  vi.mocked(api.patchBotSettings).mockRejectedValue(new Error("save failed"));
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  const field = screen.getByLabelText(/таймаут батчинга/i);
+  fireEvent.change(field, { target: { value: "2.5" } });
+  fireEvent.blur(field);
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
+  });
+  expect(field).toHaveValue(1);
+});
+
+describe("validation blocks the save call, shows an error, and reverts the field", () => {
   it("rejects a negative batch timeout", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    fireEvent.change(screen.getByLabelText(/таймаут батчинга/i), { target: { value: "-5" } });
-    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+    const field = screen.getByLabelText(/таймаут батчинга/i);
+    fireEvent.change(field, { target: { value: "-5" } });
+    fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
+    expect(field).toHaveValue(1);
   });
 
   it("rejects a media size of 0", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    fireEvent.change(screen.getByLabelText(/макс\. размер/i), { target: { value: "0" } });
-    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+    const field = screen.getByLabelText(/макс\. размер/i);
+    fireEvent.change(field, { target: { value: "0" } });
+    fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
@@ -165,8 +202,9 @@ describe("validation blocks the save call and shows an error instead", () => {
 
   it("rejects a media size above the 64 MB ceiling", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    fireEvent.change(screen.getByLabelText(/макс\. размер/i), { target: { value: "500" } });
-    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+    const field = screen.getByLabelText(/макс\. размер/i);
+    fireEvent.change(field, { target: { value: "500" } });
+    fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
@@ -174,10 +212,9 @@ describe("validation blocks the save call and shows an error instead", () => {
 
   it("rejects an empty media fallback text", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    fireEvent.change(screen.getByLabelText(/заглушка на неподдерживаемое медиа/i), {
-      target: { value: "   " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+    const field = screen.getByLabelText(/заглушка на неподдерживаемое медиа/i);
+    fireEvent.change(field, { target: { value: "   " } });
+    fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
@@ -185,19 +222,11 @@ describe("validation blocks the save call and shows an error instead", () => {
 
   it("rejects an empty reaction emoji", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    fireEvent.change(screen.getByLabelText(/эмодзи реакции/i), { target: { value: "   " } });
-    fireEvent.click(screen.getByRole("button", { name: /сохранить/i }));
+    const field = screen.getByLabelText(/эмодзи реакции/i);
+    fireEvent.change(field, { target: { value: "   " } });
+    fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
   });
-
-  // Не тестируем NaN через смену значения number-input'а: браузер (и jsdom)
-  // санитизирует нечисловую строку типа "-"/"1e" на уровне .value ДО того,
-  // как она попадёт в onChange — e.target.value в реальном change-event
-  // для type="number" всегда либо валидное число, либо "" (эмпирически
-  // проверено на jsdom). validateSettings всё равно защищается через
-  // Number.isFinite — дешёвая страховка на случай другого пути ввода
-  // (например, будущего поля без type="number"), просто её нельзя
-  // воспроизвести через этот конкретный UI.
 });

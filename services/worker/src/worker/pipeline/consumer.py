@@ -670,9 +670,18 @@ async def _reply_with_vision(
         # batch_ids — все фото ЭТОГО хода (лидер + фолловеры одного окна
         # батчинга); event.wa_msg_id добавлен defensively — на случай гонки
         # с TTL Redis-списка, лидер должен остаться в выборке в любом случае.
+        # Фильтр по mime_type ОБЯЗАТЕЛЕН (не просто "есть media_ref") — если
+        # лидер сам НЕ фото (голосовое/PDF), а фото прилетело следом в том же
+        # окне батчинга, event.wa_msg_id всё равно добавлялся бы в выборку —
+        # голосовое/PDF лидера уходило бы в vision-модель как картинка
+        # (security review, 2026-09-28).
         batch_ids = set(batch_wa_msg_ids) | {event.wa_msg_id}
         batch_rows = [
-            m for m in history_rows if m.wa_msg_id in batch_ids and m.media_ref is not None
+            m
+            for m in history_rows
+            if m.wa_msg_id in batch_ids
+            and m.media_ref is not None
+            and (m.media_ref.get("mime_type") or "").startswith("image/")
         ]
         # Всё, что НЕ входит в эту пачку, — обычная предыдущая история;
         # плейсхолдеры пачки ("[фото]") исключены целиком, не только
@@ -754,11 +763,21 @@ async def _transcribe_batch_audio(
     сессией — не полу-транскрибированная история.
     """
     try:
+        # Тот же фильтр, что и в _reply_with_vision выше (security review,
+        # 2026-09-28) — без него голосовое, прилетевшее СЛЕДОМ за лидером-
+        # фото/PDF в том же окне батчинга, тянуло лидера в этот список тоже:
+        # ffmpeg на JPEG/PDF падает (вся пачка деградирует в fallback), а на
+        # видео с звуком — успешно транскодирует и ПОДМЕНЯЕТ содержимое
+        # видео-сообщения в истории транскриптом его звуковой дорожки.
         batch_ids = set(batch_wa_msg_ids) | {event.wa_msg_id}
         async with session_factory() as session:
             history_rows = await fetch_recent_history(session, contact_id)
             batch_rows = [
-                m for m in history_rows if m.wa_msg_id in batch_ids and m.media_ref is not None
+                m
+                for m in history_rows
+                if m.wa_msg_id in batch_ids
+                and m.media_ref is not None
+                and (m.media_ref.get("mime_type") or "").startswith("audio/")
             ]
             if not batch_rows:
                 return False

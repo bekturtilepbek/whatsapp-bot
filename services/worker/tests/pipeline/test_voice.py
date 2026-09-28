@@ -193,6 +193,101 @@ async def test_multiple_voice_messages_in_one_batch_are_all_transcribed(
         await redis.aclose()
 
 
+async def test_photo_leader_with_voice_follower_does_not_feed_photo_bytes_to_ffmpeg(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой баг (security review, 2026-09-28): лидер — фото (у бота нет
+    image_prompt, так что диспетчер уходит в audio-ветку из-за голосового-
+    фолловера), batch_ids всё равно включал event.wa_msg_id лидера — JPEG-
+    байты лидера пытались пройти через ffmpeg вместе с голосовым, что либо
+    роняет всю пачку в fallback, либо (для видео со звуком) молча подменяет
+    содержимое чужого сообщения транскриптом. Фильтр по mime_type должен
+    исключать лидера, если он не audio/*."""
+    from db.models import Bot
+
+    async def fake_convert_to_mp3(raw: bytes) -> bytes:
+        assert raw == b"ogg-bytes", "фото-байты лидера не должны попасть в ffmpeg"
+        return b"mp3-bytes"
+
+    async def fake_transcribe_audio(audio_bytes: bytes, filename: str, **_: object) -> str:
+        assert audio_bytes == b"mp3-bytes"
+        return "Голосовое сообщение расшифровано."
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(text="ok", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "convert_to_mp3", fake_convert_to_mp3)
+    monkeypatch.setattr(consumer_module, "transcribe_audio", fake_transcribe_audio)
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+
+    async with session_factory() as session:
+        # Без image_prompt — бот не умеет vision, поэтому диспетчер уходит в
+        # audio-ветку из-за голосового-фолловера (см. consumer.py:
+        # "elif batch_audio_wa_msg_ids").
+        bot = Bot(
+            name="test-bot",
+            enabled=True,
+            system_prompt="Ты — ассистент.",
+            timezone="Asia/Bishkek",
+            settings={"batch_timeout_seconds": 0.02},
+        )
+        session.add(bot)
+        await session.flush()
+        bot_id = bot.id
+        await session.commit()
+
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    photo_leader_payload = {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-photo-leader",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "",
+        "media_type": "image",
+        "storage_key": "bots/x/media/photo-leader",
+        "mime_type": "image/jpeg",
+        "size_bytes": 12345,
+        "ts": now_ms,
+    }
+    voice_follower_payload = _voice_payload(
+        bot_id, "wamsg-voice-follower", "bots/x/media/voice-follower"
+    )
+    voice_follower_payload["ts"] = now_ms
+    storage = _FakeStorage(
+        data_by_key={
+            "bots/x/media/photo-leader": b"jpeg-bytes-not-audio",
+            "bots/x/media/voice-follower": b"ogg-bytes",
+        }
+    )
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        leader_task = asyncio.create_task(
+            _process_entry(photo_leader_payload, redis, session_factory, storage)
+        )
+        await asyncio.sleep(0.005)
+        await _process_entry(voice_follower_payload, redis, session_factory, storage)
+        await leader_task
+
+        async with session_factory() as session:
+            messages = (
+                (
+                    await session.execute(
+                        select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            voice_message = next(m for m in messages if m.wa_msg_id == "wamsg-voice-follower")
+            assert voice_message.content == "Голосовое сообщение расшифровано."
+    finally:
+        await redis.aclose()
+
+
 async def test_transcription_failure_falls_back_without_crashing_or_double_reply(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

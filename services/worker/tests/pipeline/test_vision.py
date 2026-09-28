@@ -396,3 +396,71 @@ async def test_photo_arriving_after_a_text_leader_is_still_analyzed(
         assert captured_images == [[(b"photo-bytes", "image/jpeg")]]
     finally:
         await redis.aclose()
+
+
+async def test_voice_leader_with_photo_follower_does_not_send_audio_bytes_as_an_image(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой баг (security review, 2026-09-28): batch_ids всегда включал
+    event.wa_msg_id (лидера), даже когда лидер САМ не фото — голосовое,
+    прилетевшее ПЕРВЫМ, следом за которым в том же окне батчинга приходит
+    фото, уходило по vision-пути (т.к. в пачке ЕСТЬ фото), но лидер (аудио-
+    байты) тоже попадал в выборку batch_rows и отправлялся модели как
+    картинка. Фильтр по mime_type в batch_rows должен исключать лидера,
+    если он не image/*."""
+    captured_images: list[list[tuple[bytes, str]]] = []
+
+    async def fake_complete_with_images(
+        system_prompt: str,
+        history: list[object],
+        caption: str,
+        images: list[tuple[bytes, str]],
+        **_: object,
+    ) -> LLMResult:
+        captured_images.append(images)
+        return LLMResult(text="Вот такое же.", tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete_with_images", fake_complete_with_images)
+
+    bot_id = await _make_bot(session_factory, image_prompt="Опиши товар на фото клиенту.")
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+    voice_leader_payload = {
+        "type": "inbound.text",
+        "bot_id": str(bot_id),
+        "wa_msg_id": "wamsg-voice-leader",
+        "chat_id": "996700000000@s.whatsapp.net",
+        "sender_wa_id": "996700000000",
+        "from_me": False,
+        "text": "",
+        "media_type": "audio",
+        "storage_key": "bots/x/media/voice-leader",
+        "mime_type": "audio/ogg; codecs=opus",
+        "size_bytes": 123,
+        "ts": now_ms,
+    }
+    photo_follower_payload = {
+        **_inbound_image_payload_with_storage(bot_id),
+        "wa_msg_id": "wamsg-photo-follower",
+        "storage_key": "bots/x/media/photo-follower",
+        "ts": now_ms,
+    }
+    storage = _FakeStorage(
+        data_by_key={
+            "bots/x/media/voice-leader": b"ogg-bytes-not-an-image",
+            "bots/x/media/photo-follower": b"photo-bytes",
+        }
+    )
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        leader_task = asyncio.create_task(
+            _process_entry(voice_leader_payload, redis, session_factory, storage)
+        )
+        await asyncio.sleep(0.005)
+        await _process_entry(photo_follower_payload, redis, session_factory, storage)
+        await leader_task
+
+        assert captured_images == [[(b"photo-bytes", "image/jpeg")]]
+    finally:
+        await redis.aclose()

@@ -9,10 +9,10 @@ bot_access, причём client на самом боте урезан (без п
 
 from __future__ import annotations
 
-import re
 import uuid
 
 import httpx
+from core.phone import normalize_phone_digits
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bot_access import grant_bot_access
@@ -278,13 +278,6 @@ BLOCKED_PHONE_MIN_DIGITS = 7
 BLOCKED_PHONE_MAX_DIGITS = 15
 
 
-def _strip_non_digits(phone: str) -> str:
-    """Тот же формат хранения, что и Contact.wa_id — без "+"/пробелов/скобок
-    (эталон V1: re.sub(r'\\D', '', phone) в central-admin).
-    """
-    return re.sub(r"\D", "", phone)
-
-
 @router.get("/{bot_id}/blocked-numbers", response_model=list[BlockedNumberOut])
 async def list_blocked(
     bot_id: uuid.UUID,
@@ -301,7 +294,10 @@ async def list_blocked(
 async def add_blocked(
     bot_id: uuid.UUID, body: BlockedNumberIn, session: SessionDep, user: FullBotAccess
 ) -> BlockedNumberOut:
-    phone = _strip_non_digits(body.phone)
+    # Тот же формат, что Contact.wa_id (цифры с кодом страны). Местный KG-формат
+    # ("0700 123 456") приводится к 996… — иначе блокировка молча не срабатывала
+    # (FEATURES.md 9.1, правило V1 formatPhoneNumber).
+    phone = normalize_phone_digits(body.phone)
     # "abc" раньше превращался в "" и сохранялся: пустая строка в списке,
     # которую нельзя удалить (DELETE .../blocked-numbers/ — 405). Матчинг идёт
     # по wa_id, а это номер с кодом страны: 7–15 цифр (E.164).

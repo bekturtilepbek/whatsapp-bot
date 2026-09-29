@@ -134,7 +134,7 @@ export function BlockedNumbersTable({
                   setPhone(event.target.value);
                   clear("phone");
                 }}
-                placeholder="+996 700 00 00 00"
+                placeholder="0700 12 34 56 или +996 700 12 34 56"
                 invalid={isInvalid("phone")}
                 className="mt-1.5"
               />

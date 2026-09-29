@@ -10,6 +10,7 @@ import html
 from typing import Any, ClassVar
 
 import structlog
+from core.phone import format_phone_for_display
 from db.contacts import get_contact
 from integrations.telegram import TelegramNotConfiguredError, send_message
 
@@ -109,7 +110,10 @@ class TelegramLeadTool:
             contact = await get_contact(session, ctx.contact_id)
 
         wa_id = contact.wa_id if contact is not None else None
-        phone = str(arguments.get("phone_number") or wa_id or "не указан")
+        raw_phone = str(arguments.get("phone_number") or wa_id or "")
+        # Единый вид +996… для менеджера, как в V1 (formatPhoneNumber, FEATURES.md 9.1):
+        # клиент называет номер как привык ("0700 12 34 56").
+        phone = format_phone_for_display(raw_phone) if raw_phone else "не указан"
         client_name = str(arguments.get("client_name", ""))
         details = str(arguments.get("details", ""))
         wa_link = f"https://wa.me/{wa_id}" if wa_id else None

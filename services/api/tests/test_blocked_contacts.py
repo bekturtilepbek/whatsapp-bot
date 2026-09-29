@@ -124,6 +124,19 @@ async def test_post_rejects_what_is_not_a_phone_number(
     assert listing.json() == []
 
 
+@pytest.mark.parametrize("phone", ["0700 123 456", "700123456", "+996 700 123 456"])
+async def test_post_normalizes_local_kg_format_to_wa_id(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession], phone: str
+) -> None:
+    """9.1: владелец вводит номер в местном формате, а worker сверяет с wa_id
+    (996…). Раньше "0700 123 456" сохранялся как "0700123456" и блокировка
+    молча не срабатывала."""
+    bot_id = await _make_bot(session_factory)
+    response = await client.post(f"/bots/{bot_id}/blocked-numbers", json={"phone": phone})
+    assert response.status_code == 201
+    assert response.json()["phone"] == "996700123456"
+
+
 async def test_post_is_idempotent(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

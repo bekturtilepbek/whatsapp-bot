@@ -162,14 +162,47 @@ async def test_explicit_phone_number_overrides_contact_wa_id(
         _make_ctx(bot, contact_id, session_factory, config={"chat_id": "-100999"}),
     )
 
-    # Явный номер клиента идёт в поле "Телефон:"...
-    assert "<b>Телефон:</b> <code>996555000000</code>" in str(captured["text"])
-    assert "<b>Телефон:</b> <code>996700000012</code>" not in str(captured["text"])
+    # Явный номер клиента идёт в поле "Телефон:" (единый вид +996…, эталон
+    # V1 formatPhoneNumber, FEATURES.md 9.1)...
+    assert "<b>Телефон:</b> <code>+996555000000</code>" in str(captured["text"])
+    assert "<b>Телефон:</b> <code>+996700000012</code>" not in str(captured["text"])
     # ...но ссылка "Написать в WhatsApp" всегда ведёт на реальный wa_id
     # контакта (design doc 2026-09-08-telegram-lead-tool-design.md) —
     # LLM-номер может быть телефоном другого человека, а не тем чатом,
     # откуда фактически пишут.
     assert "996700000012" in str(captured["text"])
+
+
+@pytest.mark.parametrize(
+    ("said", "shown"),
+    [
+        ("0700 12 34 56", "+996700123456"),
+        ("555 000 000", "+996555000000"),
+        ("не скажу", "не скажу"),
+    ],
+)
+async def test_phone_the_client_named_is_normalized_like_v1(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+    said: str,
+    shown: str,
+) -> None:
+    """9.1: клиент называет номер как привык ("0700 12 34 56") — менеджер
+    получает единый кликабельный +996…, как в V1 (formatPhoneNumber)."""
+    captured: dict[str, object] = {}
+
+    async def fake_send_message(chat_id: str, text: str) -> None:
+        captured["text"] = text
+
+    monkeypatch.setattr(telegram_lead_module, "send_message", fake_send_message)
+    bot = await _make_bot(session_factory)
+    contact_id = await _make_contact(session_factory, bot.id, f"99670000{len(said):04d}")
+
+    await TelegramLeadTool().execute(
+        {"client_name": "Айгуль", "phone_number": said, "details": "Заказ"},
+        _make_ctx(bot, contact_id, session_factory, config={"chat_id": "-100999"}),
+    )
+    assert f"<b>Телефон:</b> <code>{shown}</code>" in str(captured["text"])
 
 
 async def test_telegram_not_configured_returns_error_text(

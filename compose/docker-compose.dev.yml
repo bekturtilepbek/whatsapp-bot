@@ -7,8 +7,13 @@ services:
       POSTGRES_USER: platform
       POSTGRES_PASSWORD: platform
       POSTGRES_DB: platform
+    # 127.0.0.1, не 0.0.0.0: иначе порт виден всей локальной сети (Wi-Fi) — Redis без
+    # пароля позволял бы любому соседу писать в wa:out (сообщения с реального номера
+    # demo-qr), gateway — дёргать /bots/:id/logout без авторизации (2026-09-29).
     ports:
-      - "5432:5432"
+      # 5433 на хосте: на машине разработчика свой Windows-Postgres уже слушает 5432 —
+      # с хоста localhost:5432 уходил в НЕГО (make migrate мигрировал бы не ту базу).
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +24,11 @@ services:
 
   redis:
     image: redis:7
+    # 127.0.0.1, не 0.0.0.0: иначе порт виден всей локальной сети (Wi-Fi) — Redis без
+    # пароля позволял бы любому соседу писать в wa:out (сообщения с реального номера
+    # demo-qr), gateway — дёргать /bots/:id/logout без авторизации (2026-09-29).
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -37,8 +45,11 @@ services:
       GATEWAY_PORT: "8080"
       STORAGE_DRIVER: fs
       STORAGE_FS_ROOT: /data/media
+    # 127.0.0.1, не 0.0.0.0: иначе порт виден всей локальной сети (Wi-Fi) — Redis без
+    # пароля позволял бы любому соседу писать в wa:out (сообщения с реального номера
+    # demo-qr), gateway — дёргать /bots/:id/logout без авторизации (2026-09-29).
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ../services/gateway/src:/app/src
       - media-data:/data/media
@@ -136,8 +147,11 @@ services:
       PLATFORM_OWNER_EMAIL: owner@dev.local
       PLATFORM_OWNER_PASSWORD: devpassword123
       # OPENAI_API_KEY — из env_file выше (ADR-007), см. комментарий у worker.
+    # 127.0.0.1, не 0.0.0.0: иначе порт виден всей локальной сети (Wi-Fi) — Redis без
+    # пароля позволял бы любому соседу писать в wa:out (сообщения с реального номера
+    # demo-qr), gateway — дёргать /bots/:id/logout без авторизации (2026-09-29).
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ../services/api/src:/app/services/api/src
       - ../libs:/app/libs

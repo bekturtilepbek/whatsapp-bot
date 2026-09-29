@@ -200,6 +200,23 @@ async def test_second_manager_message_extends_ttl(
         await redis.aclose()
 
 
+@pytest.mark.parametrize("from_me", [False, True])
+async def test_event_for_unknown_bot_is_dropped_cleanly(
+    session_factory: async_sessionmaker[AsyncSession], from_me: bool
+) -> None:
+    """2026-09-29: проверка `bot is None` стояла ПОСЛЕ вставки контакта —
+    событие несуществующего бота падало ForeignKeyViolation со стектрейсом,
+    а сама проверка была мёртвым кодом."""
+    redis = FakeRedis(decode_responses=True)
+    try:
+        payload = _customer_payload(uuid.uuid4(), "wamsg-ghost", "привет")
+        payload["from_me"] = from_me
+        await _process_entry(payload, redis, session_factory, _NullStorage())  # не бросает
+        assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
 async def test_media_manager_message_gets_placeholder_with_prefix(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

@@ -226,6 +226,12 @@ async def _process_entry(
         return
 
     async with session_factory() as session:
+        # Бот — первым: раньше проверка стояла после вставки контакта, и
+        # событие несуществующего бота падало на внешнем ключе со стектрейсом.
+        bot = await get_bot(session, event.bot_id)
+        if bot is None:
+            logger.error("bot not found for inbound event", bot_id=str(event.bot_id))
+            return
         # Заблокированный контакт — тоже "принимаем и логируем, не отвечаем"
         # (тот же принцип, что и у паузы бота ниже, 1.7): решение пользователя
         # 2026-09-21 — раньше сообщение отбрасывалось ДО insert_incoming и
@@ -259,12 +265,8 @@ async def _process_entry(
             _to_datetime(event.ts),
             media_ref=media_ref,
         )
-        bot = await get_bot(session, event.bot_id)
         await session.commit()
 
-    if bot is None:
-        logger.error("bot not found for inbound event", bot_id=str(event.bot_id))
-        return
     if not bot.enabled:
         return  # молчим, но история уже записана выше
     if blocked:
@@ -404,16 +406,16 @@ async def _handle_manager_message(
     content = handoff.MANAGER_REPLY_PREFIX + incoming_content(event.text, event.media_type)
 
     async with session_factory() as session:
+        # Бот — до вставки, по той же причине, что и во входящем пути.
+        bot = await get_bot(session, event.bot_id)
+        if bot is None:
+            logger.error("bot not found for manager message", bot_id=bot_id_str)
+            return
         contact = await match_or_create_contact(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )
         await insert_outgoing(session, event.bot_id, contact.id, content)
-        bot = await get_bot(session, event.bot_id)
         await session.commit()
-
-    if bot is None:
-        logger.error("bot not found for manager message", bot_id=bot_id_str)
-        return
 
     await handoff.mark_manager_reply(redis, bot_id_str, event.chat_id, _handoff_ttl_seconds(bot))
 

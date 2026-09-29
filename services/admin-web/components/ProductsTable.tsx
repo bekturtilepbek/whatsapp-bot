@@ -236,7 +236,9 @@ export function ProductsTable({ botId, apiBaseUrl, products, pageSize }: Product
                   {product.name}
                 </p>
                 <p className="font-mono text-sm text-ink-soft">{product.price ?? "—"}</p>
-                <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+                {/* flex-wrap: в узкой карточке (4 колонки / узкое окно) "Удалить"
+                    раньше обрезался overflow-hidden карточки до "Уда…". */}
+                <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-1 pt-2">
                   <Link
                     href={`/bots/${botId}/products/${product.id}/edit`}
                     className="text-sm font-medium text-accent hover:underline"

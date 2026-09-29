@@ -47,18 +47,21 @@ class MediaValidationError(Exception):
 
 def validate_media_uploads(uploads: list[UploadFile], *, max_count: int) -> None:
     if not uploads:
-        raise MediaValidationError("at least one photo or video is required")
+        raise MediaValidationError("Нужно хотя бы одно фото или видео")
     if len(uploads) > max_count:
-        raise MediaValidationError(f"at most {max_count} media items allowed")
+        raise MediaValidationError(f"Не больше {max_count} медиа у товара")
     for upload in uploads:
         if upload.content_type in ALLOWED_IMAGE_MIME_TYPES:
             if upload.size is not None and upload.size > MAX_PHOTO_SIZE_BYTES:
-                raise MediaValidationError(f"photo too large: {upload.filename}")
+                raise MediaValidationError(f"Фото слишком большое: {upload.filename}")
         elif upload.content_type in ALLOWED_VIDEO_MIME_TYPES:
             if upload.size is not None and upload.size > MAX_VIDEO_SIZE_BYTES:
-                raise MediaValidationError(f"video too large: {upload.filename}")
+                raise MediaValidationError(f"Видео слишком большое: {upload.filename}")
         else:
-            raise MediaValidationError(f"unsupported media type: {upload.content_type}")
+            raise MediaValidationError(
+                f"Этот тип файла не подходит: {upload.content_type} "
+                "(нужно фото JPEG/PNG/WebP или видео MP4)"
+            )
 
 
 async def process_media_upload(upload: UploadFile) -> tuple[bytes, str]:
@@ -68,14 +71,16 @@ async def process_media_upload(upload: UploadFile) -> tuple[bytes, str]:
         try:
             data = await compress_video(raw)
         except VideoCompressionError as exc:
-            raise MediaValidationError(f"invalid video file: {upload.filename}") from exc
+            raise MediaValidationError(
+                f"Видео повреждено или не читается: {upload.filename}"
+            ) from exc
         return data, "video/mp4"  # compress_video всегда перекодирует в mp4
 
     save_format = _PIL_FORMAT_BY_MIME.get(mime_type, "JPEG")
     try:
         data = await asyncio.to_thread(_decode_resize_encode, raw, save_format)
     except Exception as exc:
-        raise MediaValidationError(f"invalid image file: {upload.filename}") from exc
+        raise MediaValidationError(f"Фото повреждено или не читается: {upload.filename}") from exc
     return data, mime_type
 
 

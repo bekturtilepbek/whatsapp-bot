@@ -49,6 +49,7 @@ from core.events import (
     OutboundVideo,
 )
 from core.media import DEFAULT_MEDIA_FALLBACK_TEXT
+from core.schedule import is_within_schedule
 from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
@@ -269,6 +270,12 @@ async def _process_entry(
 
     if not bot.enabled:
         return  # молчим, но история уже записана выше
+    if not is_within_schedule(bot.settings, bot.timezone, datetime.now(UTC)):
+        # Вне рабочего графика (FEATURES.md 1.6): молчим — без ответа, "прочитано",
+        # "печатает" и реакции, но история уже записана выше (в V1 сообщение
+        # терялось совсем; здесь — тот же принцип, что у паузы и ЧС).
+        logger.info("outside working hours, not replying", bot_id=str(event.bot_id))
+        return
     if blocked:
         logger.info(
             "blocked contact, not replying", bot_id=str(event.bot_id), phone=event.sender_wa_id

@@ -294,6 +294,36 @@ async def test_skips_when_reminder_disabled_since_scheduling(
         await redis.aclose()
 
 
+async def test_skips_when_outside_working_hours(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """FEATURES.md 1.6: напоминание, чей срок выпал вне графика (ответ бота в
+    17:30 + час), не уходит — иначе "Напоминаем о себе" пришло бы ночью."""
+    from zoneinfo import ZoneInfo
+
+    from tasks.followup import _send_reminder_async
+
+    hour = datetime.now(ZoneInfo("Asia/Bishkek")).hour
+    bot_id, contact_id = await _make_bot_and_contact(
+        session_factory,
+        schedule_enabled=True,
+        work_start_hour=(hour + 2) % 24,
+        work_end_hour=(hour + 3) % 24,
+    )
+    async with session_factory() as session:
+        seq = await insert_outgoing(session, bot_id, contact_id, "ответ")
+        await session.commit()
+
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _send_reminder_async(
+            redis, session_factory, str(bot_id), str(contact_id), CHAT_ID, seq
+        )
+        assert await redis.xlen("wa:out") == 0
+    finally:
+        await redis.aclose()
+
+
 async def test_skips_when_handoff_active(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

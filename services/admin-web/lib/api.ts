@@ -44,6 +44,11 @@ export interface BotSettings {
   // полноценного ответа), без LLM/тулз.
   media_reaction_enabled?: boolean;
   media_reaction_emoji?: string;
+  // FEATURES.md 1.6 — рабочий график (libs/core/src/core/schedule.py): вне
+  // графика бот молчит. start > end — ночная смена, start == end — круглосуточно.
+  schedule_enabled?: boolean;
+  work_start_hour?: number;
+  work_end_hour?: number;
   // Волна 4 — модель LLM per bot. Захардкоженный список на фронте
   // (подтверждено пользователем) — свободный текст рискует тихо сломать
   // бота опечаткой/несуществующей моделью. Отсутствует у ботов, заведённых
@@ -82,6 +87,9 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   media_max_size_bytes: 16 * 1024 * 1024,
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
+  schedule_enabled: false,
+  work_start_hour: 9,
+  work_end_hour: 18,
   model: AVAILABLE_MODELS[0],
   product_display: { show_name: true, show_description: true, show_price: true },
 };

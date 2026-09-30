@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 
 import structlog
 from core.bus import OUT_STREAM, make_redis, publish
 from core.events import OutboundText, OutboundTyping
 from core.redis_keys import followup_sent_key, handoff_key
+from core.schedule import is_within_schedule
 from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import get_contact
@@ -51,6 +53,11 @@ async def _send_reminder_async(
             logger.info(
                 "follow-up skipped: reminders disabled since scheduling", bot_id=bot_id
             )
+            return
+        if not is_within_schedule(bot.settings, bot.timezone, datetime.now(UTC)):
+            # FEATURES.md 1.6: срок напоминания выпал вне рабочего графика
+            # (ответ в 17:30 + час) — не шлём "Напоминаем о себе" ночью.
+            logger.info("follow-up skipped: outside working hours", bot_id=bot_id)
             return
         if await redis.exists(handoff_key(bot_id, chat_id)):
             logger.info("follow-up skipped: handoff active", bot_id=bot_id, chat_id=chat_id)

@@ -34,6 +34,21 @@ function parseNumber(raw: string): number {
   return raw.trim() === "" ? Number.NaN : Number(raw);
 }
 
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+function formatHour(hour: number): string {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+/** Правила — как в libs/core/src/core/schedule.py (эталон V1). */
+function scheduleHint(start: number, end: number): string {
+  if (start === end) return "Начало и конец совпадают — бот отвечает круглосуточно.";
+  if (start > end) {
+    return `Ночная смена: бот отвечает с ${formatHour(start)} через полночь до ${formatHour(end)}.`;
+  }
+  return `Бот отвечает с ${formatHour(start)} до ${formatHour(end)}.`;
+}
+
 function minutesValidator(label: string) {
   return (v: number) =>
     !Number.isFinite(v) || v < MIN_MINUTES ? `${label} — не меньше ${MIN_MINUTES} минуты` : null;
@@ -177,6 +192,56 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
             </option>
           ))}
         </Select>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">График работы</h2>
+        <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
+          <Switch
+            checked={settings.schedule_enabled}
+            onChange={(e) => setAndSaveNow({ schedule_enabled: e.target.checked })}
+          />
+          Работать по графику
+        </label>
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Начало работы
+            <Select
+              value={settings.work_start_hour}
+              onChange={(e) => setAndSaveNow({ work_start_hour: Number(e.target.value) })}
+              disabled={!settings.schedule_enabled}
+              className="mt-1.5 w-28"
+            >
+              {HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {formatHour(h)}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="mb-0 block text-sm font-medium text-ink">
+            Конец работы
+            <Select
+              value={settings.work_end_hour}
+              onChange={(e) => setAndSaveNow({ work_end_hour: Number(e.target.value) })}
+              disabled={!settings.schedule_enabled}
+              className="mt-1.5 w-28"
+            >
+              {HOURS.map((h) => (
+                <option key={h} value={h}>
+                  {formatHour(h)}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </div>
+        <p className="mt-3 text-xs text-ink-soft">
+          {settings.schedule_enabled
+            ? scheduleHint(settings.work_start_hour, settings.work_end_hour)
+            : "Бот отвечает круглосуточно."}{" "}
+          Вне графика бот не отвечает, но сообщения клиентов сохраняются; напоминания
+          вне графика не отправляются.
+        </p>
       </Card>
 
       <Card className="p-5">

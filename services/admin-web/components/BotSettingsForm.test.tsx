@@ -22,6 +22,9 @@ const initialSettings: Required<BotSettings> = {
   media_max_size_bytes: 16 * 1024 * 1024,
   media_reaction_enabled: true,
   media_reaction_emoji: "👍",
+  schedule_enabled: false,
+  work_start_hour: 9,
+  work_end_hour: 18,
   model: "gpt-4o-mini",
   product_display: { show_name: true, show_description: true, show_price: true },
 };
@@ -141,6 +144,23 @@ it("saves media reaction fields independently (FEATURES.md 9.10)", async () => {
       media_reaction_emoji: "🎉",
     });
   });
+});
+
+it("saves the working schedule switch and hours immediately (FEATURES.md 1.6)", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  fireEvent.click(screen.getByLabelText(/работать по графику/i));
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { schedule_enabled: true });
+  });
+
+  fireEvent.change(screen.getByLabelText(/начало работы/i), { target: { value: "21" } });
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", { work_start_hour: 21 });
+  });
+  // ночная смена 21 → 18 подписывается, чтобы было понятно, что это не ошибка
+  expect(screen.getByText(/через полночь/i)).toBeInTheDocument();
 });
 
 it("saves a changed model immediately (Волна 4)", async () => {

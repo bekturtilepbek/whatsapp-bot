@@ -232,7 +232,13 @@ async def test_split_reply_sends_paragraphs_as_separate_messages(
     async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
         return LLMResult(text=_MULTI_PARAGRAPH, tokens_in=1, tokens_out=1, model="gpt-4o-mini")
 
+    redis_ref: FakeRedis | None = None
+
     async def fake_sleep(seconds: float) -> None:
+        # "печатает…" должен уйти ДО паузы — иначе клиент 5 с видит тишину.
+        assert redis_ref is not None
+        last = (await redis_ref.xrevrange("wa:out", count=1))[0][1]["payload"]
+        assert '"type": "outbound.typing"' in last
         pauses.append(seconds)
 
     monkeypatch.setattr(consumer_module, "complete", fake_complete)
@@ -240,6 +246,7 @@ async def test_split_reply_sends_paragraphs_as_separate_messages(
 
     bot_id = await _make_bot_with_settings(session_factory, split_reply_enabled=True)
     redis = FakeRedis(decode_responses=True)
+    redis_ref = redis
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
 

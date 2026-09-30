@@ -472,8 +472,10 @@ async def _send_reply(event: InboundText, redis: Redis, text: str, *, split: boo
     parts = split_reply(text) if split else [text]
     for index, part in enumerate(parts):
         if index > 0:
-            await _split_pause(SPLIT_REPLY_PAUSE_SECONDS)
+            # Сначала "печатает…", потом пауза — индикатор виден клиенту все
+            # 5 с ожидания, а не мелькает за миг до текста (живая проверка).
             await _publish_typing(event, redis)
+            await _split_pause(SPLIT_REPLY_PAUSE_SECONDS)
         text_event = OutboundText(
             bot_id=event.bot_id, chat_id=event.chat_id, text=part, client_msg_id=uuid.uuid4().hex
         )

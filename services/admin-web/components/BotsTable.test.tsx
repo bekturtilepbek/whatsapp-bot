@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 import { BotsTable } from "@/components/BotsTable";
 import type { Bot } from "@/lib/api";
 
@@ -38,6 +41,22 @@ it("links to the bot detail page", () => {
   render(<BotsTable bots={bots} />);
   const link = screen.getAllByRole("link", { name: /открыть/i })[0];
   expect(link).toHaveAttribute("href", "/bots/1");
+});
+
+// 2026-09-30: бота можно открыть кликом по любой ячейке строки, не только
+// по ссылке "Открыть".
+it("opens the bot when any cell of its row is clicked", () => {
+  pushMock.mockClear();
+  render(<BotsTable bots={bots} />);
+  fireEvent.click(screen.getByText("996700000000"));
+  expect(pushMock).toHaveBeenCalledWith("/bots/1");
+});
+
+it("leaves clicks on the link itself to the link (no double navigation)", () => {
+  pushMock.mockClear();
+  render(<BotsTable bots={bots} />);
+  fireEvent.click(screen.getAllByRole("link", { name: /открыть/i })[0]);
+  expect(pushMock).not.toHaveBeenCalled();
 });
 
 it("shows an explanatory message instead of a table when there are no bots", () => {

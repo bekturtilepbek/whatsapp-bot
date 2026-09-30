@@ -95,8 +95,12 @@ logger = structlog.get_logger("worker.pipeline")
 
 _event_adapter: TypeAdapter[Event] = TypeAdapter(Event)
 
-DEFAULT_BATCH_TIMEOUT_SECONDS = 1.0
-DEFAULT_AUTO_RELEASE_MINUTES = 12
+# 4 с (2026-09-30, решение пользователя; было 1 с как в V1): клиент успевает дописать
+# вторую фразу, а пауза перед ответом ещё не кажется медленной.
+DEFAULT_BATCH_TIMEOUT_SECONDS = 4.0
+# 30 мин (2026-09-30, решение пользователя; было 12 как в V1): менеджер отвечает с
+# телефона рывками, за 12 мин бот часто вмешивался посреди живого разговора.
+DEFAULT_AUTO_RELEASE_MINUTES = 30
 # FEATURES.md 9.10 — авто-реакция на входящее медиа, быстрый фидбек клиенту,
 # пока готовится полноценный ответ. Без tool loop (сознательно, подтверждено
 # пользователем) — деревянно простой shim в пайплайне, не через LLM.

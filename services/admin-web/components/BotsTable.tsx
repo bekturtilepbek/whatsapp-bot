@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { MouseEvent } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusPulse } from "@/components/ui/StatusPulse";
@@ -11,8 +15,18 @@ interface BotsTableProps {
 }
 
 export function BotsTable({ bots }: BotsTableProps) {
+  const router = useRouter();
+
   if (bots.length === 0) {
     return <EmptyState title="Доступа пока нет, обратитесь к владельцу платформы" />;
+  }
+
+  // Клик по любой ячейке строки открывает бота (2026-09-30). Ссылка "Открыть"
+  // остаётся — для клавиатуры, скринридеров и открытия в новой вкладке; клик
+  // по самой ссылке отдаём ей, чтобы не навигировать дважды.
+  function openRow(event: MouseEvent<HTMLTableRowElement>, botId: string): void {
+    if ((event.target as HTMLElement).closest("a")) return;
+    router.push(`/bots/${botId}`);
   }
 
   return (
@@ -28,7 +42,11 @@ export function BotsTable({ bots }: BotsTableProps) {
         </thead>
         <tbody>
           {bots.map((bot) => (
-            <tr key={bot.id}>
+            <tr
+              key={bot.id}
+              onClick={(event) => openRow(event, bot.id)}
+              className="cursor-pointer transition-colors hover:bg-surface-alt"
+            >
               <td>
                 {bot.name}
                 {!bot.enabled && (

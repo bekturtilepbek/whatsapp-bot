@@ -80,8 +80,8 @@ export interface ProductDisplay {
 export const AVAILABLE_MODELS = ["gpt-6-luna", "gpt-4o-mini", "gpt-4o"] as const;
 
 export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
-  batch_timeout_seconds: 1,
-  auto_release_minutes: 12,
+  batch_timeout_seconds: 4,
+  auto_release_minutes: 30,
   reminder_enabled: false,
   reminder_delay_minutes: 60,
   reminder_message:

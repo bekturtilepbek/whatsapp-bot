@@ -6,6 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { NumberField } from "@/components/ui/NumberField";
+import { RangeField } from "@/components/ui/RangeField";
 import { Select } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
@@ -17,7 +18,9 @@ const BYTES_PER_MB = 1024 * 1024;
 // заново открыть тот же риск (найдено code review настроек бота, 2026-09-09).
 const MAX_MEDIA_MAX_SIZE_BYTES = 64 * BYTES_PER_MB;
 
-type NumericKey = "batch_timeout_seconds" | "auto_release_minutes" | "reminder_delay_minutes";
+// batch_timeout_seconds / auto_release_minutes — ползунки (RangeField), не
+// числовые поля: диапазон ограничен, пустого значения у ползунка не бывает.
+type NumericKey = "reminder_delay_minutes";
 type TextKey = "reminder_message" | "media_fallback_text" | "media_reaction_emoji";
 type NumberDraftKey = NumericKey | "media_max_size_mb";
 
@@ -259,31 +262,32 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
         </p>
       </Card>
 
-      <Card className="p-5">
-        <h2 className="mb-4 text-[15px] font-semibold text-ink">Батчинг</h2>
-        <NumberField
-          min={0}
-          step={0.1}
-          {...numberFieldProps("batch_timeout_seconds", String(settings.batch_timeout_seconds), () =>
-            void commitNumber("batch_timeout_seconds", (v) =>
-              !Number.isFinite(v) || v < 0 ? "Таймаут батчинга должен быть числом не меньше 0" : null,
-            ),
-          )}
-          aria-label="Таймаут батчинга, сек"
-          className="max-w-xs"
-        />
-      </Card>
-
-      <Card className="p-5">
-        <h2 className="mb-4 text-[15px] font-semibold text-ink">Хэндофф</h2>
-        <NumberField
-          min={MIN_MINUTES}
+      {/* Ползунки — как в старой админке V1 (bot_management.html: те же
+          диапазоны), сохраняются при отпускании, с подсказкой-смыслом. */}
+      <Card className="flex flex-col gap-6 p-5">
+        <RangeField
+          label="Батчинг — ждать, пока клиент допишет"
+          unit="сек"
+          min={1}
+          max={20}
           step={1}
-          {...numberFieldProps("auto_release_minutes", String(settings.auto_release_minutes), () =>
-            void commitNumber("auto_release_minutes", minutesValidator("Авто-возврат")),
-          )}
-          aria-label="Авто-возврат после ответа менеджера, мин"
-          className="max-w-xs"
+          value={settings.batch_timeout_seconds}
+          onCommit={(v) => setAndSaveNow({ batch_timeout_seconds: v })}
+          hint={(v) =>
+            `Бот ждёт ${v} с тишины после последнего сообщения клиента и отвечает на всё сразу.`
+          }
+        />
+        <RangeField
+          label="Хэндофф — вернуть чат боту через"
+          unit="мин"
+          min={MIN_MINUTES}
+          max={60}
+          step={1}
+          value={settings.auto_release_minutes}
+          onCommit={(v) => setAndSaveNow({ auto_release_minutes: v })}
+          hint={(v) =>
+            `После ответа менеджера с телефона бот молчит в этом чате ${v} мин, затем снова отвечает сам.`
+          }
         />
       </Card>
 

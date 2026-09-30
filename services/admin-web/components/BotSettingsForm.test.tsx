@@ -36,8 +36,8 @@ afterEach(() => {
 
 it("renders current settings", () => {
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-  expect(screen.getByLabelText(/таймаут батчинга/i)).toHaveValue(1);
-  expect(screen.getByLabelText(/авто-возврат/i)).toHaveValue(12);
+  expect(screen.getByRole("slider", { name: /батчинг/i })).toHaveValue("1");
+  expect(screen.getByRole("slider", { name: /хэндофф/i })).toHaveValue("12");
   expect(screen.getByLabelText(/включены/i)).not.toBeChecked();
   expect(screen.getByLabelText(/задержка/i)).toHaveValue(60);
   expect(screen.getByLabelText(/текст напоминания/i)).toHaveValue("стандартный текст");
@@ -70,14 +70,14 @@ it("saves a number field on blur, not on every keystroke", async () => {
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  const field = screen.getByLabelText(/таймаут батчинга/i);
-  fireEvent.change(field, { target: { value: "2.5" } });
+  const field = screen.getByLabelText(/задержка/i);
+  fireEvent.change(field, { target: { value: "90" } });
   expect(api.patchBotSettings).not.toHaveBeenCalled(); // ещё не blur
 
   fireEvent.blur(field);
   await waitFor(() => {
     expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
-      batch_timeout_seconds: 2.5,
+      reminder_delay_minutes: 90,
     });
   });
 });
@@ -86,7 +86,7 @@ it("does not call the API on blur when the value did not actually change", async
   vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  const field = screen.getByLabelText(/таймаут батчинга/i);
+  const field = screen.getByLabelText(/задержка/i);
   fireEvent.focus(field);
   fireEvent.blur(field);
 
@@ -219,36 +219,65 @@ it("shows an error and reverts a number field to baseline when saving fails", as
   vi.mocked(api.patchBotSettings).mockRejectedValue(new Error("save failed"));
   render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
 
-  const field = screen.getByLabelText(/таймаут батчинга/i);
-  fireEvent.change(field, { target: { value: "2.5" } });
+  const field = screen.getByLabelText(/задержка/i);
+  fireEvent.change(field, { target: { value: "90" } });
   fireEvent.blur(field);
 
   await waitFor(() => {
     expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
   });
-  expect(field).toHaveValue(1);
+  expect(field).toHaveValue(60);
+});
+
+// Ползунки батчинга/хэндоффа (2026-09-30, как в V1): сохраняются при
+// отпускании, не на каждый шаг перетаскивания.
+it.each([
+  [/батчинг/i, "9", { batch_timeout_seconds: 9 }],
+  [/хэндофф/i, "30", { auto_release_minutes: 30 }],
+])("saves slider %s when released", async (name, value, patch) => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+  const slider = screen.getByRole("slider", { name });
+
+  fireEvent.change(slider, { target: { value } });
+  expect(api.patchBotSettings).not.toHaveBeenCalled();
+  fireEvent.pointerUp(slider);
+
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", patch);
+  });
+});
+
+it("reverts a slider to the saved value when saving fails", async () => {
+  vi.mocked(api.patchBotSettings).mockRejectedValue(new Error("save failed"));
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+  const slider = screen.getByRole("slider", { name: /батчинг/i });
+
+  fireEvent.change(slider, { target: { value: "9" } });
+  fireEvent.pointerUp(slider);
+
+  await waitFor(() => {
+    expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
+  });
+  await waitFor(() => expect(slider).toHaveValue("1"));
 });
 
 describe("validation blocks the save call, shows an error, and reverts the field", () => {
-  it("rejects a negative batch timeout", async () => {
+  it("rejects a negative reminder delay", async () => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
-    const field = screen.getByLabelText(/таймаут батчинга/i);
+    const field = screen.getByLabelText(/задержка/i);
     fireEvent.change(field, { target: { value: "-5" } });
     fireEvent.blur(field);
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(api.patchBotSettings).not.toHaveBeenCalled();
-    expect(field).toHaveValue(1);
+    expect(field).toHaveValue(60);
   });
 
   // Пустое поле раньше превращалось в 0 (Number("") === 0) и молча
   // сохранялось: авто-возврат 0 ломал handoff в worker (SET EX 0), задержка
   // напоминания 0 слала напоминание сразу после ответа бота.
-  it.each([
-    [/таймаут батчинга/i, 1],
-    [/авто-возврат/i, 12],
-    [/задержка/i, 60],
-  ])("rejects an emptied number field %s instead of saving 0", async (label, original) => {
+  it.each([[/задержка/i, 60]])("rejects an emptied number field %s instead of saving 0", async (label, original) => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
     const field = screen.getByLabelText(label);
     fireEvent.change(field, { target: { value: "" } });
@@ -259,7 +288,7 @@ describe("validation blocks the save call, shows an error, and reverts the field
     expect(field).toHaveValue(original);
   });
 
-  it.each([[/авто-возврат/i], [/задержка/i]])("rejects 0 minutes for %s", async (label) => {
+  it.each([[/задержка/i]])("rejects 0 minutes for %s", async (label) => {
     render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
     const field = screen.getByLabelText(label);
     fireEvent.change(field, { target: { value: "0" } });

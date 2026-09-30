@@ -200,6 +200,91 @@ async def test_quoted_text_is_mixed_into_stored_content_and_llm_history(
         await redis.aclose()
 
 
+async def _make_bot_with_settings(
+    session_factory: async_sessionmaker[AsyncSession], **settings: object
+) -> uuid.UUID:
+    async with session_factory() as session:
+        bot = Bot(
+            name="split-bot",
+            enabled=True,
+            system_prompt="Ты — ассистент.",
+            timezone="Asia/Bishkek",
+            settings={"batch_timeout_seconds": 0.02, **settings},
+        )
+        session.add(bot)
+        await session.flush()
+        await session.commit()
+        return bot.id
+
+
+_MULTI_PARAGRAPH = "Здравствуйте!\n\nДоставка есть по всему Бишкеку.\n\nЧто-то ещё?"
+
+
+async def test_split_reply_sends_paragraphs_as_separate_messages(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FEATURES.md 3.5 (эталон V1 splitMessage): абзацы — отдельными
+    сообщениями, пауза перед каждым следующим (V1: 5 с) и "печатает…" перед
+    ним; в историю — один ответ целиком."""
+    pauses: list[float] = []
+
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(text=_MULTI_PARAGRAPH, tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    async def fake_sleep(seconds: float) -> None:
+        pauses.append(seconds)
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+    monkeypatch.setattr(consumer_module, "_split_pause", fake_sleep)
+
+    bot_id = await _make_bot_with_settings(session_factory, split_reply_enabled=True)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+
+        out = [e[1]["payload"] for e in await redis.xrange("wa:out")]
+        types = [p.split('"type": "')[1].split('"')[0] for p in out]
+        assert types == [
+            "outbound.seen",
+            "outbound.typing",
+            "outbound.text",
+            "outbound.typing",
+            "outbound.text",
+            "outbound.typing",
+            "outbound.text",
+        ]
+        texts = [p for p in out if "outbound.text" in p]
+        assert "Здравствуйте!" in texts[0] and "Бишкеку" in texts[1] and "Что-то ещё?" in texts[2]
+        assert pauses == [consumer_module.SPLIT_REPLY_PAUSE_SECONDS] * 2
+
+        async with session_factory() as session:
+            query = select(Message).where(Message.bot_id == bot_id).order_by(Message.seq)
+            messages = (await session.execute(query)).scalars().all()
+            assert [m.role for m in messages] == ["user", "assistant"]
+            assert messages[1].content == _MULTI_PARAGRAPH
+    finally:
+        await redis.aclose()
+
+
+async def test_split_reply_off_by_default_sends_one_message(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_complete(system_prompt: str, history: list[object], **_: object) -> LLMResult:
+        return LLMResult(text=_MULTI_PARAGRAPH, tokens_in=1, tokens_out=1, model="gpt-4o-mini")
+
+    monkeypatch.setattr(consumer_module, "complete", fake_complete)
+    bot_id = await _make_bot_with_settings(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
+        texts = [e for e in await redis.xrange("wa:out") if "outbound.text" in e[1]["payload"]]
+        assert len(texts) == 1
+    finally:
+        await redis.aclose()
+
+
 async def test_llm_failure_does_not_crash_and_releases_lock(
     session_factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,

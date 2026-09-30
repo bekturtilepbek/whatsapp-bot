@@ -195,6 +195,21 @@ export function BotSettingsForm({ botId, apiBaseUrl, initialSettings }: BotSetti
       </Card>
 
       <Card className="p-5">
+        <h2 className="mb-4 text-[15px] font-semibold text-ink">Ответы</h2>
+        <label className="mb-0 flex items-center gap-2.5 text-sm font-medium text-ink">
+          <Switch
+            checked={settings.split_reply_enabled}
+            onChange={(e) => setAndSaveNow({ split_reply_enabled: e.target.checked })}
+          />
+          Отвечать несколькими сообщениями
+        </label>
+        <p className="mt-3 text-xs text-ink-soft">
+          Длинный ответ приходит клиенту по абзацам отдельными сообщениями, с паузой около
+          5 секунд и «печатает…» между ними — как пишет живой человек.
+        </p>
+      </Card>
+
+      <Card className="p-5">
         <h2 className="mb-4 text-[15px] font-semibold text-ink">График работы</h2>
         <label className="mb-4 flex items-center gap-2.5 text-sm font-medium text-ink">
           <Switch

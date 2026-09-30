@@ -87,6 +87,7 @@ from .audio import convert_to_mp3
 from .dedup import is_duplicate
 from .filters import is_ignored_chat
 from .media import incoming_content, quote_prefix
+from .reply_split import split_reply
 
 GROUP = "worker"
 
@@ -127,6 +128,8 @@ MAX_BATCH_VOICE_MESSAGES = 10
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 25.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
+# FEATURES.md 3.5 — пауза между частями ответа, эталон V1 (setTimeout 5000).
+SPLIT_REPLY_PAUSE_SECONDS = 5.0
 # Нижний порог для auto_release_minutes и reminder_delay_minutes: API не
 # валидирует bots.settings, а кабинет до 2026-09-28 сохранял очищенное поле
 # как 0 (см. _handoff_ttl_seconds/_schedule_follow_up).
@@ -451,13 +454,34 @@ async def _publish_typing(event: InboundText, redis: Redis) -> None:
     await publish(redis, OUT_STREAM, typing_event.model_dump(mode="json"))
 
 
-async def _send_reply(event: InboundText, redis: Redis, text: str) -> None:
+async def _split_pause(seconds: float) -> None:
+    # Отдельная функция — тесты подменяют её, чтобы не ждать реальные 5 с.
+    await asyncio.sleep(seconds)
+
+
+async def _send_reply(event: InboundText, redis: Redis, text: str, *, split: bool = False) -> None:
     """typing уже отправлен раньше в этом ходе (_process_entry) — здесь
-    только текст."""
-    text_event = OutboundText(
-        bot_id=event.bot_id, chat_id=event.chat_id, text=text, client_msg_id=uuid.uuid4().hex
-    )
-    await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+    только текст.
+
+    split (FEATURES.md 3.5, bots.settings["split_reply_enabled"]) — ответ по
+    абзацам отдельными сообщениями, эталон V1 (splitMessage): пауза
+    SPLIT_REPLY_PAUSE_SECONDS перед каждой следующей частью. Сверх V1 —
+    "печатает…" перед каждой следующей частью: первая уже получила его в
+    _process_entry, а 5 с тишины без индикатора выглядят как зависание. В
+    историю ответ пишется вызывающим кодом целиком, одной строкой."""
+    parts = split_reply(text) if split else [text]
+    for index, part in enumerate(parts):
+        if index > 0:
+            await _split_pause(SPLIT_REPLY_PAUSE_SECONDS)
+            await _publish_typing(event, redis)
+        text_event = OutboundText(
+            bot_id=event.bot_id, chat_id=event.chat_id, text=part, client_msg_id=uuid.uuid4().hex
+        )
+        await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+
+
+def _split_reply_enabled(bot: Bot) -> bool:
+    return bool(bot.settings.get("split_reply_enabled", False))
 
 
 async def _send_media_replies(
@@ -646,7 +670,7 @@ async def _reply(
             logger.warning("LLM returned empty text, not sending", bot_id=str(event.bot_id))
             return
         reply_text = loop_result.text
-        await _send_reply(event, redis, reply_text)
+        await _send_reply(event, redis, reply_text, split=_split_reply_enabled(bot))
 
     cost = compute_cost(loop_result.model, loop_result.tokens_in, loop_result.tokens_out)
     async with session_factory() as session:
@@ -752,7 +776,7 @@ async def _reply_with_vision(
         await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
         return
 
-    await _send_reply(event, redis, result.text)
+    await _send_reply(event, redis, result.text, split=_split_reply_enabled(bot))
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     async with session_factory() as session:
@@ -883,7 +907,7 @@ async def _reply_with_pdf(
         await _reply_with_media_fallback(event, bot, contact_id, redis, session_factory)
         return
 
-    await _send_reply(event, redis, result.text)
+    await _send_reply(event, redis, result.text, split=_split_reply_enabled(bot))
 
     cost = compute_cost(result.model, result.tokens_in, result.tokens_out)
     async with session_factory() as session:

@@ -49,6 +49,9 @@ export interface BotSettings {
   schedule_enabled?: boolean;
   work_start_hour?: number;
   work_end_hour?: number;
+  // FEATURES.md 3.5 — ответ по абзацам отдельными сообщениями (эталон V1
+  // splitMessage, пауза 5 с между частями).
+  split_reply_enabled?: boolean;
   // Волна 4 — модель LLM per bot. Захардкоженный список на фронте
   // (подтверждено пользователем) — свободный текст рискует тихо сломать
   // бота опечаткой/несуществующей моделью. Отсутствует у ботов, заведённых
@@ -90,6 +93,7 @@ export const DEFAULT_BOT_SETTINGS: Required<BotSettings> = {
   schedule_enabled: false,
   work_start_hour: 9,
   work_end_hour: 18,
+  split_reply_enabled: false,
   model: AVAILABLE_MODELS[0],
   product_display: { show_name: true, show_description: true, show_price: true },
 };

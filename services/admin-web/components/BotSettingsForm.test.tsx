@@ -25,6 +25,7 @@ const initialSettings: Required<BotSettings> = {
   schedule_enabled: false,
   work_start_hour: 9,
   work_end_hour: 18,
+  split_reply_enabled: false,
   model: "gpt-4o-mini",
   product_display: { show_name: true, show_description: true, show_price: true },
 };
@@ -161,6 +162,18 @@ it("saves the working schedule switch and hours immediately (FEATURES.md 1.6)", 
   });
   // ночная смена 21 → 18 подписывается, чтобы было понятно, что это не ошибка
   expect(screen.getByText(/через полночь/i)).toBeInTheDocument();
+});
+
+it("saves the split-reply switch immediately (FEATURES.md 3.5)", async () => {
+  vi.mocked(api.patchBotSettings).mockResolvedValue({} as Bot);
+  render(<BotSettingsForm botId="1" apiBaseUrl="http://api" initialSettings={initialSettings} />);
+
+  fireEvent.click(screen.getByLabelText(/несколькими сообщениями/i));
+  await waitFor(() => {
+    expect(api.patchBotSettings).toHaveBeenCalledWith("http://api", "1", {
+      split_reply_enabled: true,
+    });
+  });
 });
 
 it("saves a changed model immediately (Волна 4)", async () => {

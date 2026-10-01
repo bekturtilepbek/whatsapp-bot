@@ -144,7 +144,14 @@ else
     if curl -fsS -o /dev/null --max-time 5 "https://$site/login" 2>/dev/null; then ok=1; break; fi
     sleep 3
   done
-  [ "$ok" = "1" ] || die "стек поднят, но https://$site/login не отвечает. Частые причины: закрыт порт 80/443 (файрвол сервера и Cloud Firewall DigitalOcean), SITE_ADDRESS не совпадает с IP сервера; подробности — ./infra/compose.sh logs caddy"
+  [ "$ok" = "1" ] || die "стек поднят, но https://$site/login не отвечает.
+Частые причины:
+  1. закрыт порт 80 или 443 (файрвол сервера и Cloud Firewall DigitalOcean);
+  2. SITE_ADDRESS не совпадает с IP сервера;
+  3. для sslip.io исчерпана ОБЩАЯ недельная квота Let's Encrypt (её делят все пользователи
+     сервиса) — в логах caddy будет 'rate limit'. Замените в .env зону на nip.io
+     (203-0-113-10.nip.io — у неё отдельная квота) и запустите deploy.sh ещё раз.
+Подробности: ./infra/compose.sh logs caddy"
 fi
 
 # --- 8. Итог ------------------------------------------------------------------------------

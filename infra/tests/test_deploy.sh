@@ -76,7 +76,9 @@ EOF
 run_deploy() {
   (
     cd "$SRV" || exit 99
-    COMPOSE_BIN="$STUB" SKIP_SMOKE=1 SKIP_PRUNE=1 \
+    # TEST_SMOKE=1 включает проверку HTTPS; STUB_BIN — каталог с заглушками curl/sleep
+    [ -n "${STUB_BIN:-}" ] && export PATH="$STUB_BIN:$PATH"
+    COMPOSE_BIN="$STUB" SKIP_SMOKE="$([ "${TEST_SMOKE:-0}" = "1" ] && echo 0 || echo 1)" SKIP_PRUNE=1 \
       bash infra/deploy.sh > "$OUT_LOG" 2>&1
   )
 }
@@ -233,6 +235,38 @@ fi
 setup
 rm -rf "$ORIGIN"
 SKIP_PULL=1 run_deploy && pass "SKIP_PULL=1 работает без доступа к origin" || fail "SKIP_PULL=1 полез в git: $(tail -2 "$OUT_LOG")"
+
+# 12b. Проверка HTTPS после выкладки. curl и sleep подменены заглушками: тест не ходит в
+# сеть и не ждёт 90 секунд.
+make_stub_bin() { # $1 — код возврата curl
+  STUB_BIN="$CASE/stubbin"
+  mkdir -p "$STUB_BIN"
+  printf '#!/bin/sh\nexit %s\n' "$1" > "$STUB_BIN/curl"
+  printf '#!/bin/sh\nexit 0\n' > "$STUB_BIN/sleep"
+  chmod +x "$STUB_BIN/curl" "$STUB_BIN/sleep"
+}
+
+setup
+make_stub_bin 0
+if TEST_SMOKE=1 STUB_BIN="$STUB_BIN" run_deploy; then
+  pass "https отвечает → деплой завершается успешно"
+else
+  fail "https отвечает, а деплой упал: $(tail -3 "$OUT_LOG")"
+fi
+
+setup
+make_stub_bin 22
+if TEST_SMOKE=1 STUB_BIN="$STUB_BIN" run_deploy; then
+  fail "https не отвечает, а деплой сообщил об успехе"
+else
+  grep -q "https://203-0-113-10.sslip.io/login не отвечает" "$OUT_LOG" && pass "https не отвечает → ошибка называет адрес" \
+    || fail "ошибка не называет адрес: $(grep ОШИБКА "$OUT_LOG")"
+  # Общая квота Let's Encrypt на sslip.io — реальная причина отказа; подсказка должна
+  # вести к nip.io (у неё отдельная квота) и в логи caddy.
+  grep -q "nip.io" "$OUT_LOG" && grep -q "logs caddy" "$OUT_LOG" && pass "подсказка про квоту sslip.io → nip.io и логи caddy" \
+    || fail "нет подсказки про квоту sslip.io: $(grep -c . "$OUT_LOG") строк вывода"
+  grep -q "Откат:" "$OUT_LOG" && fail "после отказа https напечатан успешный итог" || pass "успешный итог не печатается при отказе https"
+fi
 
 # 13. Журнал выкладок и подсказка отката.
 setup

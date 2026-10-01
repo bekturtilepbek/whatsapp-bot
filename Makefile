@@ -22,9 +22,10 @@ test:
 	cd services/gateway && npm test
 	cd services/admin-web && npm test
 
-# Тесты infra/deploy.sh и infra/compose.sh: compose подменён заглушкой, настоящий деплой не нужен
+# Тесты infra/: deploy.sh/compose.sh (compose подменён заглушкой) и provision.sh (чистый Ubuntu-контейнер, нужен Docker)
 test-infra:
 	bash infra/tests/test_deploy.sh
+	bash infra/tests/test_provision.sh
 
 lint:
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \

@@ -65,6 +65,22 @@ site="$(env_value SITE_ADDRESS)"
 [ "$(env_value PLATFORM_OWNER_PASSWORD | wc -c)" -ge 12 ] \
   || printf 'ПРЕДУПРЕЖДЕНИЕ: PLATFORM_OWNER_PASSWORD короче 12 символов — это пароль владельца платформы\n' >&2
 
+# Репозиторий публичный: значения из compose/docker-compose.dev.yml знает любой.
+# Проверка длины их пропускает (dev-JWT_SECRET длиннее 32 символов), а в проде это
+# открытая дверь — по известному JWT_SECRET токены сессий подделываются.
+# Список обязан совпадать с dev-compose — это проверяет infra/tests/test_deploy.sh.
+known_public_dev_values=(
+  "JWT_SECRET=dev-insecure-jwt-secret-do-not-use-in-prod"
+  "PLATFORM_OWNER_PASSWORD=devpassword123"
+  "POSTGRES_PASSWORD=platform"
+)
+for pair in "${known_public_dev_values[@]}"; do
+  var="${pair%%=*}"
+  if [ "$(env_value "$var")" = "${pair#*=}" ]; then
+    die "$var в .env равен значению из публичного dev-compose — задайте свой (например: openssl rand -hex 24)"
+  fi
+done
+
 # --- 2. Код -----------------------------------------------------------------------
 previous="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if [ "${SKIP_PULL:-0}" = "1" ]; then

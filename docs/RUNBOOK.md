@@ -11,18 +11,20 @@ OpenAI. **Все команды compose для прода идут через `.
 -f compose/docker-compose.prod.yml` ищет `.env` в `compose/` и падает на «required
 variable ... is missing».
 
-### 1. Один раз, у себя на компьютере: код на GitHub
+### 1. Код на GitHub
 
-Создайте на GitHub **приватный** пустой репозиторий (без README и .gitignore), затем:
+Репозиторий: https://github.com/bekturtilepbek/whatsapp-bot. Он **публичный**: секретов в
+нём быть не должно, `.env` создаётся только на сервере (ADR-007), а `deploy.sh` отказывается
+стартовать с dev-значениями из `compose/docker-compose.dev.yml` — они известны всем. Выкладка
+идёт из ветки `main`. После работы в `dev`, с ноутбука:
 
 ```bash
-git remote add origin git@github.com:<владелец>/<репозиторий>.git
-git checkout main && git merge --ff-only dev   # main отстаёт от dev, а выкладка идёт из main
-git push -u origin main dev
+git fetch . dev:main     # main подтягивается к dev (только fast-forward, переключать ветку не нужно)
+git push origin dev main
 ```
 
-Если `merge --ff-only` отказался, в `main` есть свои коммиты, которых нет в `dev` —
-разберитесь с ними до пуша.
+Если `fetch` отказался, в `main` есть коммиты, которых нет в `dev` — разберитесь с ними до
+пуша. Затем на сервере `/opt/platform/infra/deploy.sh`.
 
 ### 2. Один раз: хранилище файлов (DigitalOcean Spaces)
 
@@ -43,19 +45,28 @@ S3_SECRET_KEY=<секрет>
 
 ### 3. Сервер
 
-Создайте droplet: Ubuntu 24.04, 4 ГБ / 2 vCPU, регион Frankfurt, вход по SSH-ключу.
-Скопируйте и запустите скрипт первичной настройки (репозиторий приватный и пока не
-склонирован, поэтому скрипт копируется руками, один раз):
+Создайте droplet: Ubuntu 24.04, 4 ГБ / 2 vCPU, регион Frankfurt, вход по SSH-ключу. От IP
+зависит имя `sslip.io` в `SITE_ADDRESS`, поэтому, чтобы адрес не менялся при пересоздании
+droplet, привяжите к нему Reserved IP (Networking → Reserved IPs; пока он привязан к droplet,
+плата, насколько известно, не берётся — сверьте на странице цен).
+
+Дальше как обычно: склонировать репозиторий и запустить настройку сервера (Docker, swap,
+файрвол). Репозиторий публичный — ключи не нужны:
 
 ```bash
-scp infra/provision.sh root@<IP сервера>:/root/
-ssh root@<IP сервера> 'REPO_URL=git@github.com:<владелец>/<репозиторий>.git bash /root/provision.sh'
+ssh root@<IP сервера>
+apt-get update -qq && apt-get install -y -qq git
+git clone https://github.com/bekturtilepbek/whatsapp-bot.git /opt/platform
+bash /opt/platform/infra/provision.sh
 ```
 
-Первый запуск ставит Docker, создаёт swap, включает файрвол (22/80/443) и **печатает
-deploy-ключ**: добавьте его в GitHub (репозиторий → Settings → Deploy keys → Add;
-«Allow write access» не ставить) и запустите ту же команду второй раз — репозиторий
-склонируется в `/opt/platform`. Скрипт можно безопасно запускать повторно.
+Скрипт безопасно запускать повторно: готовый клон он видит и повторно не клонирует.
+
+Если репозиторий когда-нибудь станет приватным, клонировать по HTTPS без входа не получится.
+Тогда: `scp infra/provision.sh root@<IP>:/root/`, затем
+`REPO_URL=git@github.com:<владелец>/<репозиторий>.git bash /root/provision.sh` — скрипт
+создаст deploy-ключ и напечатает его. Добавьте ключ в GitHub (репозиторий → Settings →
+Deploy keys → Add; «Allow write access» не ставить) и запустите ту же команду второй раз.
 
 ### 4. `.env`
 
@@ -116,6 +127,13 @@ sslip.io резолвит любое имя с IP внутри в этот IP, �
 `203.0.113.10` адрес — `203-0-113-10.sslip.io`, регистрировать ничего не нужно.
 `ACME_EMAIL` — любой рабочий ящик (Let's Encrypt шлёт на него предупреждения
 об истечении).
+
+**Что это за зависимость.** sslip.io — сторонний бесплатный сервис. Если он перестанет
+отвечать, имя кабинета перестанет открываться (выданный сертификат продолжит действовать, но
+заходить придётся через SSH-туннель). Для пилота это приемлемо, переезд на свой домен —
+одна строка в `.env`. Имя привязано к IP: пересоздали droplet с новым адресом — поменяйте
+`SITE_ADDRESS` и запустите `deploy.sh` (или держите Reserved IP). Сами клиенты кабинета не
+видят: им нужен только WhatsApp-номер бота, поэтому внешний вид адреса значения не имеет.
 
 **Когда появится домен** — A-запись на IP сервера, в `.env` меняется только
 `SITE_ADDRESS`, затем `./infra/compose.sh up -d

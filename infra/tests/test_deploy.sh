@@ -143,6 +143,37 @@ setup
 sed -i 's/^JWT_SECRET=.*/JWT_SECRET=short/' "$SRV/.env"
 run_deploy && fail "короткий JWT_SECRET принят" || { [ -z "$(calls)" ] && pass "короткий JWT_SECRET отклонён до сборки" || fail "сборка запущена с коротким JWT_SECRET"; }
 
+# 7b. Репозиторий публичный — значения из dev-compose знает любой. По известному
+# JWT_SECRET токены сессий подделываются, поэтому в прод они не должны попасть.
+for pair in \
+  "JWT_SECRET=dev-insecure-jwt-secret-do-not-use-in-prod" \
+  "PLATFORM_OWNER_PASSWORD=devpassword123" \
+  "POSTGRES_PASSWORD=platform"; do
+  var="${pair%%=*}"
+  setup
+  sed -i "s|^${var}=.*|${pair}|" "$SRV/.env"
+  if run_deploy; then
+    fail "$var из публичного dev-compose принят"
+  else
+    if [ -z "$(calls)" ] && grep -q "$var" "$OUT_LOG"; then
+      pass "$var из публичного dev-compose отклонён до сборки"
+    else
+      fail "$var из dev-compose отклонён не так: calls='$(calls)' out='$(grep ОШИБКА "$OUT_LOG")'"
+    fi
+  fi
+done
+
+# 7c. Список «известных публичных значений» в deploy.sh не разошёлся с dev-compose:
+# сменят dev-пароль — тест напомнит поправить список (иначе защита молча протухнет).
+for var in JWT_SECRET PLATFORM_OWNER_PASSWORD POSTGRES_PASSWORD; do
+  val="$(awk -v k="${var}:" '$1 == k {print $2; exit}' "$REPO_ROOT/compose/docker-compose.dev.yml")"
+  if [ -n "$val" ] && grep -qF "\"${var}=${val}\"" "$REPO_ROOT/infra/deploy.sh"; then
+    pass "deploy.sh знает dev-значение $var"
+  else
+    fail "dev-значение $var ('$val') отсутствует в списке deploy.sh"
+  fi
+done
+
 # 8. SITE_ADDRESS со схемой / localhost.
 setup
 sed -i 's|^SITE_ADDRESS=.*|SITE_ADDRESS=https://example.com/|' "$SRV/.env"

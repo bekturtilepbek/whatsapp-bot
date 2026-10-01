@@ -61,6 +61,16 @@ site="$(env_value SITE_ADDRESS)"
 [ "$site" != "localhost" ] || die "SITE_ADDRESS=localhost годится только для проверки на своей машине, а не для сервера"
 [ "${#site}" -ge 4 ] || die "SITE_ADDRESS слишком короткий: '$site'"
 
+# На ACME_EMAIL Caddy регистрируется у Let's Encrypt и ZeroSSL (запасной центр). Они отклоняют
+# адрес не похожий на почту и адреса на зарезервированных доменах — без этой проверки
+# об опечатке узнаешь только в конце долгой сборки, когда сертификат так и не выдастся.
+acme="$(env_value ACME_EMAIL)"
+[[ "$acme" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || die "ACME_EMAIL не похож на адрес электронной почты: '$acme'"
+case "${acme##*@}" in
+  example.com | example.net | example.org | *.example.com | *.example.net | *.example.org | *.test | *.invalid | *.local | *.localhost)
+    die "ACME_EMAIL на зарезервированном домене (${acme##*@}) — Let's Encrypt такие адреса отклоняет, сертификат не выдастся. Укажите настоящий ящик." ;;
+esac
+
 [ "$(env_value JWT_SECRET | wc -c)" -ge 32 ] || die "JWT_SECRET короче 32 символов — сгенерируйте: openssl rand -hex 32"
 [ "$(env_value PLATFORM_OWNER_PASSWORD | wc -c)" -ge 12 ] \
   || printf 'ПРЕДУПРЕЖДЕНИЕ: PLATFORM_OWNER_PASSWORD короче 12 символов — это пароль владельца платформы\n' >&2

@@ -60,7 +60,7 @@ S3_BUCKET=bucket
 S3_ACCESS_KEY=key
 S3_SECRET_KEY=secret
 SITE_ADDRESS=203-0-113-10.sslip.io
-ACME_EMAIL=ops@example.com
+ACME_EMAIL=ops@acme-contact.net
 EOF
   # Заглушка compose: пишет аргументы, падает, если вызов содержит $STUB_FAIL_ON.
   cat > "$STUB" <<EOF
@@ -183,6 +183,23 @@ run_deploy && fail "SITE_ADDRESS со схемой принят" || pass "SITE_A
 setup
 sed -i 's|^SITE_ADDRESS=.*|SITE_ADDRESS=localhost|' "$SRV/.env"
 run_deploy && fail "SITE_ADDRESS=localhost принят" || pass "SITE_ADDRESS=localhost отклонён"
+
+# 8c. ACME_EMAIL: Let's Encrypt отклоняет адрес, не похожий на почту, и адреса на
+# зарезервированных доменах — иначе об этом узнаешь только в конце долгой сборки,
+# когда сертификат так и не выдастся.
+for bad in "not-an-email" "ops@example.com" "ops@mail.example.org" "ops@box.test" "ops@@x.net"; do
+  setup
+  sed -i "s|^ACME_EMAIL=.*|ACME_EMAIL=${bad}|" "$SRV/.env"
+  if run_deploy; then
+    fail "ACME_EMAIL='$bad' принят"
+  else
+    if [ -z "$(calls)" ] && grep -q "ACME_EMAIL" "$OUT_LOG"; then
+      pass "ACME_EMAIL='$bad' отклонён до сборки"
+    else
+      fail "ACME_EMAIL='$bad' отклонён не так: calls='$(calls)'"
+    fi
+  fi
+done
 
 # 9. Значения в кавычках и CRLF (.env мог побывать на Windows) читаются верно.
 setup

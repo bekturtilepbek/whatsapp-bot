@@ -12,7 +12,9 @@
    `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OPENAI_API_KEY`, `JWT_SECRET`,
    `PLATFORM_OWNER_EMAIL`, `PLATFORM_OWNER_PASSWORD` (роли и доступы,
    FEATURES.md 6.18 — `PLATFORM_OWNER_EMAIL`/`PLATFORM_OWNER_PASSWORD`
-   заводят первого владельца платформы при пустой таблице `users`).
+   заводят первого владельца платформы при пустой таблице `users`),
+   `SITE_ADDRESS` и `ACME_EMAIL` (HTTPS через Caddy — см. раздел «HTTPS и
+   доступ без домена» ниже).
    Опционально — `TELEGRAM_BOT_TOKEN` (только если у бота включена тулза
    `send_telegram_lead`, FEATURES.md 4.7); без неё тулза возвращает боту
    текст ошибки, деплой не ломается.
@@ -22,16 +24,42 @@
    sh -c "cd /app/libs/db && python -m alembic upgrade head"` (флаг `-c` с
    абсолютным путём к `alembic.ini` не использовать через git-bash на
    Windows-хосте — путь искажается MSYS; `cd` в директорию — надёжный обход).
-4. Создать первого бота записью в `bots` (онбординг через API — Волна 3,
-   FEATURES.md 6.20; пока — прямой SQL, как в чек-листе Блока 1/2).
-5. QR — открыть `http://127.0.0.1:3000/bots/{id}` через SSH-туннель на ОБА
-   порта (`ssh -L 8000:localhost:8000 -L 3000:localhost:3000 user@server`),
-   отсканировать QR со страницы. Открывать именно `127.0.0.1:3000` — это
-   просто единственный хост-биндинг `admin-web` в `docker-compose.prod.yml`
-   (`127.0.0.1:3000:3000`); CORS тут ни при чём (убран, FEATURES.md 6.18 —
-   admin-web ходит в api через свой BFF-прокси, у которого общий origin
-   с браузером). Первый вход — через `/login` с `PLATFORM_OWNER_EMAIL`/
-   `PLATFORM_OWNER_PASSWORD` из `.env`.
+4. Войти в кабинет — `https://<SITE_ADDRESS>/login` с `PLATFORM_OWNER_EMAIL`/
+   `PLATFORM_OWNER_PASSWORD` из `.env`, создать первого бота на `/bots/new`
+   (онбординг из UI, FEATURES.md 6.20).
+5. QR — на странице бота (`/bots/{id}`), отсканировать с телефона клиента.
+   Запасной путь без публичного адреса (Caddy не поднялся, нет сертификата) —
+   SSH-туннель: `ssh -L 3000:localhost:3000 -L 8000:localhost:8000
+   user@server`, затем `http://127.0.0.1:3000`. Cookie сессии в проде
+   помечается `Secure`: по `http://127.0.0.1` браузер её принимает (localhost
+   считается безопасным контекстом), а по `http://<IP сервера>` вход молча не
+   сработает — только через HTTPS.
+
+## HTTPS и доступ без домена
+
+Публичная точка входа — сервис `caddy` (`infra/caddy/Caddyfile`): сам получает
+и продлевает сертификат Let's Encrypt, проксирует всё на `admin-web`. Наружу
+открыты только порты 80 и 443; `api`, `gateway`, `postgres`, `redis` публично
+недоступны (api и admin-web слушают лишь `127.0.0.1`).
+
+**Пока своего домена нет** — `SITE_ADDRESS=<ip-через-дефисы>.sslip.io`. Сервис
+sslip.io резолвит любое имя с IP внутри в этот IP, поэтому для сервера
+`203.0.113.10` адрес — `203-0-113-10.sslip.io`, регистрировать ничего не нужно.
+`ACME_EMAIL` — любой рабочий ящик (Let's Encrypt шлёт на него предупреждения
+об истечении).
+
+**Когда появится домен** — A-запись на IP сервера, в `.env` меняется только
+`SITE_ADDRESS`, затем `docker compose -f compose/docker-compose.prod.yml up -d
+caddy`. Старый адрес перестанет отвечать, других правок не нужно.
+
+**Требования к серверу:** файрвол пропускает 22, 80 и 443 (и в `ufw`, и в
+Cloud Firewall DigitalOcean, если он включён). Порт 80 нужен для выдачи
+сертификата, даже если пользоваться будете только HTTPS.
+
+**Сертификат не выдаётся** — `docker compose -f compose/docker-compose.prod.yml
+logs caddy`: чаще всего закрыт порт 80/443 или `SITE_ADDRESS` не совпадает с IP
+сервера. Том `caddy-data` хранит выпущенные сертификаты — не удалять
+(`down -v`): у Let's Encrypt есть лимиты на повторные выпуски одного имени.
 
 ## Обновление стенда
 
@@ -88,7 +116,7 @@ gunzip -c backups/<файл>.sql.gz | docker compose -f compose/docker-compose.p
 
 ## Ручной возврат чата боту (handoff)
 
-Если авто-релиз (`settings.auto_release_minutes`, дефолт 12 мин) ждать не
+Если авто-релиз (`settings.auto_release_minutes`, дефолт 30 мин) ждать не
 нужно: `POST /bots/{id}/chats/{chatId}/release` через тот же SSH-туннель.
 Ручка, как и все bot-scoped роуты, требует `Authorization: Bearer <token>`
 (FEATURES.md 6.18) — сначала логин:

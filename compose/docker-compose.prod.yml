@@ -1,9 +1,10 @@
 name: platform-prod
 
-# Прод: без volume-маунтов исходников (образ самодостаточен), restart-политики,
-# наружу на хост смотрит только api и admin-web — и то на 127.0.0.1
-# (STAGE1_CORE Блок 3: "слушаем localhost, доступ через SSH-туннель";
-# роли и доступы — сданы, FEATURES.md 6.18, JWT_SECRET/PLATFORM_OWNER_*).
+# Прод: без volume-маунтов исходников (образ самодостаточен), restart-политики.
+# Наружу (0.0.0.0) смотрит только caddy на 80/443 — TLS и прокси на admin-web;
+# api и admin-web дополнительно остаются на 127.0.0.1 (запасной доступ через
+# SSH-туннель и curl из RUNBOOK, не публичные).
+# Роли и доступы — сданы, FEATURES.md 6.18, JWT_SECRET/PLATFORM_OWNER_*.
 # Секреты — только из .env на сервере (ADR-007), сюда не хардкодим.
 
 services:
@@ -166,6 +167,29 @@ services:
       timeout: 5s
       retries: 10
 
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?SITE_ADDRESS не задан в .env (например 203-0-113-10.sslip.io)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL не задан в .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ../infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # caddy-data держит выпущенные сертификаты и ключ аккаунта ACME. Потеря тома
+      # (docker compose down -v) — перевыпуск, а у Let's Encrypt есть лимиты на
+      # повторные выпуски одного имени.
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+    depends_on:
+      admin-web:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:
+  caddy-data:
+  caddy-config:

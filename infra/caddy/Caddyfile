@@ -1,0 +1,35 @@
+# Единственная публичная точка входа прод-стенда: TLS-терминация + прокси на
+# admin-web. api, gateway, postgres, redis наружу не торчат — кабинет ходит в api
+# через собственный BFF (/api-proxy), поэтому проксировать api отдельно не нужно.
+#
+# SITE_ADDRESS — публичное имя хоста, под которое Caddy сам получает сертификат
+# Let's Encrypt (нужны открытые порты 80 и 443). Без своего домена —
+# бесплатное имя вида 203-0-113-10.sslip.io (sslip.io резолвит любое имя с IP
+# внутри в этот IP). Когда появится домен — меняется только SITE_ADDRESS в .env.
+# Для локальной проверки: SITE_ADDRESS=localhost (Caddy выпустит сертификат из
+# своего внутреннего CA, браузер ему не доверяет — это ожидаемо).
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	# HTTP → HTTPS редирект Caddy включает сам для любого hostname-адреса.
+
+	header {
+		Strict-Transport-Security "max-age=15552000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# api режет загрузки сам (документы/видео — 20 МБ, фото товара — 10 МБ); лимит
+	# здесь — защита от гигантского тела до того, как оно дойдёт до Next.js.
+	request_body {
+		max_size 30MB
+	}
+
+	# Host и X-Forwarded-* Caddy пробрасывает по умолчанию — Next.js по ним
+	# строит редиректы и сверяет Origin в server actions (логин).
+	reverse_proxy admin-web:3000
+}

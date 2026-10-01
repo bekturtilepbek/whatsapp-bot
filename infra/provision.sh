@@ -3,13 +3,12 @@
 #
 # Идемпотентен — повторный запуск ничего не ломает.
 #
-# Публичный репозиторий (как сейчас) — всё по HTTPS, ключи не нужны:
-#   apt-get update -qq && apt-get install -y -qq git
-#   git clone https://github.com/<владелец>/<репозиторий>.git /opt/platform
-#   bash /opt/platform/infra/provision.sh
-# Скрипт видит готовый клон и повторно не клонирует. Либо одной командой, если сам скрипт
-# уже лежит на сервере (скопирован через scp):
-#   REPO_URL=https://github.com/<владелец>/<репозиторий>.git bash provision.sh
+# Публичный репозиторий (как сейчас) — всё по HTTPS, ключи не нужны. На чистом сервере две
+# команды: скачать этот скрипт и запустить его (git он поставит сам и сам склонирует репозиторий):
+#   curl -fsSL https://raw.githubusercontent.com/<владелец>/<репозиторий>/main/infra/provision.sh -o /root/provision.sh
+#   REPO_URL=https://github.com/<владелец>/<репозиторий>.git bash /root/provision.sh
+# Либо руками: git clone https://github.com/<владелец>/<репозиторий>.git /opt/platform, затем
+#   bash /opt/platform/infra/provision.sh   (готовый клон скрипт видит и повторно не клонирует)
 #
 # Приватный репозиторий — нужен deploy-ключ. Скрипт копируется на сервер руками (клонировать
 # пока нечем), адрес задаётся SSH-формой:
@@ -27,6 +26,7 @@
 #   INSTALL_DIR     куда клонировать (по умолчанию /opt/platform)
 #   DEPLOY_BRANCH   какую ветку клонировать (по умолчанию main)
 #   SWAP_SIZE_GB    размер swap, если его ещё нет (по умолчанию 2)
+#   APT_WAIT_MAX    сколько секунд ждать, пока система освободит apt (по умолчанию 300)
 #   PROVISION_SKIP_SYSTEM=1   только для тестов: пропустить Docker/swap/файрвол (они трогают
 #                             ядро хоста) и проверять лишь ключи и клонирование
 #   GITHUB_META_URL           только для тестов: откуда брать ключи хоста GitHub
@@ -50,6 +50,27 @@ esac
 log() { printf '\n==> %s\n' "$*"; }
 die() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 1; }
 
+# Свежий droplet в первые минуты занят cloud-init и unattended-upgrades: они держат блокировки
+# apt/dpkg, и наш apt-get падает с "Could not get lock". Ждём освобождения (до APT_WAIT_MAX
+# секунд). Нет fuser (пакет psmisc) — ждать нечем, идём дальше: для install остаётся
+# встроенное ожидание DPkg::Lock::Timeout.
+wait_for_apt() {
+  command -v fuser >/dev/null 2>&1 || return 0
+  local waited=0
+  while fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; do
+    [ "$waited" -lt "${APT_WAIT_MAX:-300}" ] \
+      || die "apt занят другим процессом дольше ${APT_WAIT_MAX:-300} с (автообновление системы?) — повторите запуск через пару минут"
+    [ "$waited" -gt 0 ] || echo "Жду, пока система закончит свои обновления (apt занят)..."
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+apt_get() {
+  wait_for_apt
+  apt-get -o DPkg::Lock::Timeout=300 "$@"
+}
+
 [ "$(id -u)" -eq 0 ] || die "запускайте от root (ssh root@... или sudo)"
 [ -r /etc/os-release ] || die "не удалось определить ОС"
 # shellcheck disable=SC1091
@@ -58,11 +79,14 @@ die() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 1; }
 
 system_setup() {
   export DEBIAN_FRONTEND=noninteractive
+  # Без этого needrestart на Ubuntu 22.04+ может остановиться на интерактивном вопросе
+  # «какие службы перезапустить» и повесить установку.
+  export NEEDRESTART_MODE=a
 
   # --- 1. Базовые пакеты ---------------------------------------------------------------
   log "Базовые пакеты"
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl git ufw python3 >/dev/null
+  apt_get update -qq
+  apt_get install -y -qq ca-certificates curl git ufw python3 psmisc >/dev/null
 
   # --- 2. Docker -------------------------------------------------------------------------
   if docker compose version >/dev/null 2>&1; then
@@ -74,8 +98,8 @@ system_setup() {
     chmod a+r /etc/apt/keyrings/docker.asc
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
       > /etc/apt/sources.list.d/docker.list
-    apt-get update -qq
-    apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+    apt_get update -qq
+    apt_get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
     systemctl enable --now docker
     log "Docker установлен: $(docker --version)"
   fi

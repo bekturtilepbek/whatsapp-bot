@@ -50,17 +50,23 @@ S3_SECRET_KEY=<секрет>
 droplet, привяжите к нему Reserved IP (Networking → Reserved IPs; пока он привязан к droplet,
 плата, насколько известно, не берётся — сверьте на странице цен).
 
-Дальше как обычно: склонировать репозиторий и запустить настройку сервера (Docker, swap,
-файрвол). Репозиторий публичный — ключи не нужны:
+Войдите на сервер и запустите настройку (Docker, swap, файрвол, клонирование в
+`/opt/platform`). Репозиторий публичный — ключи не нужны, `git` скрипт ставит сам:
 
 ```bash
 ssh root@<IP сервера>
-apt-get update -qq && apt-get install -y -qq git
-git clone https://github.com/bekturtilepbek/whatsapp-bot.git /opt/platform
-bash /opt/platform/infra/provision.sh
 ```
 
-Скрипт безопасно запускать повторно: готовый клон он видит и повторно не клонирует.
+```bash
+curl -fsSL https://raw.githubusercontent.com/bekturtilepbek/whatsapp-bot/main/infra/provision.sh -o /root/provision.sh
+REPO_URL=https://github.com/bekturtilepbek/whatsapp-bot.git bash /root/provision.sh
+```
+
+Скрипт безопасно запускать повторно: готовый клон он видит и повторно не клонирует. На только
+что созданном droplet система первые минуты сама обновляется и держит `apt` занятым — скрипт
+дожидается (до 5 минут) и печатает «Жду, пока система закончит свои обновления».
+Вручную то же самое: `git clone https://github.com/bekturtilepbek/whatsapp-bot.git /opt/platform`
+и `bash /opt/platform/infra/provision.sh`.
 
 Если репозиторий когда-нибудь станет приватным, клонировать по HTTPS без входа не получится.
 Тогда: `scp infra/provision.sh root@<IP>:/root/`, затем

@@ -16,7 +16,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1"; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null 2>&1
-apt-get install -y -qq git openssh-client curl python3 ca-certificates >/dev/null 2>&1 \
+apt-get install -y -qq git openssh-client curl python3 ca-certificates psmisc >/dev/null 2>&1 \
   || { echo "  FAIL не удалось поставить зависимости теста"; exit 1; }
 
 git config --global user.email t@t
@@ -122,6 +122,47 @@ prov PATH="/tmp/stubbin:$PATH" REPO_URL=git@localhost:x/y.git INSTALL_DIR=/tmp/s
 out_has "ПРЕДУПРЕЖДЕНИЕ" && grep -q "AAAAFAKEFROMKEYSCAN" "$H/.ssh/known_hosts" \
   && pass "API недоступен → предупреждение и запасной ssh-keyscan" \
   || fail "запасной путь не сработал: $(tail -4 "$H/out.log")"
+
+# 10. apt занят (cloud-init и unattended-upgrades на свежем droplet в первые минуты держат
+#     блокировки): provision.sh должен ждать освобождения, а не падать с "Could not get lock".
+#     Функция вынимается из скрипта как есть; die в тесте завершает только подоболочку.
+eval "$(sed -n '/^wait_for_apt() {/,/^}/p' "$PROV")"
+die() { echo "DIE: $*" >&2; exit 1; }
+touch /var/lib/dpkg/lock-frontend
+
+if ! declare -F wait_for_apt >/dev/null; then
+  fail "wait_for_apt не найдена в provision.sh"
+else
+  # 10a. Блокировки нет — возврат сразу, без ожидания.
+  start=$SECONDS
+  ( wait_for_apt ) > /tmp/wait_a.log 2>&1; rc=$?
+  [ "$rc" -eq 0 ] && [ $((SECONDS - start)) -le 2 ] && pass "apt свободен → без ожидания" \
+    || fail "apt свободен, а ожидание rc=$rc, $((SECONDS - start)) с: $(cat /tmp/wait_a.log)"
+
+  # 10b. Блокировку держит чужой процесс 8 секунд — ждём и продолжаем.
+  ( exec 9< /var/lib/dpkg/lock-frontend; sleep 8 ) &
+  sleep 1
+  start=$SECONDS
+  ( wait_for_apt ) > /tmp/wait_b.log 2>&1; rc=$?
+  elapsed=$((SECONDS - start))
+  wait
+  [ "$rc" -eq 0 ] && [ "$elapsed" -ge 5 ] && grep -q "Жду" /tmp/wait_b.log \
+    && pass "apt занят → скрипт ждёт ($elapsed с) и продолжает" \
+    || fail "apt занят: rc=$rc, ждал $elapsed с, вывод: $(cat /tmp/wait_b.log)"
+
+  # 10c. Блокировка не отпускает дольше лимита — внятная ошибка, а не бесконечное ожидание.
+  ( exec 9< /var/lib/dpkg/lock-frontend; sleep 14 ) &
+  sleep 1
+  out="$( ( APT_WAIT_MAX=6 wait_for_apt ) 2>&1 )"; rc=$?
+  wait
+  [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "apt занят" \
+    && pass "блокировка не отпускает → ошибка по таймауту" \
+    || fail "таймаут ожидания apt: rc=$rc, вывод: $out"
+
+  # 10d. fuser нет в системе — ждать нечем, функция молча пропускает ожидание.
+  ( PATH=/nonexistent wait_for_apt ) > /tmp/wait_d.log 2>&1; rc=$?
+  [ "$rc" -eq 0 ] && pass "нет fuser → ожидание пропускается без ошибки" || fail "без fuser rc=$rc: $(cat /tmp/wait_d.log)"
+fi
 
 echo
 echo "итого: $PASS ok, $FAIL FAIL"

@@ -5,35 +5,104 @@
 
 ## Первый деплой
 
-1. На сервере: `git clone`, затем `.env` рядом с `compose/` — **не из
-   репозитория** (ADR-007). Обязательные переменные — см.
-   `.env.example` и `compose/docker-compose.prod.yml` (там, где
-   `${VAR:?...}`, деплой откажется стартовать без неё): `POSTGRES_USER`,
-   `POSTGRES_PASSWORD`, `POSTGRES_DB`, `OPENAI_API_KEY`, `JWT_SECRET`,
-   `PLATFORM_OWNER_EMAIL`, `PLATFORM_OWNER_PASSWORD` (роли и доступы,
-   FEATURES.md 6.18 — `PLATFORM_OWNER_EMAIL`/`PLATFORM_OWNER_PASSWORD`
-   заводят первого владельца платформы при пустой таблице `users`),
-   `SITE_ADDRESS` и `ACME_EMAIL` (HTTPS через Caddy — см. раздел «HTTPS и
-   доступ без домена» ниже).
-   Опционально — `TELEGRAM_BOT_TOKEN` (только если у бота включена тулза
-   `send_telegram_lead`, FEATURES.md 4.7); без неё тулза возвращает боту
-   текст ошибки, деплой не ломается.
-2. `docker compose -f compose/docker-compose.prod.yml up -d --build`.
-3. Миграции — из любого контейнера с установленным `db` (например,
-   `worker`): `docker compose -f compose/docker-compose.prod.yml exec worker
-   sh -c "cd /app/libs/db && python -m alembic upgrade head"` (флаг `-c` с
-   абсолютным путём к `alembic.ini` не использовать через git-bash на
-   Windows-хосте — путь искажается MSYS; `cd` в директорию — надёжный обход).
-4. Войти в кабинет — `https://<SITE_ADDRESS>/login` с `PLATFORM_OWNER_EMAIL`/
-   `PLATFORM_OWNER_PASSWORD` из `.env`, создать первого бота на `/bots/new`
-   (онбординг из UI, FEATURES.md 6.20).
-5. QR — на странице бота (`/bots/{id}`), отсканировать с телефона клиента.
-   Запасной путь без публичного адреса (Caddy не поднялся, нет сертификата) —
-   SSH-туннель: `ssh -L 3000:localhost:3000 -L 8000:localhost:8000
-   user@server`, затем `http://127.0.0.1:3000`. Cookie сессии в проде
-   помечается `Secure`: по `http://127.0.0.1` браузер её принимает (localhost
-   считается безопасным контекстом), а по `http://<IP сервера>` вход молча не
-   сработает — только через HTTPS.
+Путь с нуля до работающего кабинета. Понадобятся аккаунты DigitalOcean и GitHub и ключ
+OpenAI. **Все команды compose для прода идут через `./infra/compose.sh`** (запускать из
+`/opt/platform`): обёртка подставляет `.env` из корня репозитория — голый `docker compose
+-f compose/docker-compose.prod.yml` ищет `.env` в `compose/` и падает на «required
+variable ... is missing».
+
+### 1. Один раз, у себя на компьютере: код на GitHub
+
+Создайте на GitHub **приватный** пустой репозиторий (без README и .gitignore), затем:
+
+```bash
+git remote add origin git@github.com:<владелец>/<репозиторий>.git
+git checkout main && git merge --ff-only dev   # main отстаёт от dev, а выкладка идёт из main
+git push -u origin main dev
+```
+
+Если `merge --ff-only` отказался, в `main` есть свои коммиты, которых нет в `dev` —
+разберитесь с ними до пуша.
+
+### 2. Один раз: хранилище файлов (DigitalOcean Spaces)
+
+Spaces — онлайн-хранилище файлов у DigitalOcean. Туда кладутся фото и документы товаров,
+без него прод-стек не стартует. В панели DO: Spaces Object Storage → Create → регион
+Frankfurt (`fra1`), имя бакета любое, **без** публичного доступа (файлы отдаёт сам api).
+Затем API → Spaces Keys → Generate Key. В `.env` пойдёт:
+
+```
+S3_ENDPOINT=https://fra1.digitaloceanspaces.com
+S3_BUCKET=<имя бакета>
+S3_REGION=fra1
+S3_ACCESS_KEY=<ключ>
+S3_SECRET_KEY=<секрет>
+```
+
+Деплой сам проверит запись и чтение в хранилище и при ошибке остановится до миграции.
+
+### 3. Сервер
+
+Создайте droplet: Ubuntu 24.04, 4 ГБ / 2 vCPU, регион Frankfurt, вход по SSH-ключу.
+Скопируйте и запустите скрипт первичной настройки (репозиторий приватный и пока не
+склонирован, поэтому скрипт копируется руками, один раз):
+
+```bash
+scp infra/provision.sh root@<IP сервера>:/root/
+ssh root@<IP сервера> 'REPO_URL=git@github.com:<владелец>/<репозиторий>.git bash /root/provision.sh'
+```
+
+Первый запуск ставит Docker, создаёт swap, включает файрвол (22/80/443) и **печатает
+deploy-ключ**: добавьте его в GitHub (репозиторий → Settings → Deploy keys → Add;
+«Allow write access» не ставить) и запустите ту же команду второй раз — репозиторий
+склонируется в `/opt/platform`. Скрипт можно безопасно запускать повторно.
+
+### 4. `.env`
+
+На сервере (`.env` не из репозитория, ADR-007):
+
+```bash
+cd /opt/platform && cp .env.example .env && chmod 600 .env
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
+nano .env
+```
+
+В `nano` заполните остальное:
+- `OPENAI_API_KEY` — отдельный ключ для прода с лимитом расходов;
+- `PLATFORM_OWNER_EMAIL` / `PLATFORM_OWNER_PASSWORD` — первый владелец платформы
+  (заводится при пустой таблице `users`, FEATURES.md 6.18), пароль от 12 символов;
+- `S3_*` — из шага 2;
+- `SITE_ADDRESS` — пока домена нет, `<ip-через-дефисы>.sslip.io` (для IP `203.0.113.10` —
+  `203-0-113-10.sslip.io`), `ACME_EMAIL` — рабочий ящик (раздел «HTTPS и доступ без домена»);
+- `TELEGRAM_BOT_TOKEN` — только если у бота включена тулза `send_telegram_lead`
+  (FEATURES.md 4.7); без неё тулза возвращает боту текст ошибки, деплой не ломается.
+
+Остальные строки из `.env.example` (`DATABASE_URL`, `REDIS_URL`, `STORAGE_*` и т.п.) прод
+игнорирует — compose собирает их сам. Секреты лучше генерировать как hex, как выше:
+`$`, `#` и кавычки в `.env` разбираются по-своему и ломают пароли.
+
+### 5. Деплой
+
+```bash
+/opt/platform/infra/deploy.sh
+```
+
+Скрипт проверит `.env` (назовёт все пропуски разом), соберёт образы (на первом запуске
+5–10 минут), проверит хранилище, применит миграции, поднимет стек и проверит
+`https://<SITE_ADDRESS>/login`. Если выложить нужно не `main` (например, на репетиции):
+`DEPLOY_BRANCH=dev /opt/platform/infra/deploy.sh`.
+
+### 6. Первый вход и бот
+
+Откройте `https://<SITE_ADDRESS>/login`, войдите владельцем из `.env`, создайте первого
+бота на `/bots/new`, на странице бота (`/bots/{id}`) отсканируйте QR телефоном клиента.
+
+Запасной путь без публичного адреса (Caddy не поднялся, нет сертификата) — SSH-туннель:
+`ssh -L 3000:localhost:3000 -L 8000:localhost:8000 root@<IP>`, затем
+`http://127.0.0.1:3000`. Cookie сессии в проде помечается `Secure`: по
+`http://127.0.0.1` браузер её принимает (localhost считается безопасным контекстом), а по
+`http://<IP сервера>` вход молча не сработает — только через HTTPS.
 
 ## HTTPS и доступ без домена
 
@@ -49,22 +118,21 @@ sslip.io резолвит любое имя с IP внутри в этот IP, �
 об истечении).
 
 **Когда появится домен** — A-запись на IP сервера, в `.env` меняется только
-`SITE_ADDRESS`, затем `docker compose -f compose/docker-compose.prod.yml up -d
+`SITE_ADDRESS`, затем `./infra/compose.sh up -d
 caddy`. Старый адрес перестанет отвечать, других правок не нужно.
 
 **Требования к серверу:** файрвол пропускает 22, 80 и 443 (и в `ufw`, и в
 Cloud Firewall DigitalOcean, если он включён). Порт 80 нужен для выдачи
 сертификата, даже если пользоваться будете только HTTPS.
 
-**Сертификат не выдаётся** — `docker compose -f compose/docker-compose.prod.yml
+**Сертификат не выдаётся** — `./infra/compose.sh
 logs caddy`: чаще всего закрыт порт 80/443 или `SITE_ADDRESS` не совпадает с IP
 сервера. Том `caddy-data` хранит выпущенные сертификаты — не удалять
 (`down -v`): у Let's Encrypt есть лимиты на повторные выпуски одного имени.
 
 ## Логи
 
-Все сервисы пишут в stdout, смотреть — `docker compose -f
-compose/docker-compose.prod.yml logs <сервис> --tail=200` (добавить `-f`, чтобы
+Все сервисы пишут в stdout, смотреть — `./infra/compose.sh logs <сервис> --tail=200` (добавить `-f`, чтобы
 следить). Docker хранит логи в json-файлах с ротацией: 5 файлов по 10 МБ на
 контейнер (`x-logging` в `docker-compose.prod.yml`), то есть не больше ~50 МБ на
 сервис, старые строки отбрасываются. Это значит, что `logs` показывает только
@@ -83,7 +151,7 @@ Loki/централизованный сбор (FEATURES.md 8.6, не сдела
 звонит):
 
 ```bash
-docker compose -f compose/docker-compose.prod.yml exec redis sh -c \
+./infra/compose.sh exec redis sh -c \
   'redis-cli --scan --pattern "login:attempts:*" | xargs -r redis-cli del'
 ```
 
@@ -93,13 +161,17 @@ sha256 от адреса, так что по имени ключа учётку 
 **Подозрение на перебор** — посмотреть, с каких адресов идут попытки:
 
 ```bash
-docker compose -f compose/docker-compose.prod.yml exec redis sh -c \
+./infra/compose.sh exec redis sh -c \
   'for k in $(redis-cli --scan --pattern "login:attempts:ip:*"); do echo "$k $(redis-cli get $k)"; done'
 ```
 
 Адрес с большим счётчиком закрывается на файрволе сервера (`ufw deny from <ip>`).
 
 ## Обновление стенда
+
+На сервере одна команда: `/opt/platform/infra/deploy.sh`. Она делает все шаги ниже в
+правильном порядке и останавливается на первой ошибке — старые контейнеры при этом
+продолжают работать.
 
 Порядок важен: **миграция — до того, как новый код начнёт её использовать**.
 Обратный порядок (рестарт сервисов раньше миграции) — источник силентных
@@ -110,23 +182,32 @@ docker compose -f compose/docker-compose.prod.yml exec redis sh -c \
 работали бы, например, `image_prompt`/`pdf_prompt` (Волна 1) и
 `tool_bindings` (Волна 2) при обновлении в обратном порядке.
 
-1. `git pull` (или обновить код иным способом).
-2. Собрать новые образы, не трогая работающие контейнеры:
-   `docker compose -f compose/docker-compose.prod.yml build`.
-3. Прогнать миграцию НА НОВОМ образе в одноразовом контейнере — старые
-   `worker`/`api`/`celery` продолжают работать со старой схемой, пока это
-   выполняется:
-   `docker compose -f compose/docker-compose.prod.yml run --rm worker
-   sh -c "cd /app/libs/db && python -m alembic upgrade head"` (обход
-   git-bash + `-c` — см. "Первый деплой", шаг 3).
-4. Только теперь пересоздать контейнеры на новых образах:
-   `docker compose -f compose/docker-compose.prod.yml up -d`.
+Что делает скрипт:
+1. Проверяет `.env`: все обязательные переменные (список берётся из самого compose),
+   `SITE_ADDRESS` без `https://`, `JWT_SECRET` от 32 символов.
+2. Обновляет код: `git fetch` и **только fast-forward** на `origin/main`. Расхождение
+   веток или правки на сервере — стоп до сборки, а не тихий merge-коммит.
+3. Собирает образы, не трогая работающие контейнеры.
+4. Проверяет хранилище (запись и чтение тестового объекта).
+5. Прогоняет миграцию НА НОВОМ образе в одноразовом контейнере — старые
+   `worker`/`api`/`celery` продолжают работать со старой схемой, пока это выполняется.
+6. Только теперь пересоздаёт контейнеры (`up -d --wait`, ждёт healthy).
+7. Проверяет `https://<SITE_ADDRESS>/login` снаружи.
+8. Чистит «висячие» образы прошлых сборок (иначе диск растёт с каждым деплоем).
 
 Это безопасно именно потому, что миграции проекта только additive (новая
 таблица или nullable-колонка, см. DECISIONS.md) — старый код (ещё не
-рестартованный на шаге 4) просто не знает о новой таблице/колонке и
+пересозданный на шаге 6) просто не знает о новой таблице/колонке и
 продолжает работать как раньше, пока схема уже готова к моменту, когда
 новый код её увидит.
+
+**Переменные скрипта** (все необязательные): `DEPLOY_BRANCH` (ветка, по умолчанию `main`),
+`SKIP_PULL=1` (не трогать git), `SKIP_S3_CHECK=1`, `SKIP_SMOKE=1`, `SKIP_PRUNE=1`.
+
+**Откат.** В конце деплоя скрипт печатает готовую команду:
+`git checkout <прежний коммит> && SKIP_PULL=1 /opt/platform/infra/deploy.sh`. Схема БД
+назад не откатывается и не должна: миграции только additive, прежний код работает с новой
+схемой. Тесты самого скрипта (на заглушке compose, без Docker): `make test-infra`.
 
 ## Ночной бэкап БД
 
@@ -149,7 +230,7 @@ docker compose -f compose/docker-compose.prod.yml exec redis sh -c \
 ## Восстановление из бэкапа
 
 ```bash
-gunzip -c backups/<файл>.sql.gz | docker compose -f compose/docker-compose.prod.yml exec -T postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
+gunzip -c backups/<файл>.sql.gz | ./infra/compose.sh exec -T postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
 ```
 
 ## Ручной возврат чата боту (handoff)
@@ -189,7 +270,7 @@ FEATURES.md — риск ошибочно разлогинить здорову�
 тот сигнал, выше риска подождать и почитать логи вручную).
 
 **Что делать:**
-1. Смотреть логи gateway (`docker compose logs gateway --tail=100`) — если
+1. Смотреть логи gateway (`./infra/compose.sh logs gateway --tail=100`) — если
    там `bad decrypt`/повторяющийся `watchdog: session stale, forcing
    reconnect` без успешного `opened connection to WA` между ними, само
    не пройдёт.

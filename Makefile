@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f compose/docker-compose.dev.yml
 
-.PHONY: dev dev-down test lint migrate install
+.PHONY: dev dev-down test test-infra lint migrate install
 
 # Локальный стек: postgres, redis, gateway, worker
 dev:
@@ -21,6 +21,10 @@ test:
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; pytest
 	cd services/gateway && npm test
 	cd services/admin-web && npm test
+
+# Тесты infra/deploy.sh и infra/compose.sh: compose подменён заглушкой, настоящий деплой не нужен
+test-infra:
+	bash infra/tests/test_deploy.sh
 
 lint:
 	. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \

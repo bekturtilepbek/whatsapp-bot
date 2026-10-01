@@ -18,11 +18,14 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from api.db import get_session
+from api.login_throttle import MAX_ATTEMPTS_PER_EMAIL, MAX_ATTEMPTS_PER_IP
 from api.main import _bootstrap_platform_owner, app, lifespan
+from api.redis_client import get_redis
 from api.security import hash_password, verify_password
 from db.engine import make_engine, make_session_factory
 from db.models import User
 from db.users import create_user, get_user_by_email, set_user_password
+from fakeredis.aioredis import FakeRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from testcontainers.postgres import PostgresContainer
@@ -75,13 +78,18 @@ async def client(
         async with session_factory() as session:
             yield session
 
+    # Лимит попыток входа (login_throttle) живёт в Redis — свежий FakeRedis на
+    # каждый тест, счётчики не текут между тестами.
+    redis = FakeRedis(decode_responses=True)
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_redis] = lambda: redis
     app.state.audit_session_factory = session_factory
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
     app.dependency_overrides.clear()
     app.state.audit_session_factory = None
+    await redis.aclose()
 
 
 async def _make_user(
@@ -173,6 +181,68 @@ async def test_login_inactive_user_returns_401(
         "/auth/login", json={"email": "c@example.com", "password": "s3cret"}
     )
     assert response.status_code == 401
+
+
+async def test_login_is_blocked_after_too_many_attempts_even_with_the_right_password(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _make_user(session_factory, email="lock@example.com", password="s3cret")
+    for _ in range(MAX_ATTEMPTS_PER_EMAIL):
+        wrong = await client.post(
+            "/auth/login", json={"email": "lock@example.com", "password": "wrong"}
+        )
+        assert wrong.status_code == 401
+
+    response = await client.post(
+        "/auth/login", json={"email": "lock@example.com", "password": "s3cret"}
+    )
+
+    assert response.status_code == 429
+    assert int(response.headers["Retry-After"]) > 0
+    assert "Слишком много попыток входа" in response.json()["detail"]
+
+
+async def test_successful_login_resets_the_attempt_counter(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Без сброса легальный пользователь, раз в день ошибавшийся паролем,
+    рано или поздно упёрся бы в лимит."""
+    await _make_user(session_factory, email="reset@example.com", password="s3cret")
+    credentials = {"email": "reset@example.com", "password": "s3cret"}
+    wrong = {"email": "reset@example.com", "password": "wrong"}
+
+    for _ in range(MAX_ATTEMPTS_PER_EMAIL - 1):
+        assert (await client.post("/auth/login", json=wrong)).status_code == 401
+    assert (await client.post("/auth/login", json=credentials)).status_code == 200
+
+    for _ in range(MAX_ATTEMPTS_PER_EMAIL - 1):
+        assert (await client.post("/auth/login", json=wrong)).status_code == 401
+    assert (await client.post("/auth/login", json=credentials)).status_code == 200
+
+
+async def test_login_attempts_from_one_ip_are_limited_across_different_emails(
+    client: httpx.AsyncClient,
+) -> None:
+    attacker = {"X-Forwarded-For": "203.0.113.50"}
+    for i in range(MAX_ATTEMPTS_PER_IP):
+        response = await client.post(
+            "/auth/login",
+            json={"email": f"nobody{i}@example.com", "password": "x"},
+            headers=attacker,
+        )
+        assert response.status_code == 401
+
+    blocked = await client.post(
+        "/auth/login", json={"email": "fresh@example.com", "password": "x"}, headers=attacker
+    )
+    other_ip = await client.post(
+        "/auth/login",
+        json={"email": "fresh@example.com", "password": "x"},
+        headers={"X-Forwarded-For": "203.0.113.51"},
+    )
+
+    assert blocked.status_code == 429
+    assert other_ip.status_code == 401
 
 
 async def test_me_returns_current_user(

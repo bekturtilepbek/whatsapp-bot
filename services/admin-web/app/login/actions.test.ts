@@ -19,6 +19,7 @@ describe("login", () => {
     const setCookie = vi.fn();
     vi.doMock("next/headers", () => ({
       cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+      headers: async () => new Headers(),
     }));
     const redirectSpy = vi.fn();
     vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
@@ -57,6 +58,7 @@ describe("login", () => {
     const setCookie = vi.fn();
     vi.doMock("next/headers", () => ({
       cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+      headers: async () => new Headers(),
     }));
     const redirectSpy = vi.fn();
     vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
@@ -80,6 +82,7 @@ describe("login", () => {
   it("sends the entered email and password to POST /auth/login", async () => {
     vi.doMock("next/headers", () => ({
       cookies: async () => ({ set: vi.fn(), delete: vi.fn() }),
+      headers: async () => new Headers(),
     }));
     vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
     const fetchSpy = vi
@@ -102,6 +105,102 @@ describe("login", () => {
         body: JSON.stringify({ email: "owner@example.com", password: "secret" }),
       }),
     );
+  });
+
+  it("forwards the client IP from X-Forwarded-For so the api can rate-limit per IP", async () => {
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: vi.fn(), delete: vi.fn() }),
+      headers: async () => new Headers({ "x-forwarded-for": "203.0.113.7" }),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ token: "t" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/auth/login"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-Forwarded-For": "203.0.113.7" }),
+      }),
+    );
+  });
+
+  it("sends no X-Forwarded-For when the request carries none", async () => {
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: vi.fn(), delete: vi.fn() }),
+      headers: async () => new Headers(),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ token: "t" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    await login(null, formData);
+
+    const sentHeaders = fetchSpy.mock.calls[0][1].headers as Record<string, string>;
+    expect(sentHeaders).not.toHaveProperty("X-Forwarded-For");
+  });
+
+  it("shows the api's rate-limit message on 429 instead of 'wrong password'", async () => {
+    const setCookie = vi.fn();
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+      headers: async () => new Headers(),
+    }));
+    const redirectSpy = vi.fn();
+    vi.doMock("next/navigation", () => ({ redirect: redirectSpy }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ detail: "Слишком много попыток входа. Попробуйте через 12 мин." }),
+          { status: 429, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    const result = await login(null, formData);
+
+    expect(result).toBe("Слишком много попыток входа. Попробуйте через 12 мин.");
+    expect(setCookie).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a generic rate-limit message when the 429 body is unreadable", async () => {
+    vi.doMock("next/headers", () => ({
+      cookies: async () => ({ set: vi.fn(), delete: vi.fn() }),
+      headers: async () => new Headers(),
+    }));
+    vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>nope</html>", { status: 429 })));
+
+    const { login } = await import("./actions");
+    const formData = new FormData();
+    formData.set("email", "owner@example.com");
+    formData.set("password", "secret");
+
+    const result = await login(null, formData);
+
+    expect(result).toBe("Слишком много попыток входа. Попробуйте позже.");
   });
 });
 
@@ -129,6 +228,7 @@ describe("cookie secure flag based on NODE_ENV", () => {
     const setCookie = vi.fn();
     vi.doMock("next/headers", () => ({
       cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+      headers: async () => new Headers(),
     }));
     vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
     vi.stubGlobal(
@@ -163,6 +263,7 @@ describe("cookie secure flag based on NODE_ENV", () => {
     const setCookie = vi.fn();
     vi.doMock("next/headers", () => ({
       cookies: async () => ({ set: setCookie, delete: vi.fn() }),
+      headers: async () => new Headers(),
     }));
     vi.doMock("next/navigation", () => ({ redirect: vi.fn() }));
     vi.stubGlobal(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -83,6 +83,32 @@ class BotStats(BaseModel):
 
     messages_count: int
     contacts_count: int
+
+
+OverviewPeriod = Literal["24h", "7d", "30d"]
+
+
+class OverviewCounts(BaseModel):
+    """Агрегаты одного окна. resolved_without_human_pct — доля активных
+    клиентов без передачи менеджеру; null, если данных недостаточно
+    (нет активных клиентов или окно начинается раньше, чем стали писаться
+    события передачи — FEATURES.md 5.7)."""
+
+    clients_active: int
+    clients_new: int
+    messages_in: int
+    messages_out: int
+    handoffs: int
+    resolved_without_human_pct: int | None
+
+
+class BotOverview(OverviewCounts):
+    """Агрегаты "Обзора" за период (6.23) + то же за соседнее окно того же
+    размера — для сравнения "было/стало"."""
+
+    period: OverviewPeriod
+    handoff_tracked_since: datetime | None
+    previous: OverviewCounts
 
 
 class ActiveChatOut(BaseModel):

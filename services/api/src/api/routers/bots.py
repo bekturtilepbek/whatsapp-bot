@@ -10,6 +10,7 @@ bot_access, причём client на самом боте урезан (без п
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import structlog
@@ -22,6 +23,7 @@ from db.contacts import count_contacts, find_by_identifier
 from db.handoff_events import KIND_RELEASED_MANUAL, record_handoff_event
 from db.messages import count_messages
 from db.models import Bot
+from db.overview import handoff_tracked_since, window_counts
 from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
@@ -41,9 +43,12 @@ from ..schemas.bots import (
     BotCreate,
     BotEnabledPatch,
     BotOut,
+    BotOverview,
     BotPatch,
     BotPromptsPatch,
     BotStats,
+    OverviewCounts,
+    OverviewPeriod,
 )
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
@@ -205,6 +210,32 @@ async def read_bot_stats(bot_id: uuid.UUID, session: SessionDep, user: BotAccess
     messages_count = await count_messages(session, bot_id)
     contacts_count = await count_contacts(session, bot_id)
     return BotStats(messages_count=messages_count, contacts_count=contacts_count)
+
+
+_OVERVIEW_PERIODS = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
+
+
+@router.get("/{bot_id}/overview", response_model=BotOverview)
+async def read_bot_overview(
+    bot_id: uuid.UUID,
+    session: SessionDep,
+    user: BotAccessUser,
+    period: OverviewPeriod = "7d",
+) -> BotOverview:
+    """Агрегаты "Обзора" за скользящий период и за соседнее окно того же
+    размера (6.23). /stats — общие счётчики за всё время, здесь по периоду.
+    """
+    delta = _OVERVIEW_PERIODS[period]
+    now = datetime.now(UTC)
+    tracked_since = await handoff_tracked_since(session)
+    current = await window_counts(session, bot_id, now - delta, None, tracked_since)
+    previous = await window_counts(session, bot_id, now - 2 * delta, now - delta, tracked_since)
+    return BotOverview(
+        period=period,
+        handoff_tracked_since=tracked_since,
+        previous=OverviewCounts(**previous.__dict__),
+        **current.__dict__,
+    )
 
 
 @router.get("/{bot_id}/chats", response_model=list[ActiveChatOut])

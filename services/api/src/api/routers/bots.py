@@ -12,12 +12,14 @@ from __future__ import annotations
 import uuid
 
 import httpx
+import structlog
 from core.phone import normalize_phone_digits
 from core.redis_keys import handoff_key
 from db.blocked_contacts import add_blocked_number, list_blocked_numbers, remove_blocked_number
 from db.bot_access import grant_bot_access
 from db.bots import UNSET, create_bot, get_bot_with_session, list_bots, update_bot
 from db.contacts import count_contacts, find_by_identifier
+from db.handoff_events import KIND_RELEASED_MANUAL, record_handoff_event
 from db.messages import count_messages
 from db.models import Bot
 from db.prompt_versions import PromptKind, list_versions
@@ -46,6 +48,8 @@ from ..schemas.bots import (
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
 from ..security import PLATFORM_WIDE_ROLES, BotAccessUser, CurrentUser, FullBotAccess, PlatformWide
+
+logger = structlog.get_logger("api.bots")
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -248,13 +252,23 @@ async def logout_bot(bot_id: uuid.UUID, gateway: GatewayClientDep, user: FullBot
 
 @router.post("/{bot_id}/chats/{chat_id}/release")
 async def release_chat(
-    bot_id: uuid.UUID, chat_id: str, redis: RedisDep, user: BotAccessUser
+    bot_id: uuid.UUID, chat_id: str, session: SessionDep, redis: RedisDep, user: BotAccessUser
 ) -> dict[str, str]:
     """Ручной возврат чата боту — DELETE того же ключа, что снимается по
     TTL (worker/pipeline/handoff.py). На несуществующий ключ — no-op,
-    идемпотентно: повторный вызов не ошибка.
+    идемпотентно: повторный вызов не ошибка и события (5.7) не пишет.
     """
-    await redis.delete(handoff_key(str(bot_id), chat_id))
+    deleted = await redis.delete(handoff_key(str(bot_id), chat_id))
+    if deleted:
+        # Ключ уже снят — сбой записи статистики не должен превращать
+        # успешный возврат в 500 (тот же принцип, что у worker/consumer.py).
+        try:
+            await record_handoff_event(
+                session, bot_id, chat_id, KIND_RELEASED_MANUAL, actor_user_id=user.id
+            )
+            await session.commit()
+        except Exception:
+            logger.exception("handoff event write failed", bot_id=str(bot_id), chat_id=chat_id)
     return {"status": "released"}
 
 

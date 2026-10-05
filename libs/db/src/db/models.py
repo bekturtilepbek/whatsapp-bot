@@ -253,6 +253,39 @@ class UsageEvent(Base):
     )
 
 
+class HandoffEvent(Base):
+    """Передача диалога человеку (FEATURES.md 5.7). Источник статистики для
+    "Обзора" (6.23): сам handoff живёт в Redis с TTL и следа не оставляет.
+
+    kind: "started" — первое сообщение менеджера в новом эпизоде (повторные
+    в том же окне не пишутся); "released_manual" — возврат боту из кабинета.
+    Авто-возврат по TTL сознательно не фиксируется. contact_id — best-effort
+    (см. db.contacts.find_by_identifier), chat_id пишется всегда. Plain
+    String, не Postgres ENUM — как PromptVersion.kind/User.role.
+    """
+
+    __tablename__ = "handoff_events"
+    __table_args__ = (Index("ix_handoff_events_bot_created", "bot_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    bot_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False
+    )
+    chat_id: Mapped[str] = mapped_column(String, nullable=False)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class BlockedContact(Base):
     """Чёрный список номеров (FEATURES.md 1.5). Матчинг — по тому же
     "сырому" wa_id (без "+"), что и Contact.wa_id/дедуп/handoff, НЕ по

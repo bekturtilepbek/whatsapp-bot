@@ -12,7 +12,7 @@ import pytest
 
 pytest.importorskip("testcontainers.postgres")
 from core.redis_keys import handoff_key, wa_sent_key
-from db.models import Bot, Message
+from db.models import Bot, HandoffEvent, Message
 from fakeredis.aioredis import FakeRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -229,5 +229,113 @@ async def test_media_manager_message_gets_placeholder_with_prefix(
 
         messages = await _messages(session_factory, bot_id)
         assert messages[0].content == "[Ответ менеджера] [фото]"
+    finally:
+        await redis.aclose()
+
+
+async def _events(
+    session_factory: async_sessionmaker[AsyncSession], bot_id: uuid.UUID
+) -> list[HandoffEvent]:
+    async with session_factory() as session:
+        result = await session.execute(
+            select(HandoffEvent)
+            .where(HandoffEvent.bot_id == bot_id)
+            .order_by(HandoffEvent.created_at)
+        )
+        return list(result.scalars().all())
+
+
+async def test_first_manager_reply_records_one_started_event(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(
+            _from_me_payload(bot_id, "ev-1", "Здравствуйте"), redis, session_factory, _NullStorage()
+        )
+
+        events = await _events(session_factory, bot_id)
+        assert [e.kind for e in events] == ["started"]
+        assert events[0].chat_id == CHAT_ID
+        assert events[0].contact_id is not None
+        assert events[0].actor_user_id is None
+    finally:
+        await redis.aclose()
+
+
+async def test_second_manager_reply_in_same_episode_does_not_add_event(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        for n in (1, 2, 3):
+            await _process_entry(
+                _from_me_payload(bot_id, f"ev-same-{n}", f"сообщение {n}"),
+                redis,
+                session_factory,
+                _NullStorage(),
+            )
+
+        assert len(await _events(session_factory, bot_id)) == 1
+    finally:
+        await redis.aclose()
+
+
+async def test_manager_reply_after_release_starts_a_new_episode(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(
+            _from_me_payload(bot_id, "ev-ep-1", "раз"), redis, session_factory, _NullStorage()
+        )
+        await redis.delete(handoff_key(str(bot_id), CHAT_ID))  # TTL истёк / вернули боту
+        await _process_entry(
+            _from_me_payload(bot_id, "ev-ep-2", "два"), redis, session_factory, _NullStorage()
+        )
+
+        assert [e.kind for e in await _events(session_factory, bot_id)] == ["started", "started"]
+    finally:
+        await redis.aclose()
+
+
+async def test_own_echo_records_no_event(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await redis.set(wa_sent_key("ev-echo-1"), "1")
+        await _process_entry(
+            _from_me_payload(bot_id, "ev-echo-1", "ответ бота"),
+            redis,
+            session_factory,
+            _NullStorage(),
+        )
+
+        assert await _events(session_factory, bot_id) == []
+    finally:
+        await redis.aclose()
+
+
+async def test_event_write_failure_does_not_break_handoff(
+    session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("БД недоступна")
+
+    monkeypatch.setattr(consumer_module, "record_handoff_event", boom)
+    bot_id = await _make_bot(session_factory)
+    redis = FakeRedis(decode_responses=True)
+    try:
+        await _process_entry(
+            _from_me_payload(bot_id, "ev-fail-1", "привет"), redis, session_factory, _NullStorage()
+        )
+
+        assert await redis.exists(handoff_key(str(bot_id), CHAT_ID))  # бот всё равно молчит
     finally:
         await redis.aclose()

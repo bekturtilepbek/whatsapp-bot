@@ -54,6 +54,7 @@ from db.blocked_contacts import is_blocked
 from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.documents import list_documents
+from db.handoff_events import KIND_STARTED, record_handoff_event
 from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
 from db.models import Bot
 from db.products import list_products
@@ -428,10 +429,30 @@ async def _handle_manager_message(
         contact = await match_or_create_contact(
             session, event.bot_id, wa_id=event.sender_wa_id, lid=event.sender_lid
         )
-        await insert_outgoing(session, event.bot_id, contact.id, content)
+        contact_id = contact.id
+        await insert_outgoing(session, event.bot_id, contact_id, content)
         await session.commit()
 
-    await handoff.mark_manager_reply(redis, bot_id_str, event.chat_id, _handoff_ttl_seconds(bot))
+    is_new_episode = await handoff.mark_manager_reply(
+        redis, bot_id_str, event.chat_id, _handoff_ttl_seconds(bot)
+    )
+    if is_new_episode:
+        # Статистика (5.7) не должна ломать сам handoff: ключ уже поставлен,
+        # сбой записи события — только лог.
+        try:
+            async with session_factory() as session:
+                await record_handoff_event(
+                    session,
+                    event.bot_id,
+                    event.chat_id,
+                    KIND_STARTED,
+                    contact_id=contact_id,
+                )
+                await session.commit()
+        except Exception:
+            logger.exception(
+                "handoff event write failed", bot_id=bot_id_str, chat_id=event.chat_id
+            )
 
 
 async def _publish_seen(event: InboundText, redis: Redis) -> None:

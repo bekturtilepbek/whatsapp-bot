@@ -78,3 +78,16 @@ it("shows the disconnected status for a bot mid-connection", () => {
   render(<BotsTable bots={pending} />);
   expect(screen.getByText("Не подключён")).toBeInTheDocument();
 });
+
+// 6.22: служебный статус клиента приходит только для superadmin/admin.
+it("shows the lifecycle status badge when the field is present", () => {
+  render(<BotsTable bots={[{ ...bots[0], lifecycle_status: "unpaid" }]} />);
+  expect(screen.getByText("Не оплачен")).toBeInTheDocument();
+});
+
+it("shows no lifecycle badge when the field is absent or null", () => {
+  render(<BotsTable bots={[{ ...bots[0], lifecycle_status: null }, bots[1]]} />);
+  expect(screen.queryByText("В разработке")).not.toBeInTheDocument();
+  expect(screen.queryByText("Заморожен")).not.toBeInTheDocument();
+  expect(screen.queryByText("Не оплачен")).not.toBeInTheDocument();
+});

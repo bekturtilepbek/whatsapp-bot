@@ -72,6 +72,13 @@ class Bot(Base):
     responsible_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Служебный статус клиента для владельца платформы (FEATURES.md 6.22):
+    # in_development / active / frozen / unpaid. Plain String, не Postgres
+    # ENUM (как User.role). НЕ путать с Bot.status/BotSession.status — живой
+    # статус сессии WhatsApp (6.17). На пайплайн не влияет; пауза бота — enabled.
+    lifecycle_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'in_development'")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

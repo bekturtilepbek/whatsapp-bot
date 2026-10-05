@@ -25,7 +25,12 @@ export interface Bot {
   // сырой id нигде в UI не показываем.
   responsible_user_id?: string | null;
   responsible_user_email?: string | null;
+  // Служебный статус клиента (FEATURES.md 6.22) — приходит только для
+  // superadmin/admin, остальным null; опционально по той же причине, что поля выше.
+  lifecycle_status?: LifecycleStatus | null;
 }
+
+export type LifecycleStatus = "in_development" | "active" | "frozen" | "unpaid";
 
 // FEATURES.md 6.11 — настройки бота. Все поля опциональны: bots.settings —
 // свободный JSONB-dict, отсутствующий ключ читается downstream-кодом с его
@@ -245,6 +250,25 @@ export async function patchBotResponsibleUser(
   });
   if (!res.ok) {
     throw await errorFromResponse(res, `PATCH /bots/${id} failed: ${res.status}`);
+  }
+  return (await res.json()) as Bot;
+}
+
+/** FEATURES.md 6.22 — служебный статус клиента. Свой роут, только
+ * superadmin/admin (PlatformWide), в отличие от PATCH /bots/{id}. */
+export async function patchBotLifecycleStatus(
+  baseUrl: string,
+  id: string,
+  lifecycleStatus: LifecycleStatus,
+): Promise<Bot> {
+  const base = normalizeBaseUrl(baseUrl);
+  const res = await apiFetch(`${base}/bots/${id}/lifecycle-status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lifecycle_status: lifecycleStatus }),
+  });
+  if (!res.ok) {
+    throw await errorFromResponse(res, `PATCH /bots/${id}/lifecycle-status failed: ${res.status}`);
   }
   return (await res.json()) as Bot;
 }

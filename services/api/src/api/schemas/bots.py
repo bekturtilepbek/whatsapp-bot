@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+LifecycleStatus = Literal["in_development", "active", "frozen", "unpaid"]
+
 
 class BotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -38,6 +40,10 @@ class BotOut(BaseModel):
     # проставляется ПОСЛЕ валидации в _to_bot_out (routers/bots.py); без
     # дефолта здесь сама model_validate() упала бы "field required".
     responsible_user_email: str | None = None
+    # Служебный статус клиента (FEATURES.md 6.22) — только superadmin/admin,
+    # остальным роутер обнуляет (см. _to_bot_out). Дефолт None по той же
+    # причине, что и responsible_user_email выше.
+    lifecycle_status: LifecycleStatus | None = None
     created_at: datetime
 
 
@@ -59,6 +65,12 @@ class BotPatch(BaseModel):
     # поэтому в роутере отличаем через "responsible_user_id" in data
     # (exclude_unset), а не через сам этот дефолт.
     responsible_user_id: UUID | None = None
+
+
+class BotLifecycleStatusPatch(BaseModel):
+    """Служебный статус клиента (6.22) — только PlatformWide."""
+
+    lifecycle_status: LifecycleStatus
 
 
 class BotEnabledPatch(BaseModel):

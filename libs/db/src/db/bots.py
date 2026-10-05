@@ -80,6 +80,7 @@ async def update_bot(
     *,
     name: str | None = None,
     enabled: bool | None = None,
+    lifecycle_status: str | None = None,
     system_prompt: str | None = None,
     image_prompt: str | None = None,
     pdf_prompt: str | None = None,
@@ -116,6 +117,8 @@ async def update_bot(
         values["name"] = name
     if enabled is not None:
         values["enabled"] = enabled
+    if lifecycle_status is not None:
+        values["lifecycle_status"] = lifecycle_status
     if system_prompt is not None:
         values["system_prompt"] = system_prompt
     if image_prompt is not None:

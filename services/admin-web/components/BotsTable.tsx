@@ -9,6 +9,7 @@ import { StatusPulse } from "@/components/ui/StatusPulse";
 import { Table } from "@/components/ui/Table";
 import type { Bot } from "@/lib/api";
 import { toConnectionStatus } from "@/lib/botStatus";
+import { LIFECYCLE_STATUS_BADGES } from "@/lib/lifecycleStatus";
 
 interface BotsTableProps {
   bots: Bot[];
@@ -49,6 +50,14 @@ export function BotsTable({ bots }: BotsTableProps) {
             >
               <td>
                 {bot.name}
+                {bot.lifecycle_status && (
+                  <Badge
+                    variant={LIFECYCLE_STATUS_BADGES[bot.lifecycle_status].variant}
+                    className="ml-2"
+                  >
+                    {LIFECYCLE_STATUS_BADGES[bot.lifecycle_status].label}
+                  </Badge>
+                )}
                 {!bot.enabled && (
                   <Badge variant="paused" className="ml-2">
                     на паузе

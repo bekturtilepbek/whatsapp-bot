@@ -78,6 +78,7 @@ async def test_migration_creates_expected_tables(database_url: str) -> None:
             "timezone",
             "settings",
             "responsible_user_id",
+            "lifecycle_status",
             "created_at",
         }
 

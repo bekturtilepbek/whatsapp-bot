@@ -14,6 +14,7 @@ import {
   fetchProducts,
   fetchPromptVersions,
   logoutBot,
+  patchBotLifecycleStatus,
   patchBotPrompt,
   patchBotResponsibleUser,
   patchBotSettings,
@@ -25,7 +26,6 @@ import {
 } from "@/lib/api";
 
 afterEach(() => {
-  vi.unstubAllGlobals();
 });
 
 describe("fetchBots", () => {
@@ -662,4 +662,14 @@ describe("sendSandboxMediaMessage", () => {
     const file = new File(["x"], "note.txt", { type: "text/plain" });
     await expect(sendSandboxMediaMessage("http://api", "b1", [], file)).rejects.toThrow();
   });
+});
+
+it("patchBotLifecycleStatus PATCHes the dedicated route", async () => {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "b1" }) });
+  vi.stubGlobal("fetch", fetchMock);
+  await patchBotLifecycleStatus("http://api", "b1", "frozen");
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe("http://api/bots/b1/lifecycle-status");
+  expect(init.method).toBe("PATCH");
+  expect(JSON.parse(init.body)).toEqual({ lifecycle_status: "frozen" });
 });

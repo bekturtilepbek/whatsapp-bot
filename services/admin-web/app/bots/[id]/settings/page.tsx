@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { BotSettingsForm } from "@/components/BotSettingsForm";
+import { LifecycleStatusForm } from "@/components/LifecycleStatusForm";
 import { RenameBotForm } from "@/components/RenameBotForm";
 import { ResponsibleUserForm } from "@/components/ResponsibleUserForm";
 import { TelegramLeadToolForm } from "@/components/TelegramLeadToolForm";
@@ -66,6 +67,16 @@ export default async function BotSettingsPage({
             apiBaseUrl={API_PROXY_PATH}
             initialResponsibleUserId={bot.responsible_user_id ?? null}
             prompters={prompters}
+          />
+        </Card>
+      )}
+      {isPlatformWide && (
+        <Card className="p-5">
+          <h2 className="mb-4 text-[15px] font-semibold text-ink">Статус клиента</h2>
+          <LifecycleStatusForm
+            botId={id}
+            apiBaseUrl={API_PROXY_PATH}
+            initialStatus={bot.lifecycle_status ?? "in_development"}
           />
         </Card>
       )}

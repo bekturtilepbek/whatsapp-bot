@@ -25,6 +25,9 @@ vi.mock("@/components/RenameBotForm", () => ({ RenameBotForm: () => <div /> }));
 vi.mock("@/components/ResponsibleUserForm", () => ({
   ResponsibleUserForm: () => <div data-testid="responsible-user-form" />,
 }));
+vi.mock("@/components/LifecycleStatusForm", () => ({
+  LifecycleStatusForm: () => <div data-testid="lifecycle-status-form" />,
+}));
 vi.mock("@/components/BotSettingsForm", () => ({ BotSettingsForm: () => <div /> }));
 vi.mock("@/components/TelegramLeadToolForm", () => ({ TelegramLeadToolForm: () => <div /> }));
 
@@ -58,6 +61,8 @@ it("does not call fetchPrompters and hides the Ответственный card f
 
   expect(mockedFetchPrompters).not.toHaveBeenCalled();
   expect(screen.queryByTestId("responsible-user-form")).not.toBeInTheDocument();
+  // 6.22: служебный статус клиента — тоже только superadmin/admin.
+  expect(screen.queryByTestId("lifecycle-status-form")).not.toBeInTheDocument();
 });
 
 it("calls fetchPrompters and shows the Ответственный card for an admin", async () => {
@@ -71,6 +76,7 @@ it("calls fetchPrompters and shows the Ответственный card for an ad
 
   expect(mockedFetchPrompters).toHaveBeenCalled();
   expect(screen.getByTestId("responsible-user-form")).toBeInTheDocument();
+  expect(screen.getByTestId("lifecycle-status-form")).toBeInTheDocument();
 });
 
 it("calls fetchPrompters and shows the Ответственный card for a superadmin", async () => {
@@ -84,4 +90,5 @@ it("calls fetchPrompters and shows the Ответственный card for a sup
 
   expect(mockedFetchPrompters).toHaveBeenCalled();
   expect(screen.getByTestId("responsible-user-form")).toBeInTheDocument();
+  expect(screen.getByTestId("lifecycle-status-form")).toBeInTheDocument();
 });

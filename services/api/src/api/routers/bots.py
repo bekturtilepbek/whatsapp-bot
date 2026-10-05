@@ -42,6 +42,7 @@ from ..schemas.bots import (
     ActiveChatOut,
     BotCreate,
     BotEnabledPatch,
+    BotLifecycleStatusPatch,
     BotOut,
     BotOverview,
     BotPatch,
@@ -66,12 +67,17 @@ BLOCKED_LIST_DEFAULT_LIMIT = 20
 BLOCKED_LIST_MAX_LIMIT = 100
 
 
-def _to_bot_out(bot: Bot) -> BotOut:
+def _to_bot_out(bot: Bot, *, show_lifecycle: bool) -> BotOut:
     """BotOut.responsible_user_email не ORM-атрибут (from_attributes его не
     подхватит сам) — требует bot.responsible_user eager-loaded
-    (get_bot_with_session/list_bots уже это делают)."""
+    (get_bot_with_session/list_bots уже это делают). lifecycle_status (6.22) —
+    служебная метка владельца платформы: show_lifecycle=False (не-PlatformWide
+    роль) отдаёт null. Флаг считается заранее, ДО commit: после commit атрибуты
+    пользователя из Depends истекают, и user.role дал бы ленивый IO вне greenlet."""
     out = BotOut.model_validate(bot)
     out.responsible_user_email = bot.responsible_user.email if bot.responsible_user else None
+    if not show_lifecycle:
+        out.lifecycle_status = None
     return out
 
 
@@ -89,7 +95,7 @@ async def _validate_responsible_user(session: SessionDep, user_id: uuid.UUID) ->
 async def list_all_bots(session: SessionDep, user: CurrentUser) -> list[BotOut]:
     filter_user_id = None if user.role in PLATFORM_WIDE_ROLES else user.id
     bots = await list_bots(session, user_id=filter_user_id)
-    return [_to_bot_out(bot) for bot in bots]
+    return [_to_bot_out(bot, show_lifecycle=user.role in PLATFORM_WIDE_ROLES) for bot in bots]
 
 
 @router.post("", response_model=BotOut, status_code=201)
@@ -112,7 +118,7 @@ async def create_bot_route(body: BotCreate, session: SessionDep, _admin: Platfor
     await session.commit()
     created = await get_bot_with_session(session, bot.id)
     assert created is not None  # только что закоммитили
-    return _to_bot_out(created)
+    return _to_bot_out(created, show_lifecycle=True)
 
 
 async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) -> Response:
@@ -136,10 +142,11 @@ async def _proxy_to_gateway(gateway: httpx.AsyncClient, method: str, path: str) 
 
 @router.get("/{bot_id}", response_model=BotOut)
 async def read_bot(bot_id: uuid.UUID, session: SessionDep, user: BotAccessUser) -> BotOut:
+    show_lifecycle = user.role in PLATFORM_WIDE_ROLES
     bot = await get_bot_with_session(session, bot_id)
     if bot is None:
         raise HTTPException(status_code=404, detail="Бот не найден")
-    return _to_bot_out(bot)
+    return _to_bot_out(bot, show_lifecycle=show_lifecycle)
 
 
 @router.patch("/{bot_id}", response_model=BotOut)
@@ -148,6 +155,7 @@ async def patch_bot(
 ) -> BotOut:
     """Имя + настройки + ответственный — вкладка "Настройки" (недоступна
     client, см. FullBotAccess). enabled/промпты — отдельные роуты ниже."""
+    show_lifecycle = user.role in PLATFORM_WIDE_ROLES
     data = patch.model_dump(exclude_unset=True)
     name = data.get("name")
     if name is not None:
@@ -168,7 +176,7 @@ async def patch_bot(
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="Бот не найден")
-    return _to_bot_out(bot)
+    return _to_bot_out(bot, show_lifecycle=show_lifecycle)
 
 
 @router.patch("/{bot_id}/enabled", response_model=BotOut)
@@ -177,11 +185,25 @@ async def patch_bot_enabled(
 ) -> BotOut:
     """Пауза/возобновление — тумблер на вкладке "Обзор", доступен всем
     ролям с доступом к боту (включая client)."""
+    show_lifecycle = user.role in PLATFORM_WIDE_ROLES
     bot = await update_bot(session, bot_id, enabled=patch.enabled)
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="Бот не найден")
-    return _to_bot_out(bot)
+    return _to_bot_out(bot, show_lifecycle=show_lifecycle)
+
+
+@router.patch("/{bot_id}/lifecycle-status", response_model=BotOut)
+async def patch_bot_lifecycle_status(
+    bot_id: uuid.UUID, patch: BotLifecycleStatusPatch, session: SessionDep, user: PlatformWide
+) -> BotOut:
+    """Служебный статус клиента (6.22) — superadmin/admin; на работу бота не
+    влияет (пауза — /enabled)."""
+    bot = await update_bot(session, bot_id, lifecycle_status=patch.lifecycle_status)
+    await session.commit()
+    if bot is None:
+        raise HTTPException(status_code=404, detail="Бот не найден")
+    return _to_bot_out(bot, show_lifecycle=True)
 
 
 @router.patch("/{bot_id}/prompts", response_model=BotOut)
@@ -189,6 +211,7 @@ async def patch_bot_prompts(
     bot_id: uuid.UUID, patch: BotPromptsPatch, session: SessionDep, user: FullBotAccess
 ) -> BotOut:
     """Вкладка "Промпты" — недоступна client, см. FullBotAccess."""
+    show_lifecycle = user.role in PLATFORM_WIDE_ROLES
     data = patch.model_dump(exclude_unset=True)
     bot = await update_bot(
         session,
@@ -200,7 +223,7 @@ async def patch_bot_prompts(
     await session.commit()
     if bot is None:
         raise HTTPException(status_code=404, detail="Бот не найден")
-    return _to_bot_out(bot)
+    return _to_bot_out(bot, show_lifecycle=show_lifecycle)
 
 
 @router.get("/{bot_id}/stats", response_model=BotStats)

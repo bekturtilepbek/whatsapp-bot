@@ -44,6 +44,7 @@ ACTION_REGISTRY: dict[tuple[str, str], str] = {
     # аудируется (документированное поведение ACTION_REGISTRY).
     ("PATCH", "/bots/{bot_id}/enabled"): "bots.update_enabled",
     ("PATCH", "/bots/{bot_id}/prompts"): "bots.update_prompts",
+    ("PATCH", "/bots/{bot_id}/lifecycle-status"): "bots.update_lifecycle_status",
     ("POST", "/bots/{bot_id}/logout"): "bots.logout",
     ("POST", "/bots/{bot_id}/chats/{chat_id}/release"): "bots.release_chat",
     ("POST", "/bots/{bot_id}/blocked-numbers"): "blocked_numbers.create",

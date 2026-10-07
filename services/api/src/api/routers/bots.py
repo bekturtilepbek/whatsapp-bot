@@ -23,7 +23,7 @@ from db.contacts import count_contacts, find_by_identifier
 from db.handoff_events import KIND_RELEASED_MANUAL, record_handoff_event
 from db.messages import count_messages
 from db.models import Bot
-from db.overview import handoff_tracked_since, window_counts
+from db.overview import handoff_tracked_since, temperature_counts, window_counts
 from db.prompt_versions import PromptKind, list_versions
 from db.tool_bindings import disable as disable_tool
 from db.tool_bindings import enable as enable_tool
@@ -50,6 +50,7 @@ from ..schemas.bots import (
     BotStats,
     OverviewCounts,
     OverviewPeriod,
+    TemperatureCounts,
 )
 from ..schemas.prompt_versions import PromptVersionOut
 from ..schemas.tool_bindings import ToolBindingIn, ToolBindingOut
@@ -256,6 +257,7 @@ async def read_bot_overview(
     return BotOverview(
         period=period,
         handoff_tracked_since=tracked_since,
+        temperature=TemperatureCounts(**await temperature_counts(session, bot_id, now - delta)),
         previous=OverviewCounts(**previous.__dict__),
         **current.__dict__,
     )
@@ -280,6 +282,8 @@ async def list_active_chats(
                 chat_id=chat_id,
                 contact_name=contact.name if contact else None,
                 contact_phone=contact.phone if contact else None,
+                temperature=contact.temperature if contact else None,
+                summary=contact.summary if contact else None,
                 auto_release_in_seconds=ttl if ttl and ttl > 0 else None,
             )
         )

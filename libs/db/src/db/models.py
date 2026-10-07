@@ -193,6 +193,14 @@ class Contact(Base):
     lid: Mapped[str | None] = mapped_column(String, nullable=True)
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
+    # GPT-саммари диалога и температура (FEATURES.md 6.13): hot/warm/cold,
+    # NULL = ещё не оценён. Plain String, не ENUM (как User.role). Пишет
+    # фоновая Celery-задача tasks.summary, не пайплайн ответа.
+    temperature: Mapped[str | None] = mapped_column(String, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

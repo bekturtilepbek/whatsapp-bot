@@ -100,3 +100,50 @@ it("sorts by auto-release time when its header is clicked", () => {
   const cells = screen.getAllByRole("row").slice(1).map((row) => row.textContent);
   expect(cells[0]).toContain("Айгуль");
 });
+
+// 6.13: менеджер, перехватывая чат, видит температуру и саммари диалога.
+it("shows the temperature badge and the conversation summary for an assessed contact", () => {
+  render(
+    <ActiveChatsTable
+      botId="1"
+      apiBaseUrl="http://api"
+      initialChats={[
+        {
+          ...namedChat,
+          temperature: "hot",
+          summary: "Выбирает шкаф, спрашивает доставку.",
+        },
+      ]}
+    />,
+  );
+  expect(screen.getByText("горячий")).toBeInTheDocument();
+  expect(screen.getByText("Выбирает шкаф, спрашивает доставку.")).toBeInTheDocument();
+});
+
+it("labels all three temperatures in Russian", () => {
+  render(
+    <ActiveChatsTable
+      botId="1"
+      apiBaseUrl="http://api"
+      initialChats={[
+        { ...namedChat, chat_id: "1@s.whatsapp.net", contact_name: "А", temperature: "hot" },
+        { ...namedChat, chat_id: "2@s.whatsapp.net", contact_name: "Б", temperature: "warm" },
+        { ...namedChat, chat_id: "3@s.whatsapp.net", contact_name: "В", temperature: "cold" },
+      ]}
+    />,
+  );
+  expect(screen.getByText("горячий")).toBeInTheDocument();
+  expect(screen.getByText("тёплый")).toBeInTheDocument();
+  expect(screen.getByText("холодный")).toBeInTheDocument();
+});
+
+it("says 'не оценён' when the contact has no temperature yet", () => {
+  render(
+    <ActiveChatsTable
+      botId="1"
+      apiBaseUrl="http://api"
+      initialChats={[{ ...namedChat, temperature: null, summary: null }]}
+    />,
+  );
+  expect(screen.getByText("не оценён")).toBeInTheDocument();
+});

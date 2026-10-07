@@ -7,3 +7,5 @@ libs/core/redis_keys.py для имён Redis-ключей).
 from __future__ import annotations
 
 FOLLOW_UP_REMINDER = "tasks.followup.send_reminder"
+
+CONTACT_SUMMARY = "tasks.summary.refresh_contact_summary"

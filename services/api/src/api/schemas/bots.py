@@ -114,12 +114,22 @@ class OverviewCounts(BaseModel):
     resolved_without_human_pct: int | None
 
 
+class TemperatureCounts(BaseModel):
+    """Текущая температура активных за период клиентов (FEATURES.md 6.13)."""
+
+    hot: int
+    warm: int
+    cold: int
+    unassessed: int
+
+
 class BotOverview(OverviewCounts):
     """Агрегаты "Обзора" за период (6.23) + то же за соседнее окно того же
     размера — для сравнения "было/стало"."""
 
     period: OverviewPeriod
     handoff_tracked_since: datetime | None
+    temperature: TemperatureCounts
     previous: OverviewCounts
 
 
@@ -131,6 +141,10 @@ class ActiveChatOut(BaseModel):
     chat_id: str
     contact_name: str | None = None
     contact_phone: str | None = None
+    # GPT-саммари и температура контакта (6.13) — менеджер, перехватывая чат,
+    # сразу видит контекст. None, пока диалог не оценивался.
+    temperature: str | None = None
+    summary: str | None = None
     # Сколько секунд осталось до авто-возврата — None если TTL почему-то не
     # читается (ключ истёк между SCAN и TTL, защитный случай).
     auto_release_in_seconds: int | None = None

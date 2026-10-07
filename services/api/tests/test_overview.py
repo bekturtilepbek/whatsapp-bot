@@ -292,6 +292,30 @@ async def test_invalid_period_is_rejected(
     assert response.status_code == 422
 
 
+async def test_temperature_counts_cover_active_clients_of_the_period(
+    client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.contacts import set_contact_analysis
+
+    bot_id = await _make_bot(session_factory)
+    temps = ["hot", "hot", "warm", "cold", None]
+    for n, temperature in enumerate(temps):
+        cid = await _make_contact(session_factory, bot_id, 20 + n, _ago(days=3))
+        await _add_message(session_factory, bot_id, cid, "user", _ago(hours=3))
+        if temperature is not None:
+            async with session_factory() as session:
+                await set_contact_analysis(session, cid, "саммари", temperature)
+                await session.commit()
+    silent = await _make_contact(session_factory, bot_id, 30, _ago(days=3))
+    async with session_factory() as session:  # оценён, но в периоде не писал — не считается
+        await set_contact_analysis(session, silent, "саммари", "hot")
+        await session.commit()
+
+    body = (await client.get(f"/bots/{bot_id}/overview?period=7d")).json()
+
+    assert body["temperature"] == {"hot": 2, "warm": 1, "cold": 1, "unassessed": 1}
+
+
 async def test_client_without_access_gets_403(
     client: httpx.AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:

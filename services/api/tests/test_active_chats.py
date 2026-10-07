@@ -145,6 +145,8 @@ async def test_lists_active_chat_without_a_matching_contact(
             "chat_id": chat_id,
             "contact_name": None,
             "contact_phone": None,
+            "temperature": None,
+            "summary": None,
             "auto_release_in_seconds": body[0]["auto_release_in_seconds"],
         }
     ]
@@ -165,3 +167,44 @@ async def test_does_not_leak_another_bots_active_chats(
     body = response.json()
     assert len(body) == 1
     assert body[0]["chat_id"] == "996700000042@s.whatsapp.net"
+
+
+async def test_active_chat_shows_temperature_and_summary_of_matched_contact(
+    client: tuple[httpx.AsyncClient, FakeRedis], session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    from db.contacts import set_contact_analysis
+
+    c, redis = client
+    bot_id = await _make_bot(session_factory)
+    chat_id = "996700000044@s.whatsapp.net"
+    async with session_factory() as session:
+        contact = await match_or_create_contact(
+            session, bot_id, wa_id="996700000044", lid=None, name="Бакыт"
+        )
+        await set_contact_analysis(
+            session, contact.id, "Выбирает шкаф, спрашивает доставку.", "hot"
+        )
+        await session.commit()
+    await redis.set(handoff_key(str(bot_id), chat_id), "1", ex=600)
+
+    body = (await c.get(f"/bots/{bot_id}/chats")).json()
+
+    assert body[0]["temperature"] == "hot"
+    assert body[0]["summary"] == "Выбирает шкаф, спрашивает доставку."
+
+
+async def test_active_chat_of_not_yet_assessed_contact_has_empty_analysis(
+    client: tuple[httpx.AsyncClient, FakeRedis], session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    c, redis = client
+    bot_id = await _make_bot(session_factory)
+    chat_id = "996700000045@s.whatsapp.net"
+    async with session_factory() as session:
+        await match_or_create_contact(session, bot_id, wa_id="996700000045", lid=None, name="Нур")
+        await session.commit()
+    await redis.set(handoff_key(str(bot_id), chat_id), "1", ex=600)
+
+    body = (await c.get(f"/bots/{bot_id}/chats")).json()
+
+    assert body[0]["temperature"] is None
+    assert body[0]["summary"] is None

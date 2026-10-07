@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { releaseChat, type ActiveChat } from "@/lib/api";
 import { useToast } from "@/components/ToastProvider";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { compareNullableNumbers, SortableTh, type SortDirection } from "@/components/ui/SortableTh";
 import { Table } from "@/components/ui/Table";
+import { TEMPERATURE_BADGES } from "@/lib/temperature";
 
 interface ActiveChatsTableProps {
   botId: string;
@@ -116,13 +118,28 @@ export function ActiveChatsTable({ botId, apiBaseUrl, initialChats }: ActiveChat
                   direction={sortDirection}
                   onClick={() => toggleSort("auto_release")}
                 />
+                <th>Температура</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {visibleChats.map((chat) => (
                 <tr key={chat.chat_id}>
-                  <td>{chatLabel(chat)}</td>
+                  <td>
+                    {chatLabel(chat)}
+                    {chat.summary && (
+                      <p className="mt-0.5 max-w-md text-xs text-ink-soft">{chat.summary}</p>
+                    )}
+                  </td>
+                  <td>
+                    {chat.temperature ? (
+                      <Badge variant={TEMPERATURE_BADGES[chat.temperature].variant}>
+                        {TEMPERATURE_BADGES[chat.temperature].label}
+                      </Badge>
+                    ) : (
+                      <span className="text-xs text-ink-faint">не оценён</span>
+                    )}
+                  </td>
                   <td className="font-mono">{formatAutoRelease(chat.auto_release_in_seconds)}</td>
                   <td>
                     <Button

@@ -49,6 +49,10 @@ class _FakeCeleryApp:
             raise self._error
         self.calls.append({"name": name, "args": args, "eta": eta})
 
+    def followups(self) -> list[dict[str, object]]:
+        # Саммари диалога (6.13) ставится тем же send_task — здесь считаем только напоминания.
+        return [c for c in self.calls if c["name"] == "tasks.followup.send_reminder"]
+
 
 async def _make_bot(
     session_factory: async_sessionmaker[AsyncSession],
@@ -151,8 +155,8 @@ async def test_reminder_scheduled_after_pdf_reply_when_enabled(
             _inbound_pdf_payload(bot_id), redis, session_factory, _FakeStorage(data=fixture_pdf)
         )
 
-        assert len(fake_celery.calls) == 1
-        call = fake_celery.calls[0]
+        assert len(fake_celery.followups()) == 1
+        call = fake_celery.followups()[0]
         assert call["name"] == "tasks.followup.send_reminder"
         eta = call["eta"]
         assert isinstance(eta, datetime)
@@ -181,8 +185,8 @@ async def test_reminder_scheduled_after_llm_reply_when_enabled(
         before = datetime.now(UTC)
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
 
-        assert len(fake_celery.calls) == 1
-        call = fake_celery.calls[0]
+        assert len(fake_celery.followups()) == 1
+        call = fake_celery.followups()[0]
         assert call["name"] == "tasks.followup.send_reminder"
         bot_id_arg, _contact_id_arg, chat_id_arg, after_seq_arg = call["args"]  # type: ignore[misc]
         assert bot_id_arg == str(bot_id)
@@ -211,7 +215,7 @@ async def test_reminder_not_scheduled_when_disabled(
     redis = FakeRedis(decode_responses=True)
     try:
         await _process_entry(_inbound_payload(bot_id), redis, session_factory, _NullStorage())
-        assert fake_celery.calls == []
+        assert fake_celery.followups() == []
     finally:
         await redis.aclose()
 
@@ -243,7 +247,7 @@ async def test_media_fallback_never_schedules_follow_up(
             session_factory,
             _FakeStorage(data=b"fake-jpeg-bytes"),
         )
-        assert fake_celery.calls == []
+        assert fake_celery.followups() == []
     finally:
         await redis.aclose()
 

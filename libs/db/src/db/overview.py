@@ -99,3 +99,26 @@ async def window_counts(
         handoffs=handoffs,
         resolved_without_human_pct=pct,
     )
+
+
+async def temperature_counts(
+    session: AsyncSession, bot_id: uuid.UUID, start: datetime
+) -> dict[str, int]:
+    """Текущая температура (6.13) активных за период клиентов. Это срез
+    "сейчас", а не история — поэтому только для текущего окна, без сравнения
+    с предыдущим. unassessed — написали, но саммари ещё не считалось."""
+    active_contacts = (
+        select(Message.contact_id)
+        .where(Message.bot_id == bot_id, Message.role == "user", Message.ts >= start)
+        .distinct()
+        .subquery()
+    )
+    rows = await session.execute(
+        select(Contact.temperature, func.count())
+        .where(Contact.id.in_(select(active_contacts.c.contact_id)))
+        .group_by(Contact.temperature)
+    )
+    counts = {"hot": 0, "warm": 0, "cold": 0, "unassessed": 0}
+    for temperature, count in rows.all():
+        counts[temperature if temperature in counts else "unassessed"] += int(count)
+    return counts

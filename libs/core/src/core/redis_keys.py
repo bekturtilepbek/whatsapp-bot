@@ -35,3 +35,12 @@ def followup_sent_key(contact_id: str, after_seq: int) -> str:
     (тот же принцип "дедуп до любого await", что и pipeline/dedup.py).
     """
     return f"followup:sent:{contact_id}:{after_seq}"
+
+
+def summary_lock_key(contact_id: str, after_seq: int) -> str:
+    """Идемпотентность фонового саммари (FEATURES.md 6.13): та же причина,
+    что у followup_sent_key — Redis-брокер может доставить ETA-задачу
+    повторно, а каждый вызов LLM стоит денег. Ставится атомарно (SET NX)
+    ДО вызова модели; при сбое вызова снимается, чтобы повторная доставка
+    могла попробовать снова."""
+    return f"summary:lock:{contact_id}:{after_seq}"

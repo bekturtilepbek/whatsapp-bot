@@ -304,8 +304,14 @@ export interface ActiveChat {
   chat_id: string;
   contact_name: string | null;
   contact_phone: string | null;
+  // GPT-саммари и температура контакта (FEATURES.md 6.13) — опционально по
+  // той же причине, что остальные добавленные позже поля (старые фикстуры).
+  temperature?: Temperature | null;
+  summary?: string | null;
   auto_release_in_seconds: number | null;
 }
+
+export type Temperature = "hot" | "warm" | "cold";
 
 export async function fetchActiveChats(baseUrl: string, id: string): Promise<ActiveChat[]> {
   const base = normalizeBaseUrl(baseUrl);

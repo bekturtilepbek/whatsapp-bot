@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,3 +109,15 @@ async def find_by_identifier(
     подсказка для UI (показать имя вместо голого JID), не авторитетный
     источник."""
     return await _find_existing(session, bot_id, identifier, identifier)
+
+
+async def set_contact_analysis(
+    session: AsyncSession, contact_id: uuid.UUID, summary: str, temperature: str
+) -> None:
+    """Результат фонового анализа диалога (FEATURES.md 6.13)."""
+    await session.execute(
+        update(Contact)
+        .where(Contact.id == contact_id)
+        .values(summary=summary, temperature=temperature, summary_updated_at=func.now())
+    )
+    await session.flush()

@@ -63,3 +63,19 @@ def database_url() -> AsyncIterator[str]:
 def session_factory(database_url: str) -> async_sessionmaker[AsyncSession]:
     engine = make_engine(database_url)
     return make_session_factory(engine)
+
+
+class _NoopCeleryApp:
+    """Заглушка Celery для тестов пайплайна: без неё постановка саммари
+    (FEATURES.md 6.13) шла бы в реальный брокер — при недоступном Redis каждый
+    тест ждал бы таймаут постановки, а при доступном — засорял бы dev-очередь."""
+
+    def send_task(self, name: str, *args: object, **kwargs: object) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _isolate_celery(monkeypatch: pytest.MonkeyPatch) -> None:
+    from worker.pipeline import consumer as consumer_module
+
+    monkeypatch.setattr(consumer_module, "celery_app", _NoopCeleryApp())

@@ -98,3 +98,43 @@ async def fetch_recent_history(
     rows = list(result.scalars().all())
     rows.reverse()  # выбрали DESC (последние N по seq), отдаём в порядке вставки
     return rows
+
+
+async def latest_message_seq(session: AsyncSession, contact_id: uuid.UUID) -> int | None:
+    """seq последнего сообщения контакта — для отложенных задач, которые при
+    срабатывании проверяют "с тех пор никто не писал" (FEATURES.md 6.13)."""
+    result = await session.execute(
+        select(func.max(Message.seq)).where(Message.contact_id == contact_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def fetch_last_messages(
+    session: AsyncSession, contact_id: uuid.UUID, limit: int = 20
+) -> list[Message]:
+    """Последние `limit` сообщений контакта БЕЗ временного окна (в отличие от
+    fetch_recent_history: саммари нужен весь недавний диалог, а не только 24ч),
+    в хронологическом порядке."""
+    stmt = (
+        select(Message)
+        .where(Message.contact_id == contact_id)
+        .order_by(Message.seq.desc())
+        .limit(limit)
+    )
+    rows = list((await session.execute(stmt)).scalars().all())
+    rows.reverse()
+    return rows
+
+
+async def has_newer_user_message(
+    session: AsyncSession, contact_id: uuid.UUID, after_seq: int
+) -> bool:
+    """Писал ли клиент (role=user) после after_seq. Ответы бота/менеджера не
+    считаются: фоновое саммари (FEATURES.md 6.13) ставится от сообщения
+    клиента, а бот отвечает уже после — иначе его же ответ отменял бы задачу."""
+    result = await session.execute(
+        select(Message.id)
+        .where(Message.contact_id == contact_id, Message.role == "user", Message.seq > after_seq)
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None

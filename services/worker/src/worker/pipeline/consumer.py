@@ -32,7 +32,7 @@ import asyncio
 import functools
 import random
 import uuid
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -55,7 +55,12 @@ from db.bots import get_bot
 from db.contacts import match_or_create_contact
 from db.documents import list_documents
 from db.handoff_events import KIND_STARTED, record_handoff_event
-from db.messages import fetch_recent_history, insert_incoming, insert_outgoing
+from db.messages import (
+    fetch_recent_history,
+    insert_incoming,
+    insert_outgoing,
+    latest_message_seq,
+)
 from db.models import Bot
 from db.products import list_products
 from db.tool_bindings import list_enabled as list_enabled_tool_bindings
@@ -77,7 +82,7 @@ from llm.time_context import time_context
 from pydantic import TypeAdapter, ValidationError
 from redis.asyncio import Redis
 from scheduling.celery_app import celery_app
-from scheduling.task_names import FOLLOW_UP_REMINDER
+from scheduling.task_names import CONTACT_SUMMARY, FOLLOW_UP_REMINDER
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tools.executor import build_tool_executor, tool_specs_for_bindings
 from tools.tool_loop import OverrideReply, run_tool_loop
@@ -133,6 +138,9 @@ MAX_BATCH_VOICE_MESSAGES = 10
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 25.0
 DEFAULT_REMINDER_DELAY_MINUTES = 60.0
 FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS = 5.0
+# FEATURES.md 6.13: саммари/температура считаются, когда диалог затих. Платформенная
+# константа, не настройка бота: цель — не жечь токены на каждое сообщение.
+SUMMARY_DELAY_MINUTES = 10
 # FEATURES.md 3.5 — пауза между частями ответа, эталон V1 (setTimeout 5000).
 SPLIT_REPLY_PAUSE_SECONDS = 5.0
 # Нижний порог для auto_release_minutes и reminder_delay_minutes: API не
@@ -274,7 +282,14 @@ async def _process_entry(
             _to_datetime(event.ts),
             media_ref=media_ref,
         )
+        incoming_seq = await latest_message_seq(session, contact.id)
         await session.commit()
+
+    # Саммари/температура (6.13): ставим от сообщения клиента, не от ответа
+    # бота — работает и когда бот молчит (handoff, график). Выключенный бот и
+    # номер из ЧС не оцениваем (задача всё равно перепроверит это при срабатывании).
+    if bot.enabled and not blocked and incoming_seq is not None:
+        _spawn_background(_schedule_summary(bot, contact.id, incoming_seq))
 
     if not bot.enabled:
         return  # молчим, но история уже записана выше
@@ -580,6 +595,43 @@ async def _send_media_replies(
             client_msg_id=uuid.uuid4().hex,
         )
         await publish(redis, OUT_STREAM, text_event.model_dump(mode="json"))
+
+
+# Сильные ссылки на фоновые задачи: asyncio держит только слабые, и неудержанная
+# задача может быть собрана GC до завершения.
+_background_tasks: set[asyncio.Task[None]] = set()
+
+
+def _spawn_background(coro: Coroutine[Any, Any, None]) -> None:
+    """Постановка саммари не должна ни задерживать приём/ответ (медленный или
+    недоступный брокер = минус секунды на каждое сообщение), ни влиять на
+    порядок батчинга — поэтому не await'им её в основном потоке обработки."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _schedule_summary(bot: Bot, contact_id: uuid.UUID, after_seq: int) -> None:
+    """FEATURES.md 6.13: Celery-задача с eta (не таймер в памяти). Сбой
+    постановки не должен ломать приём сообщения — только лог."""
+    eta = datetime.now(UTC) + timedelta(minutes=SUMMARY_DELAY_MINUTES)
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                celery_app.send_task,
+                CONTACT_SUMMARY,
+                args=[str(bot.id), str(contact_id), after_seq],
+                eta=eta,
+            ),
+            timeout=FOLLOW_UP_SCHEDULE_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        logger.warning(
+            "failed to schedule contact summary",
+            bot_id=str(bot.id),
+            contact_id=str(contact_id),
+            exc_info=True,
+        )
 
 
 async def _schedule_follow_up(

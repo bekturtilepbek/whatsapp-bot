@@ -7,8 +7,8 @@
 # команды: скачать этот скрипт и запустить его (git он поставит сам и сам склонирует репозиторий):
 #   curl -fsSL https://raw.githubusercontent.com/<владелец>/<репозиторий>/main/infra/provision.sh -o /root/provision.sh
 #   REPO_URL=https://github.com/<владелец>/<репозиторий>.git bash /root/provision.sh
-# Либо руками: git clone https://github.com/<владелец>/<репозиторий>.git /opt/platform, затем
-#   bash /opt/platform/infra/provision.sh   (готовый клон скрипт видит и повторно не клонирует)
+# Либо руками: git clone https://github.com/<владелец>/<репозиторий>.git /root/whatsapp-bot, затем
+#   bash /root/whatsapp-bot/infra/provision.sh   (готовый клон скрипт видит и повторно не клонирует)
 #
 # Приватный репозиторий — нужен deploy-ключ. Скрипт копируется на сервер руками (клонировать
 # пока нечем), адрес задаётся SSH-формой:
@@ -23,7 +23,7 @@
 #
 # Переменные окружения:
 #   REPO_URL        адрес репозитория: https://... (публичный) или git@github.com:... (приватный)
-#   INSTALL_DIR     куда клонировать (по умолчанию /opt/platform)
+#   INSTALL_DIR     куда клонировать (по умолчанию /root/whatsapp-bot)
 #   DEPLOY_BRANCH   какую ветку клонировать (по умолчанию main)
 #   SWAP_SIZE_GB    размер swap, если его ещё нет (по умолчанию 2)
 #   APT_WAIT_MAX    сколько секунд ждать, пока система освободит apt (по умолчанию 300)
@@ -32,7 +32,7 @@
 #   GITHUB_META_URL           только для тестов: откуда брать ключи хоста GitHub
 set -euo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-/opt/platform}"
+INSTALL_DIR="${INSTALL_DIR:-/root/whatsapp-bot}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${DEPLOY_BRANCH:-main}"
 SWAP_SIZE_GB="${SWAP_SIZE_GB:-2}"

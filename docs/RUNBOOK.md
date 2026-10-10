@@ -7,7 +7,7 @@
 
 Путь с нуля до работающего кабинета. Понадобятся аккаунты DigitalOcean и GitHub и ключ
 OpenAI. **Все команды compose для прода идут через `./infra/compose.sh`** (запускать из
-`/opt/platform`): обёртка подставляет `.env` из корня репозитория — голый `docker compose
+`/root/whatsapp-bot`): обёртка подставляет `.env` из корня репозитория — голый `docker compose
 -f compose/docker-compose.prod.yml` ищет `.env` в `compose/` и падает на «required
 variable ... is missing».
 
@@ -24,7 +24,7 @@ git push origin dev main
 ```
 
 Если `fetch` отказался, в `main` есть коммиты, которых нет в `dev` — разберитесь с ними до
-пуша. Затем на сервере `/opt/platform/infra/deploy.sh`.
+пуша. Затем на сервере `/root/whatsapp-bot/infra/deploy.sh`.
 
 ### 2. Один раз: хранилище файлов (DigitalOcean Spaces)
 
@@ -68,7 +68,7 @@ droplet, привяжите к нему Reserved IP (Networking → Reserved IPs
 плата, насколько известно, не берётся — сверьте на странице цен).
 
 Войдите на сервер и запустите настройку (Docker, swap, файрвол, клонирование в
-`/opt/platform`). Репозиторий публичный — ключи не нужны, `git` скрипт ставит сам:
+`/root/whatsapp-bot`). Репозиторий публичный — ключи не нужны, `git` скрипт ставит сам:
 
 ```bash
 ssh root@<IP сервера>
@@ -82,8 +82,8 @@ REPO_URL=https://github.com/bekturtilepbek/whatsapp-bot.git bash /root/provision
 Скрипт безопасно запускать повторно: готовый клон он видит и повторно не клонирует. На только
 что созданном droplet система первые минуты сама обновляется и держит `apt` занятым — скрипт
 дожидается (до 5 минут) и печатает «Жду, пока система закончит свои обновления».
-Вручную то же самое: `git clone https://github.com/bekturtilepbek/whatsapp-bot.git /opt/platform`
-и `bash /opt/platform/infra/provision.sh`.
+Вручную то же самое: `git clone https://github.com/bekturtilepbek/whatsapp-bot.git /root/whatsapp-bot`
+и `bash /root/whatsapp-bot/infra/provision.sh`.
 
 Если репозиторий когда-нибудь станет приватным, клонировать по HTTPS без входа не получится.
 Тогда: `scp infra/provision.sh root@<IP>:/root/`, затем
@@ -96,7 +96,7 @@ Deploy keys → Add; «Allow write access» не ставить) и запуст
 На сервере (`.env` не из репозитория, ADR-007):
 
 ```bash
-cd /opt/platform && cp .env.example .env && chmod 600 .env
+cd /root/whatsapp-bot && cp .env.example .env && chmod 600 .env
 sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|" .env
 sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 24)|" .env
 nano .env
@@ -119,13 +119,13 @@ nano .env
 ### 5. Деплой
 
 ```bash
-/opt/platform/infra/deploy.sh
+/root/whatsapp-bot/infra/deploy.sh
 ```
 
 Скрипт проверит `.env` (назовёт все пропуски разом), соберёт образы (на первом запуске
 5–10 минут), проверит хранилище, применит миграции, поднимет стек и проверит
 `https://<SITE_ADDRESS>/login`. Если выложить нужно не `main` (например, на репетиции):
-`DEPLOY_BRANCH=dev /opt/platform/infra/deploy.sh`.
+`DEPLOY_BRANCH=dev /root/whatsapp-bot/infra/deploy.sh`.
 
 ### 6. Первый вход и бот
 
@@ -228,7 +228,7 @@ sha256 от адреса, так что по имени ключа учётку 
 
 ## Обновление стенда
 
-На сервере одна команда: `/opt/platform/infra/deploy.sh`. Она делает все шаги ниже в
+На сервере одна команда: `/root/whatsapp-bot/infra/deploy.sh`. Она делает все шаги ниже в
 правильном порядке и останавливается на первой ошибке — старые контейнеры при этом
 продолжают работать.
 
@@ -266,7 +266,7 @@ sha256 от адреса, так что по имени ключа учётку 
 `SKIP_PULL=1` (не трогать git), `SKIP_S3_CHECK=1`, `SKIP_SMOKE=1`, `SKIP_PRUNE=1`.
 
 **Откат.** В конце деплоя скрипт печатает готовую команду:
-`git checkout <прежний коммит> && SKIP_PULL=1 /opt/platform/infra/deploy.sh`. Схема БД
+`git checkout <прежний коммит> && SKIP_PULL=1 /root/whatsapp-bot/infra/deploy.sh`. Схема БД
 назад не откатывается и не должна: миграции только additive, прежний код работает с новой
 схемой. Тесты самого скрипта (на заглушке compose, без Docker): `make test-infra`.
 
@@ -279,10 +279,10 @@ sha256 от адреса, так что по имени ключа учётку 
 Строка для `crontab -e`:
 
 ```cron
-0 3 * * * /opt/platform/infra/backup/backup.sh >> /var/log/platform-backup.log 2>&1
+0 3 * * * /root/whatsapp-bot/infra/backup/backup.sh >> /var/log/platform-backup.log 2>&1
 ```
 
-(путь `/opt/platform` — пример; поправить под реальное расположение
+(путь `/root/whatsapp-bot` — пример; поправить под реальное расположение
 репозитория на сервере). Куда льются бэкапы — `BACKUP_DIR` (дефолт
 `<репозиторий>/backups`), стоит держать вне диска с самой БД или
 периодически синкать на отдельное хранилище — здесь этого шага нет,
@@ -346,3 +346,16 @@ FEATURES.md — риск ошибочно разлогинить здорову�
    зацикленный случай выше, не путать с более ранним багом (тот
    проверял несуществующий на практике Baileys-флаг `registered` и не
    поднимал НИ ОДНОГО бота вообще — уже исправлено).
+
+## Перенос с `/opt/platform` на `/root/whatsapp-bot`
+
+Только для сервера, развёрнутого до смены пути. Данные не теряются: тома БД привязаны к
+имени compose-проекта `platform-prod`, а не к папке.
+
+```bash
+cd /opt/platform && ./infra/compose.sh down
+mv /opt/platform /root/whatsapp-bot
+/root/whatsapp-bot/infra/deploy.sh
+```
+
+После переноса поправьте путь в `crontab -e` (строка бэкапа, см. выше).
